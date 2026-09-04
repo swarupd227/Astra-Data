@@ -1,0 +1,152 @@
+# Astra Data — Migration Accelerator
+
+Platform that migrates a legacy BI estate to a target platform by parsing the source into a
+structured graph, generating target artefacts from that graph with deterministic rules and
+language-model agents, and proving each generated artefact against its source original by
+executing both and comparing results.
+
+Release 1 migrates **Tableau** estates to **Power BI on Microsoft Fabric**.
+
+Authoritative documents (do not work from summaries):
+
+| Document | Path |
+|---|---|
+| Product Specification v1.0 | [docs/reference/Astra-Data-Migration-Accelerator-Product-Spec-v1.0.md](docs/reference/Astra-Data-Migration-Accelerator-Product-Spec-v1.0.md) |
+| Product Backlog v1.0 | [docs/reference/Astra-Data-Migration-Accelerator-Product-Backlog-v1.0.md](docs/reference/Astra-Data-Migration-Accelerator-Product-Backlog-v1.0.md) |
+
+Where the specification and the backlog disagree, the specification wins.
+
+## Repository layout
+
+```
+docs/
+  adr/            architecture decision records
+  generated/      files generated from code; CI fails if they drift
+  reference/      the specification and backlog
+packages/
+  adapter-sdk/      the §6 Source Adapter contract, RPC, fake source and conformance suite (E2 / F2.1)
+  adapter-tableau/  the Tableau adapter: discovery, fetch, the parser, case execution and visual capture (E2 / F2.2, F2.3, F2.4 complete)
+services/
+  graph-svc/      Estate Graph service, the Cartographer (E1 / F1.1–F1.3, E3 / F3.1 started)
+  console-web/    Migration Console, React/TypeScript SPA (E1 / F1.4)
+```
+
+`packages/` holds what is published for others to build against; `services/` holds what runs.
+The adapter SDK is the first of those, and `graph-svc` depends on it — an adapter author
+installs the same package the platform does.
+
+## Services
+
+### graph-svc
+
+The Estate Graph: a property graph on PostgreSQL 16 with Apache AGE holding the parsed source
+estate, the target artefacts as they are produced, and the relationships between them. Spec
+§4.1, §21. Every agent reads and writes it; no agent holds private estate state.
+
+See [services/graph-svc/README.md](services/graph-svc/README.md).
+
+### console-web
+
+The Migration Console (spec §15): React and TypeScript, built by Vite, served by nginx as
+static assets. Three screens so far — the **Estate Explorer**, which browses the estate by
+site, project and workbook with parse status, usage, owners and a lineage mini-graph and
+carries the Programme Manager's scope actions; the **Lineage View**; and the **Parse Quality
+Queue**.
+
+nginx also proxies `/v1` to graph-svc, so the browser makes same-origin calls and no CORS
+policy exists anywhere.
+
+See [services/console-web/README.md](services/console-web/README.md).
+
+## Packages
+
+### adapter-sdk
+
+The Source Adapter contract (spec §6): the interface a source adapter implements, the RPC it
+speaks from its own process, a fake source, and the §6.3 conformance suite that decides
+whether an adapter may be enabled on a tenant.
+
+```bash
+astra-adapter conformance --adapter fake --remote
+```
+
+The Tableau adapter (F2.2, F2.3, F2.4) discovers, fetches, parses, **executes parity cases
+against Tableau itself and captures a screenshot of any sheet or dashboard** — and passes
+conformance in full. **F2.4 is complete.**
+
+See [packages/adapter-sdk/README.md](packages/adapter-sdk/README.md).
+
+### adapter-tableau
+
+The Tableau source adapter (spec §6.2): the Metadata API for the object graph, the REST API
+for downloads, personal-access-token and connected-app authentication, 429 backoff and a
+per-site concurrency cap, the datasource and extract graph, a Lark grammar for the Tableau
+calculation language, the sheets, filters, dashboards, actions and row-level security a
+parity case has to respect, dialect-aware parsing of custom SQL, execution of a parity case
+through §6.2's strategies, and a resized screenshot of any sheet or dashboard through REST
+`queryViewImage` — against **Tableau Server 2021.4+ and Tableau Cloud** through one adapter.
+
+It passes the §6.3 conformance suite for every capability it claims.
+
+See [packages/adapter-tableau/README.md](packages/adapter-tableau/README.md).
+
+## Development
+
+Requires Docker (for PostgreSQL + Apache AGE) and Python 3.12.
+
+```bash
+make dev-up
+```
+
+```bash
+make test
+```
+
+`make test` runs the unit suite (no database). `make test-integration` runs the database-backed
+suite, including the latency benchmark, and requires `make dev-up` and `make migrate` first.
+
+## Implementation status
+
+Tracked per backlog story. Nothing here is claimed complete unless its acceptance criteria have
+a passing test.
+
+| Story | Title | State |
+|---|---|---|
+| S1.1.1 | Ontology enforced at write time | Accepted. Unit + integration suites green |
+| S1.1.2 | Typed query API and read-only Cypher | Accepted. Depth-3 neighbourhood p95 well inside the 300 ms budget |
+| S1.1.3 | Mutation events, replay, retirement | Accepted. Nightly job replays the estate from its events |
+| S1.2.1 | Harvester | Accepted. Harvests through the §6.1 adapter contract; the Tableau adapter itself is E2 |
+| S1.2.2 | Parse quality and the Parse Quality Queue | Accepted. 316 tests pass |
+| S1.2.3 | Usage and ownership | Accepted. Usage per workbook and per view; owners listed for assignment where the directory cannot place them |
+| S1.2.4 | Incremental scheduled harvest | Accepted. A nightly run over 40 fixture workbooks costs no downloads and under a second |
+| S1.3.1 | Context contracts and the shared assembler | Accepted. A Transpiler context is 661 bytes and hashes identically across processes |
+| S1.3.2 | Reproducible contexts and verifiable provenance | Accepted. A record verifies in ~55 ms against an 11,000-event stream, and still verifies after the graph moves on |
+| S1.4.1 | Estate Explorer | Accepted. A 1,067-workbook site reads in 308 ms against a 2 s budget |
+| S1.4.2 | Lineage View | Accepted. Shared-lineage strength computed by §12.1's formula, deferring to the Cartographer's `SHARES_LINEAGE` edges now that S3.1.1 writes them |
+| S1.4.3 | Parse Quality Queue | Accepted. Worked construct-first; accepting a construct that the queue predicted would release four workbooks released exactly four |
+| S2.1.1 | Source Adapter contract and SDK | Accepted. `astra-adapter conformance --adapter fake` passes six checks in process and over the adapter RPC; a killed adapter worker costs no assets |
+| S2.1.2 | Conformance is the definition of “works” | Accepted. Eleven checks over the story's seven areas; the signed report is stored and linked from Platform Health, and a failing run refuses promotion |
+| S2.2.1 | Tableau adapter: discovery and fetch | Accepted. Server 2021.4+ and Cloud through one adapter; discovery, fetch, error taxonomy and throttling pass conformance, and the parse checks fail until F2.3 |
+| S2.2.2 | Datasources, extracts and connections | Accepted. Published and embedded datasources with their connection graph; extract schema and refresh schedule recorded, extract data never read; embedded credentials stripped and referenced by Key Vault name |
+| S2.3.1 | Tableau calculation grammar and AST | Accepted. Lark grammar over Appendix B.1; 40-expression golden corpus parses and round-trips at 100%; spans on every node. **The adapter now passes conformance and has been promoted on the local tenant.** |
+| S2.3.2 | Sheets, filters, actions and dashboards | Accepted. All five filter kinds typed with their values, dashboard zone trees kept nested, all five action kinds captured, and row-level security recorded on the Workbook (schema version 6) |
+| S2.3.3 | Custom SQL parsed where possible | Accepted. Dialect-aware (Snowflake, T-SQL, Postgres) via sqlglot; referenced tables become estate nodes, and SQL that cannot be attributed is flagged and counts against parse quality. **F2.3 complete.** |
+| S2.4.1 | Execute a parity case, return a typed ResultSet | Accepted. §6.2's three strategies, chosen by charter and capability and recorded on the result; ordered typed columns with nulls preserved; a 120 s budget yielding INCONCLUSIVE with its reason. **Interface 1.1** — every promoted build must be re-conformed |
+| S2.4.2 | Screenshot of the source view | Accepted. `capture_visual` renders a sheet or dashboard through REST `queryViewImage` and resizes it to the caller's size with Pillow; stored content-addressed in a new artefact store, linked to the (future) MU by workbook LUID; artefact metadata never carries the bytes, so nothing that could feed a model context can leak an image through it. **F2.4 complete.** |
+| S3.1.1 | Cluster workbooks into candidate model families | Accepted. §12.1's similarity (0.5·J(tables)+0.3·J(fields)+0.2·shared_shapes/max_shapes, threshold 0.55 per the spec, not the backlog's 0.35) reused from the Lineage View; agglomerative clustering; undersized families merged or held SINGLETON with a reason; family count, distribution and histogram recorded on the programme record. Fixed two pre-existing gaps found along the way — see [ADR 0022](docs/adr/0022-family-clustering-reuses-the-lineage-view-scoring.md). |
+| S3.1.2 | Split, merge, move families with a reason | Accepted. Every override marks the family `overridden`, which a re-cluster reads to leave it alone and report what it would have changed instead (`would_change`); confirming a family by id lifts the pin for one run. Edges can now be retired — a first for this codebase — since a "move" needs a workbook's `IN_FAMILY` edge to point somewhere else, and an edge's endpoints cannot change once created. See [ADR 0023](docs/adr/0023-overrides-pin-not-freeze-and-edges-can-be-retired.md). |
+| S3.1.3 | Confirm the family count as a Month 1 calibration input | Accepted. `POST /v1/programmes/{id}:confirm-family-count` reads the estate's live family count and writes it, the date and the confirming user to the programme record — never a typed number. The Programme Board's own figure (planned 150 vs measured, with the delta) is a new console surface; the full board is S10.2.1's. See [ADR 0024](docs/adr/0024-the-family-count-is-measured-not-typed.md). |
+| S3.2.1 | Propose release trains from families and usage | Accepted. Families ordered by shared-model readiness, usage and tier mix (the backlog's own three factors, not §8.5's reworded ones), packed family-atomically into a configurable train size with a generated one-paragraph explanation per train. `ReleaseTrain`/`IN_TRAIN` (declared, unused, since S1.1.1) get their first writes; a workbook is `IN_TRAIN` exactly one train even across repeated proposals. See [ADR 0025](docs/adr/0025-trains-pack-families-not-workbooks.md). |
+| S3.2.2 | Wave Board — drag MUs between trains within scheduler constraints | Accepted. Kanban of trains × §3.2 state, native drag-and-drop to re-sequence within a train or move between trains; a move splitting a family is refused outright, a move exceeding a configured WIP limit warns and asks for a reason instead. Every write is an existing `GraphWriter` event; `GET /v1/trains/{id}/events` resolves a train's own recent activity. `ReleaseTrain` gained S3.1.2-style `overridden` pinning so a re-propose leaves Wave Board edits alone. See [ADR 0026](docs/adr/0026-the-wave-board-does-not-model-the-state-machine.md). |
+| S3.2.3 | Projected versus planned dates per train | Accepted. `GET /v1/trains:projections` mines real `IN_TRAIN` event history (a `LAG()` window function over each edge's own transitions, never simulated) for each state's trailing-14-day throughput, and projects each train's finish from the slowest (bottleneck) state its members occupy today, with a mean±stddev confidence band; a train missing its planned date by more than 5 working days is flagged. Honestly reports "insufficient data" — true for virtually every train today, since no MU state machine has been built yet (ADR 0026) — rather than a fabricated date. Surfaced on the Programme Board's new "Projected vs. planned" table and as a per-train badge on the Wave Board. See [ADR 0027](docs/adr/0027-projection-is-a-bottleneck-estimate-from-measured-throughput.md). |
+| S4.1.1 | A model design proposal generated for each family from the graph | Accepted. `POST /v1/families/{id}:propose-design` reads a family's members' full reach (datasources, connections, tables, calculated fields, reusing `lineage.py`'s own hop primitives) and proposes tables with a storage-mode recommendation, relationships with cardinality, a drafted grain statement, conformed dimensions shared with other families, measures deduplicated by AST shape, an RLS scaffold from `Workbook.rls`/`.rls_expression`, a refresh policy, and open questions — each disclosed as a named heuristic with its own reason, never a silent guess, and each unresolved case (ambiguous cardinality, an un-recorded RLS expression, disagreeing measure definitions) raised as an open question instead. `ModelTable`/`SemanticModel` (declared, unused, since S1.1.1) get their first writes; a real `ProvenanceRecord` is written for the ASSISTED grain-statement draft (no Model Gateway exists yet, so `model: null`, honestly). See [ADR 0028](docs/adr/0028-the-modeller-proposes-with-disclosed-heuristics.md). |
+| S4.1.2 | Edit the proposal in Model Detail and submit it for G2 | Accepted. `model_lifecycle.py` enforces §12.2's full state machine (`FAMILY_TRANSITIONS`, every declared `ModelFamily.state` value covered) while this story drives two edges of it — `POST /v1/families/{id}:accept` (PROPOSED/SINGLETON → DRAFT) and `:submit-for-review` (DRAFT → IN_REVIEW, freezing `SemanticModel.version` as a real content hash over the design). Transition history reuses the event log (`GET /v1/families/{id}/transitions`, a `LAG()` window function finding genuine `state` changes, the same technique S3.2.3 uses for `IN_TRAIN.state`) rather than a new audit table. Three targeted DRAFT-only edits — grain statement, a table's storage mode, a relationship's cardinality. The console's new **Model Detail** screen (`/models`) renders five tabs (Design, Measures, RLS, Open Questions, Build) with a deterministic relationships diagram and a "pending" Measures column honest about the Transpiler not existing yet. Found and fixed a real S4.1.1 bug along the way: `ModelTable` write ids didn't match what the proposal response reported. See [ADR 0029](docs/adr/0029-the-state-machine-is-declared-whole-driven-in-part.md). |
+| S4.2.1 | Review a model design in plain language and approve it or ask a question | Accepted. `g2.py` gives a data owner G2: approve (IN_REVIEW → APPROVED, requiring the `client_data_owner` role, no open question, a frozen version, and a named Semantic Model Engineer countersigner — both recorded on `GateDecision`, its first write since S1.1.1), request changes (IN_REVIEW → DRAFT with a comment attached to a `GateDecision`, `ModelFamily.g2_cycle_count` incremented), and questions with a real thread — a new `public.g2_question` platform table (`grammar_issue`'s own shape) seeded from the design's own open questions the moment a version freezes. Domain scope is an asserted `X-Astra-Domain-Scope` header checked against `ModelFamily.domain` (also unwritten before this story — `:edit-domain`, DRAFT-only, is the first thing that can set one; an unset domain is never refused, a disclosed gap). The console's new **Model Proposal** screen (`/proposal`) is a deliberately calmer, separately-assembled client view — a deterministic plain-language summary, member workbooks as "what reports use it," and inline question reply/answer — never Model Detail's own document filtered by role. See [ADR 0030](docs/adr/0030-g2-questions-are-a-platform-table-domain-scope-is-asserted.md). |
+| S4.2.2 | G2 cycle time and open questions per family on the Programme Board | Accepted. `g2_reminders.py` gives the Programme Board `GET /v1/families:awaiting-g2` — every family `IN_REVIEW`, days waiting (the same `LAG()`-window event-log technique `family_transition_history` established, one query batched across every pending family), the approver (`ModelFamily.owner`, declared since S1.1.1 and unwritten until this story's `:edit-owner`, the identical trajectory `domain` took at S4.2.1), open-question count and an SLA-breach flag reusing S3.2.3's own 5-working-day default. `POST /v1/g2/reminders:send` records and sends whichever 3-/5-day reminders are due into a new `public.g2_reminder` table, one row per `(family, day)`, unique — idempotent by construction, so a Programme Manager's own repeated click (today's trigger; a real scheduler is future scope) never double-sends. Delivery is recorded and logged, not real — the exact `IssueTracker`/`LocalIssueTracker` precedent (S1.4.3), disclosed rather than claimed. New "G2 reviews" pane on the Programme Board (`/programme`). See [ADR 0031](docs/adr/0031-g2-days-waiting-reuses-the-event-log-reminders-are-recorded-not-delivered.md). |
+| S4.3.1 | An approved design built as TMDL and deployed to the dev workspace automatically | Accepted. `tmdl.emit_tmdl` is a pure function of the frozen design document — no graph read, no clock, no random id — so "the same version always produces byte-identical TMDL" holds by construction; column-level schema and measure DAX are disclosed gaps (no `Field` data in the design, no Transpiler yet), stated in the emitted TMDL rather than fabricated. A new `TargetAdapter` contract (`astra_adapter.target_contract`) mirrors `SourceAdapter` (§6.1): `commit`/`deploy`/`smoke_query`. `FixtureTargetAdapter` commits real Git objects to a real local repository via Dulwich (a pure-Python Git implementation — this sandbox's own `apt-get install git` failed outright, which settled the choice over shelling out to a `git` binary); `deploy`/`smoke_query` are disclosed stand-ins with no live Fabric tenant to reach. `build.py` orchestrates emit → commit → deploy → smoke-query into a new `public.build_run` platform table (one row per attempt), entering `BUILT` only if every step succeeds, triggered automatically from G2 approval on the `agent:steward` principal (§19) without rolling the approval back on failure. Model Detail's Build tab now renders a real build log; `POST /v1/families/{id}:build` is the same pipeline as a manual retry/rebuild. See [ADR 0032](docs/adr/0032-tmdl-emission-is-pure-the-target-adapter-is-a-new-boundary.md). |
+| S4.3.2 | Conformance rules enforced at emission | Accepted. `conformance_rules.py` checks six §12.3-shaped rules against the frozen design — star schema (an unresolved cardinality treated as unconfirmed many-to-many), single active relationship path (a union-find cycle check over the undirected table graph), conformed dimensions shared by reference (a shared dimension imported rather than read live), measures in display folders by source family (a name collision within the one folder every measure lands in), naming convention (no spec wording exists — substituted for §12.3's own column-description rule, since no column data exists in the design either, the same "backlog answers with real data spec's version can't reach" precedent), and RLS roles tested with a fixture user (the expression names a field and a recognised function — no live engine to run it for real). Runs between `emit` and `commit` in `build_family`'s own pipeline — "no model reaches the client repository" means a violation blocks the Git write itself, listed with its offending object in a new `"conformance"` build step. Rules are data: a new versioned platform table, `public.conformance_ruleset` (an architect's edit is always a new version, never an overwrite), edited on a new console surface, `/admin` — the first screen and route to actually gate on `migration_architect` (declared since S1.1.1, driven nowhere until now). `ModelFamily.conformance_ruleset_version` records which version every attempt, pass or fail, was measured against. See [ADR 0033](docs/adr/0033-conformance-rules-are-versioned-data-checked-before-commit.md). |
+| S4.3.3 | A second version of a published model, without regressing what is live | Accepted. Per-version lifecycle moves onto `SemanticModel.state` (declared since S1.1.1, never driven until now) while `ModelFamily.state` keeps tracking whichever version is newest — so every existing G2/build action needed zero changes. `POST /v1/families/{id}:request-new-version` (PUBLISHED → DRAFT) deep-copies the currently PUBLISHED design's tables under fresh ids with relationships remapped, leaving v(n)'s own node completely untouched — the load-bearing half of "does not regress what is live." `POST /v1/families/{id}:promote` (BUILT → PUBLISHED) checks a `regression_status` gate — honestly vacuous today, since no Migration Unit registry or regression executor exists anywhere in this codebase, the same disclosed-gap posture `harvest.UngatedPromotions` already set — then deploys the already-committed build to a new `target_workspace_published` via the existing `TargetAdapter.deploy()` contract *before* marking the version PUBLISHED and its predecessor DEPRECATED with the date. `read_design_document`'s "the" design changed from first-match to latest-`version_number`-match, a real bug this story's own precondition exposed; found and fixed a second real bug along the way — `Modeller._write` had never persisted `schema`/`mode_reason`/`row_estimate`/`custom_sql` onto `ModelTable` since S4.1.1. Model Detail's new **Versions** tab lists every version with its state and dates (not a diff view — that is later, unclaimed scope) and drives both actions, gated to `semantic_model_engineer`. See [ADR 0034](docs/adr/0034-a-semantic-model-version-lives-on-its-own-node-family-state-tracks-the-newest.md). |
+| S5.1.1 | Every calculated field classified C1–C4 from its AST before generation | Accepted. E5 (the Transpiler) opens here. `classify.py` walks the real AST the Tableau grammar already produces — `packages/adapter-tableau`'s own `functions.py` already stamps Appendix B.1's function family onto every FUNCTION/AGGREGATE/WINDOW node at parse time, so classification reads it straight off the node rather than re-deriving it; only Appendix B.1's own "Default class" column was missing as data, and is now a small table in graph-svc, not imported from the adapter (graph-svc has never imported an adapter package). A calculation's overall class is the worst class any of its nodes need, with the offending node's own reason kept, not a summary. Two facts the AST alone cannot answer are resolved from the graph itself: a parameter dependency from a real `DEPENDS_ON` edge to a `Parameter` node (Tableau writes a parameter reference identically to a field reference), and table-calc addressing from a real `ENCODES` edge to a `Worksheet` with shelf placement (the grammar always records addressing "unresolved" — nothing before this story ever resolved it). `POST /v1/calculations:reclassify` (the parity engineer's, the first route to drive that role) walks every live `CalculatedField`, writes `class`/`pattern_ref`/`reason`/`classifier_version`, and reports what moved class; `GET /v1/calculations:class-mix` is a live read for the Programme Board's new fourth pane, measured against the calibration targets 45/30/18/7. See [ADR 0035](docs/adr/0035-classification-reads-appendix-b1-off-the-ast-the-grammar-already-stamps.md). |
+| S5.2.1 | A deterministic rules engine mapping Tableau AST shapes to DAX/M templates | Accepted. `rules.py` walks the same real AST `classify.py` (S5.1.1) already reads, bottom-up per §9.2: a handful of specific shape rules (an LOD-fixed expression, the ZN/IFNULL null-idiom) tried first at every node, falling through to a generic per-kind/per-family map covering operators, aggregate functions, casts, conditionals and a numeric-function subset — composing recursively, so a C1 expression nested inside a C2 shape still converts. A rendered DAX string may carry the literal, disclosed placeholder `{table}` where a rule needs a model-table binding it cannot resolve yet, the identical convention §4.3's own worked Pattern example ships. "Proof in CI" honestly means golden-text equality (at least three real `(AST, expected DAX)` cases per rule) plus a structural DAX sanity check standing in for a real parser — not §16.1's own rung-4 parity verdict, since no Arbiter (E7) or live DAX engine exists anywhere in this codebase, the identical disclosed-gap posture `FixtureTargetAdapter.smoke_query` (S4.3.1) already set. `POST /v1/calculations:apply-rules` (the platform engineer's, the first route to drive that role) writes a real `Measure`, a `MAPS_TO` edge carrying the rule id, and a DETERMINISTIC `ProvenanceRecord` for every field a shipped rule covers — zero ontology changes, since every property involved was already declared, waiting for this story to write it for the first time. `GET /v1/calculations:rule-coverage` is a live read for the Programme Board's new fifth pane. Found and fixed a real bug along the way: a Measure node id built with a 4-character prefix over a 26-character ULID exceeded the ontology's own id-length limit — the identical defect shape S3.2.1's own README already documents. See [ADR 0036](docs/adr/0036-golden-corpus-equality-stands-in-for-proof-until-the-arbiter-exists.md). |
+| S5.2.2 | Add/amend a rule via the Pattern Library, with CI-blocking regression | Accepted. Completes F5.2. "Every rule change re-runs the golden corpus" was already true by construction (`test_rules.py` parametrizes every rule's every golden case on every run); the genuinely new half is "the PASSED artefacts that used the rule" — real `Measure` nodes a rule has already produced, in a real graph, not test fixtures. `rules.py`'s new `check_regression()` re-renders each one's source `CalculatedField` against the *current* rule set: a `Measure` that no longer renders at all is a regression and blocks; one that still renders, only differently, is a disclosed change (a rule can legitimately improve) and does not. `tools/rule_regression_check.py` is a new, standalone, DB-connected guard — the identical shape `ontology_check.py`/`migration_check.py`/`contract_check.py`/`migrate.py` already established — wired into `make rule-regression-check` and a new CI step; on this repository's own generic CI (a freshly migrated graph with nothing yet to regress) it is a smoke check, with real teeth once run against a client's own accumulated graph before a deployment reaches it — the honest reading of "promoted to the tenant" this platform, with no per-tenant deployment pipeline, can actually support. No console screen: a Pattern Library *screen* governing promoted patterns is S5.5.3's own explicit, unbuilt scope (F5.5), not asked for by this story's own acceptance criteria despite its scene-setting sentence naming it. Zero ontology changes. See [ADR 0037](docs/adr/0037-regression-checks-real-artefacts-not-a-fabricated-promotion-pipeline.md). |
+| S5.3.1 | C3 calculations generated by a model, validated up the ladder before proof | Accepted. Opens F5.3. `generation.py` assembles §9.4's own `GenerationRequest` directly from the graph (dependency closure, encoding worksheet's real shelf/filter/sort data, matching `Pattern`s — honestly empty, F5.5 not built), with two more gaps disclosed rather than omitted: `model_ctx.tables`/`.columns` (no `Field→ModelTable` `MAPS_TO` edge has ever been written, including by the Modeller's own S4.1.1) and `charter_excerpt` (no G1 Tolerance Charter exists anywhere). §16.1's ladder is real where it can be — schema (pydantic against §9.4's own `output_schema`) and parse (S5.2.1's own `dax_sanity_check`, reused unchanged) — and an honestly disclosed, unconditional pass where it can't: compile and proof, since no live Fabric dev workspace (E11) or Arbiter (E7) exists to check either for real, the identical posture `FixtureTargetAdapter.smoke_query`/`model_lifecycle.regression_status` already set. No Model Gateway exists either (§5.5 is S5.3.2's own scope) — a narrower `ModelCaller` seam stands in, wired to `FixtureModelCaller`, which never fabricates a candidate and always honestly declines `NOT_EXPRESSIBLE`. Up to two regeneration attempts (one shared budget, per the backlog's own wording) feed the previous error back before escalating. A success writes a real `Measure` (mode `GENERATED_PROVED`), `MAPS_TO` edge, and `ProvenanceRecord` carrying the full §4.2 `model_call` block (`provider`/`gateway_request_id`/`temperature` newly added, migration v0020, additive); a failure writes a real `ExceptionCase` — the first story to drive that node type — using the `UNKNOWN` failure class, a disclosed taxonomy mismatch since §11.1's own classes are for post-proof parity failures, not this story's pre-proof generation ones. `GET /v1/calculations/{id}:generation-request` (any Artizent role) and `POST /v1/calculations/{id}:generate` (parity engineer). See [ADR 0038](docs/adr/0038-generation-runs-a-real-ladder-behind-a-disclosed-model-seam.md). |

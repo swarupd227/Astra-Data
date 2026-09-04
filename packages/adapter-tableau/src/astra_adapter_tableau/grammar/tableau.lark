@@ -1,0 +1,167 @@
+// The Tableau calculation language — story S2.3.1, specification Appendix B.1.
+//
+// §5.4: "the calc-language parsers are generated from grammars (Lark) and versioned with the
+// adapter". This is that grammar. It is a file rather than a string in Python because a
+// grammar is a specification of a language and reviewing a diff of one matters — and because
+// `GRAMMAR_VERSION` is only meaningful if what it versions is a single, readable artefact.
+//
+// WHAT IS DELIBERATELY NOT HERE
+//
+// Function *names* are not enumerated. Tableau has several hundred, Appendix B.1 lists
+// families by example rather than exhaustively, and a grammar that hard-coded the list would
+// reject a valid calculation the moment Tableau shipped a function — turning "we do not know
+// this function" (a parse-quality finding an engineer can act on) into "this workbook will
+// not parse" (a harvest failure they cannot). So the grammar accepts any call and the
+// *registry* in `functions.py` decides whether it is recognised. That split is what makes
+// S2.3.1's "a construct outside the grammar is captured verbatim and flagged, never dropped"
+// achievable rather than aspirational.
+//
+// PRECEDENCE is encoded in the rule chain, loosest first, each level left-associative.
+// Tableau's own precedence, which is C-like with the usual exception that comparison binds
+// tighter than AND/OR.
+
+?start: expression
+
+?expression: or_expr
+
+?or_expr: and_expr (OR and_expr)*
+?and_expr: not_expr (AND not_expr)*
+?not_expr: NOT not_expr            -> logical_not
+         | comparison
+
+?comparison: additive (COMPARATOR additive)*
+           | additive IN_OP additive        -> in_set
+           | additive NOT IN_OP additive    -> not_in_set
+
+?additive: multiplicative ((PLUS | MINUS) multiplicative)*
+?multiplicative: unary ((STAR | SLASH | PERCENT) unary)*
+
+?unary: MINUS unary                -> negate
+      | PLUS unary                 -> unary_plus
+      | power
+
+?power: atom (CARET atom)*
+
+?atom: literal
+     | conditional
+     | case_expression
+     | lod_expression
+     | type_cast
+     | function_call
+     | reference
+     | "(" expression ")"
+
+// ---------------------------------------------------------------- conditionals
+//
+// IF/ELSEIF/THEN/ELSE/END and CASE/WHEN. Both are in Appendix B.1's "Arithmetic / logical"
+// family and both are statements with a terminator, which is why they are rules rather than
+// functions: `IF` is not a call and parsing it as one loses the branch structure the
+// Transpiler needs to emit a SWITCH.
+
+conditional: IF expression THEN expression elseif_clause* else_clause? END
+elseif_clause: ELSEIF expression THEN expression
+else_clause: ELSE expression
+
+case_expression: CASE expression when_clause+ else_clause? END
+when_clause: WHEN expression THEN expression
+
+// ------------------------------------------------------------------------ LOD
+//
+// { FIXED [Desk], [Book] : SUM([Notional]) }. Appendix B.1's LOD family. The dimension list
+// is optional for INCLUDE/EXCLUDE in practice and Tableau accepts `{FIXED : SUM(x)}`, so the
+// grammar does too rather than rejecting a calculation a client's workbook contains.
+
+lod_expression: LBRACE lod_kind dimension_list? COLON expression RBRACE
+lod_kind: FIXED | INCLUDE | EXCLUDE
+dimension_list: expression ("," expression)*
+
+// ------------------------------------------------------------------ type casts
+//
+// Appendix B.1's Type family. Written as calls in Tableau — INT(x), STR(x) — so they parse as
+// function calls and are *classified* as casts by the registry. Kept as a named rule anyway
+// for the SQL-style `CAST(x AS INTEGER)` some clients' calculations use.
+
+type_cast: CAST "(" expression AS TYPE_NAME ")"
+
+// ------------------------------------------------------------------- functions
+//
+// Any identifier followed by parentheses. Table calculations take the same shape; their
+// addressing and partitioning come from the *sheet* (§6.2), not from the expression, and are
+// attached by the caller.
+
+function_call: NAME "(" arguments? ")"
+arguments: expression ("," expression)*
+
+// ------------------------------------------------------------------ references
+//
+// [Field], [Datasource].[Field], and bare identifiers. Tableau writes a parameter reference
+// identically to a field reference — which is why the AST records a REFERENCE and the
+// *registry* decides, from the workbook's parameter list, which it is.
+
+reference: QUALIFIED_FIELD | BRACKETED | NAME
+
+// -------------------------------------------------------------------- literals
+
+literal: SIGNED_NUMBER   -> number
+       | STRING          -> string
+       | TRUE            -> true
+       | FALSE           -> false
+       | NULL            -> null
+
+// -------------------------------------------------------------------- terminals
+//
+// Keywords are declared before NAME so the lexer prefers them, and each is anchored with
+// word boundaries so a field called `IFRS` is not read as `IF` followed by `RS`.
+
+IF.10: /\bIF\b/i
+THEN.10: /\bTHEN\b/i
+ELSEIF.10: /\bELSEIF\b/i
+ELSE.10: /\bELSE\b/i
+END.10: /\bEND\b/i
+CASE.10: /\bCASE\b/i
+WHEN.10: /\bWHEN\b/i
+AND.10: /\bAND\b/i
+OR.10: /\bOR\b/i
+NOT.10: /\bNOT\b/i
+IN_OP.10: /\bIN\b/i
+FIXED.10: /\bFIXED\b/i
+INCLUDE.10: /\bINCLUDE\b/i
+EXCLUDE.10: /\bEXCLUDE\b/i
+CAST.10: /\bCAST\b/i
+AS.10: /\bAS\b/i
+TRUE.10: /\bTRUE\b/i
+FALSE.10: /\bFALSE\b/i
+NULL.10: /\bNULL\b/i
+
+TYPE_NAME.9: /\b(INTEGER|INT|FLOAT|REAL|STRING|VARCHAR|DATE|DATETIME|BOOLEAN|BOOL)\b/i
+
+COMPARATOR: "==" | "=" | "<>" | "!=" | "<=" | ">=" | "<" | ">"
+PLUS: "+"
+MINUS: "-"
+STAR: "*"
+SLASH: "/"
+PERCENT: "%"
+CARET: "^"
+COLON: ":"
+LBRACE: "{"
+RBRACE: "}"
+
+// [Sales], [Order Date]. Brackets may contain anything but a closing bracket, which is
+// Tableau's own rule and is why a field named `Profit (%)` is legal.
+BRACKETED: /\[[^\]]*\]/
+QUALIFIED_FIELD: /\[[^\]]*\]\s*\.\s*\[[^\]]*\]/
+
+// Tableau strings use single or double quotes, with doubling as the escape.
+STRING: /'([^'\\]|\\.|'')*'/ | /"([^"\\]|\\.|"")*"/
+
+NAME: /[A-Za-z_][A-Za-z_0-9]*/
+
+%import common.SIGNED_NUMBER
+%import common.WS
+%ignore WS
+
+// Tableau comments: // to end of line, and /* */ blocks.
+LINE_COMMENT: /\/\/[^\n]*/
+BLOCK_COMMENT: /\/\*([^*]|\*(?!\/))*\*\//
+%ignore LINE_COMMENT
+%ignore BLOCK_COMMENT

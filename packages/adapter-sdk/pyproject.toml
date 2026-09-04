@@ -1,0 +1,86 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "astra-adapter-sdk"
+version = "0.1.0"
+description = "Astra Data Source Adapter SDK — the §6 interfaces, RPC, fake source and conformance suite"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+dependencies = [
+    # Deliberately small. This package is installed inside every adapter image and inside
+    # graph-svc; a dependency added here is a dependency added to both, and to every adapter
+    # anybody writes. Starlette rather than FastAPI because the adapter routes are hand-coded
+    # against `wire` — the wire format is the contract's compatibility surface (see rpc/wire)
+    # and deriving it from Pydantic models would tie it to a validation library's idea of
+    # shape.
+    "starlette>=0.37,<0.48",
+    "httpx>=0.27,<0.29",
+    "uvicorn>=0.32,<0.35",
+]
+
+[project.optional-dependencies]
+# The one exception to "deliberately small": FixtureTargetAdapter (story S4.3.1) needs a
+# real Git implementation to commit TMDL to, and Dulwich (pure Python, no OS package) is
+# lighter than shelling out to a `git` binary an image would otherwise need to install. An
+# extra, not a core dependency — a source adapter author who never touches the target side
+# does not pay for it; graph-svc (the only consumer today) installs `astra-adapter-sdk[target]`.
+target = [
+    "dulwich>=0.22,<1",
+]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.24,<1",
+    "ruff>=0.7,<0.13",
+    "mypy>=1.13,<2",
+    "dulwich>=0.22,<1",
+]
+
+[project.scripts]
+astra-adapter = "astra_adapter.cli:main"
+astra-adapter-serve = "astra_adapter.serve:main"
+
+# The SDK's own adapter registers itself the same way anybody else's does, so the discovery
+# path that will find `tableau` when F2.2 ships is exercised on every run today.
+[project.entry-points."astra.adapters"]
+fake = "astra_adapter.fake:build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/astra_adapter"]
+# PEP 561. Without it mypy skips the package in every consumer, which would mean graph-svc's
+# strict type checking stopped at the adapter boundary — exactly the boundary an adapter
+# author is most likely to get wrong.
+artifacts = ["src/astra_adapter/py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "process: spawns a real adapter worker process; seconds, not milliseconds",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["E501"]
+
+# The specification these modules implement uses en and em dashes throughout, and the
+# messages quote it.
+allowed-confusables = ["–", "—", "’"]
+
+[tool.ruff.lint.per-file-ignores]
+# The function and operator tables are read against the grammar they describe; one name per
+# line would make them longer and no clearer.
+"src/astra_adapter/fake/grammar.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["astra_adapter"]
+mypy_path = "src"
+strict = true
+warn_unreachable = true

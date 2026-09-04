@@ -1,0 +1,97 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "astra-graph-svc"
+version = "0.1.0"
+description = "Astra Data Estate Graph service"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+dependencies = [
+    "fastapi>=0.115,<0.116",
+    "uvicorn[standard]>=0.32,<0.35",
+    "asyncpg>=0.30,<0.31",
+    "pydantic>=2.9,<3",
+    "strawberry-graphql[fastapi]>=0.240,<0.300",
+    # The published 00a76.1 contract, the adapter RPC and the fake source (S2.1.1). graph-svc
+    # consumes it on the same terms an adapter author does 2014 that is what makes "a second
+    # source can be added without changing the platform" a checkable claim.
+    # [target]: the fixture target adapter's real Git commits (story S4.3.1, Dulwich).
+    "astra-adapter-sdk[target]",
+    # The Model Gateway's own real Anthropic provider (story S5.3.2, §5.5).
+    "anthropic>=1.0,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.24,<1",
+    "httpx>=0.27,<0.29",
+    "ruff>=0.7,<0.13",
+    "mypy>=1.13,<2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/astra_graph"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: requires PostgreSQL with Apache AGE (make dev-up)",
+    "slow: seeds a large estate; minutes, not seconds",
+]
+filterwarnings = [
+    "error::DeprecationWarning:astra_graph.*",
+    # The parse-quality API's request field is called `construct`, which is the domain
+    # word and the wire name; Pydantic warns because BaseModel has a deprecated
+    # `construct` classmethod. See routes_quality.IgnorableRequest.
+    'ignore:Field name "construct".*shadows an attribute:UserWarning',
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests", "tools"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+    # The ontology declarations are long literal tables; splitting them for line length
+    # makes them harder to check against the specification, not easier.
+    "E501",
+]
+
+# The console reads these strings. An en dash is the right character for a numeric range
+# ("98–99%") and an em dash for an aside, and the specification this service implements
+# uses both throughout — a hyphen in their place would be a typographic error a user sees.
+allowed-confusables = ["–", "—", "’"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/astra_graph/ontology/nodes.py" = ["E501"]
+"src/astra_graph/ontology/edges.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["astra_graph"]
+mypy_path = "src"
+strict = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = "asyncpg.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Object types are generated from the ontology registry at import time, so their
+# fields do not exist for a static checker to see (api/graphql/types.py).
+module = "astra_graph.api.graphql.*"
+# Object types are built from the ontology registry at import time, so their fields do
+# not exist for a static checker to see, and Strawberry's decorators are untyped at the
+# version pinned here. The generated schema is asserted against the registry in
+# tests/test_graphql.py instead.
+disallow_any_explicit = false
+disallow_untyped_decorators = false
+warn_return_any = false
+warn_unused_ignores = false

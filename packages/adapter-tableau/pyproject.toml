@@ -1,0 +1,76 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "astra-adapter-tableau"
+version = "0.1.0"
+description = "Astra Data Tableau source adapter — discovery and fetch (spec §6.2)"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+dependencies = [
+    # The published §6.1 contract. This package depends on the SDK and on nothing of the
+    # platform's — §20: "A new source adapter is a repository that passes the harness."
+    "astra-adapter-sdk",
+    "httpx>=0.27,<0.29",
+    # Connected-app authentication is a signed JWT (§6.2). Hand-rolling HS256 is fifteen
+    # lines and the wrong fifteen lines to hand-roll.
+    "pyjwt>=2.9,<3",
+    # 00a75.4: "the calc-language parsers are generated from grammars (Lark) and versioned
+    # with the adapter".
+    "lark>=1.1,<2",
+    # S2.3.3: a dialect-aware SQL parser. Snowflake, T-SQL and Postgres are the three
+    # the story names, and a real SQL parser is the wrong thing in the world to hand-roll.
+    "sqlglot>=25,<28",
+    # S2.4.2: decodes what Tableau's REST image endpoint renders and re-encodes it at the
+    # size the caller asked for. HPND-licensed, and the golden deployment uses it too, to
+    # draw a real (if synthetic) PNG rather than a fixed byte string standing in for one.
+    "Pillow>=10,<12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.24,<1",
+    "ruff>=0.7,<0.13",
+    "mypy>=1.13,<2",
+    "types-pyjwt>=1.7,<2",
+]
+
+[project.scripts]
+# So the worker image has an entry point of its own, as well as the SDK's generic one.
+astra-tableau = "astra_adapter_tableau.serve:main"
+astra-tableau-golden = "astra_adapter_tableau.golden_serve:main"
+
+[project.entry-points."astra.adapters"]
+tableau = "astra_adapter_tableau:build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/astra_adapter_tableau"]
+# The grammar file ships with the wheel: it *is* the parser, and a wheel without it
+# would import and then fail on the first calculation.
+artifacts = [
+    "src/astra_adapter_tableau/py.typed",
+    "src/astra_adapter_tableau/grammar/tableau.lark",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["E501"]
+allowed-confusables = ["–", "—", "’"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["astra_adapter_tableau"]
+mypy_path = "src"
+strict = true
+warn_unreachable = true

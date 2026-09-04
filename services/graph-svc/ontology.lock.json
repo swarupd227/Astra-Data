@@ -1,0 +1,2126 @@
+{
+  "base": {
+    "edge": [
+      {
+        "enum": null,
+        "name": "id",
+        "required": true,
+        "server_managed": false,
+        "type": "ulid"
+      },
+      {
+        "enum": null,
+        "name": "written_by",
+        "required": true,
+        "server_managed": true,
+        "type": "string"
+      },
+      {
+        "enum": null,
+        "name": "created_at",
+        "required": true,
+        "server_managed": true,
+        "type": "timestamp"
+      },
+      {
+        "enum": null,
+        "name": "created_in_run",
+        "required": false,
+        "server_managed": true,
+        "type": "string"
+      },
+      {
+        "enum": null,
+        "name": "retired_at",
+        "required": false,
+        "server_managed": true,
+        "type": "timestamp"
+      },
+      {
+        "enum": null,
+        "name": "retired_by",
+        "required": false,
+        "server_managed": true,
+        "type": "string"
+      },
+      {
+        "enum": null,
+        "name": "retirement_reason",
+        "required": false,
+        "server_managed": true,
+        "type": "text"
+      }
+    ],
+    "node": [
+      {
+        "enum": null,
+        "name": "id",
+        "required": true,
+        "server_managed": false,
+        "type": "ulid"
+      },
+      {
+        "enum": [
+          "source",
+          "target",
+          "platform"
+        ],
+        "name": "side",
+        "required": true,
+        "server_managed": false,
+        "type": "enum"
+      },
+      {
+        "enum": null,
+        "name": "created_by",
+        "required": true,
+        "server_managed": true,
+        "type": "string"
+      },
+      {
+        "enum": null,
+        "name": "created_at",
+        "required": true,
+        "server_managed": true,
+        "type": "timestamp"
+      },
+      {
+        "enum": null,
+        "name": "created_in_run",
+        "required": false,
+        "server_managed": true,
+        "type": "string"
+      },
+      {
+        "enum": null,
+        "name": "updated_by",
+        "required": false,
+        "server_managed": true,
+        "type": "string"
+      },
+      {
+        "enum": null,
+        "name": "updated_at",
+        "required": false,
+        "server_managed": true,
+        "type": "timestamp"
+      },
+      {
+        "enum": null,
+        "name": "retired_at",
+        "required": false,
+        "server_managed": true,
+        "type": "timestamp"
+      },
+      {
+        "enum": null,
+        "name": "retired_by",
+        "required": false,
+        "server_managed": true,
+        "type": "string"
+      },
+      {
+        "enum": null,
+        "name": "retirement_reason",
+        "required": false,
+        "server_managed": true,
+        "type": "text"
+      }
+    ]
+  },
+  "edges": {
+    "CONNECTS_TO": {
+      "pairs": [
+        [
+          "Datasource",
+          "Connection"
+        ],
+        [
+          "Connection",
+          "Table"
+        ]
+      ],
+      "properties": [
+        {
+          "enum": null,
+          "name": "join_clause",
+          "required": false,
+          "server_managed": false,
+          "type": "text"
+        }
+      ]
+    },
+    "CONTAINS": {
+      "pairs": [
+        [
+          "Site",
+          "Project"
+        ],
+        [
+          "Project",
+          "Project"
+        ],
+        [
+          "Project",
+          "Workbook"
+        ],
+        [
+          "Workbook",
+          "Dashboard"
+        ],
+        [
+          "Workbook",
+          "Worksheet"
+        ]
+      ],
+      "properties": []
+    },
+    "DECIDED_BY": {
+      "pairs": [
+        [
+          "*",
+          "GateDecision"
+        ]
+      ],
+      "properties": []
+    },
+    "DEPENDS_ON": {
+      "pairs": [
+        [
+          "CalculatedField",
+          "Field"
+        ],
+        [
+          "CalculatedField",
+          "CalculatedField"
+        ],
+        [
+          "CalculatedField",
+          "Parameter"
+        ]
+      ],
+      "properties": [
+        {
+          "enum": null,
+          "name": "position_in_ast",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        }
+      ]
+    },
+    "ENCODES": {
+      "pairs": [
+        [
+          "Worksheet",
+          "Field"
+        ],
+        [
+          "Worksheet",
+          "CalculatedField"
+        ]
+      ],
+      "properties": [
+        {
+          "enum": null,
+          "name": "shelf",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "aggregation",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "sort",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        }
+      ]
+    },
+    "FILTERED_BY": {
+      "pairs": [
+        [
+          "Worksheet",
+          "Filter"
+        ],
+        [
+          "Dashboard",
+          "Filter"
+        ]
+      ],
+      "properties": []
+    },
+    "HAS_FIELD": {
+      "pairs": [
+        [
+          "Table",
+          "Field"
+        ],
+        [
+          "Datasource",
+          "Field"
+        ],
+        [
+          "Datasource",
+          "CalculatedField"
+        ]
+      ],
+      "properties": []
+    },
+    "IN_FAMILY": {
+      "pairs": [
+        [
+          "Workbook",
+          "ModelFamily"
+        ]
+      ],
+      "properties": [
+        {
+          "enum": null,
+          "name": "confidence",
+          "required": true,
+          "server_managed": false,
+          "type": "float"
+        }
+      ]
+    },
+    "IN_TRAIN": {
+      "pairs": [
+        [
+          "Workbook",
+          "ReleaseTrain"
+        ]
+      ],
+      "properties": [
+        {
+          "enum": null,
+          "name": "sequence",
+          "required": true,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "state",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "wip_override_reason",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        }
+      ]
+    },
+    "MAPS_TO": {
+      "pairs": [
+        [
+          "Field",
+          "ModelTable"
+        ],
+        [
+          "CalculatedField",
+          "Measure"
+        ],
+        [
+          "Worksheet",
+          "Visual"
+        ]
+      ],
+      "properties": [
+        {
+          "enum": [
+            "C1",
+            "C2",
+            "C3",
+            "C4"
+          ],
+          "name": "class",
+          "required": false,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "pattern_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "target_column",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        }
+      ]
+    },
+    "OWNED_BY": {
+      "pairs": [
+        [
+          "Workbook",
+          "User"
+        ]
+      ],
+      "properties": []
+    },
+    "PROVED_BY": {
+      "pairs": [
+        [
+          "ReportDefinition",
+          "ParityRun"
+        ]
+      ],
+      "properties": [
+        {
+          "enum": null,
+          "name": "charter_version",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        }
+      ]
+    },
+    "SHARES_LINEAGE": {
+      "pairs": [
+        [
+          "Workbook",
+          "Workbook"
+        ]
+      ],
+      "properties": [
+        {
+          "enum": null,
+          "name": "jaccard_tables",
+          "required": true,
+          "server_managed": false,
+          "type": "float"
+        },
+        {
+          "enum": null,
+          "name": "jaccard_fields",
+          "required": true,
+          "server_managed": false,
+          "type": "float"
+        },
+        {
+          "enum": null,
+          "name": "shared_calc_count",
+          "required": true,
+          "server_managed": false,
+          "type": "int"
+        }
+      ]
+    },
+    "USES_DATASOURCE": {
+      "pairs": [
+        [
+          "Worksheet",
+          "Datasource"
+        ]
+      ],
+      "properties": []
+    },
+    "VIEWED_BY": {
+      "pairs": [
+        [
+          "Workbook",
+          "User"
+        ]
+      ],
+      "properties": [
+        {
+          "enum": null,
+          "name": "views_90d",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "last_view",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
+        }
+      ]
+    }
+  },
+  "nodes": {
+    "Action": {
+      "properties": [
+        {
+          "enum": [
+            "filter",
+            "highlight",
+            "url",
+            "parameter",
+            "set"
+          ],
+          "name": "type",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "source_sheets",
+          "required": true,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "target_sheets",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        }
+      ],
+      "side": "source"
+    },
+    "CalculatedField": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "formula",
+          "required": true,
+          "server_managed": false,
+          "type": "text"
+        },
+        {
+          "enum": null,
+          "name": "formula_ast",
+          "required": true,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": [
+            "C1",
+            "C2",
+            "C3",
+            "C4"
+          ],
+          "name": "class",
+          "required": false,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": [
+            "FIXED",
+            "INCLUDE",
+            "EXCLUDE"
+          ],
+          "name": "lod_type",
+          "required": false,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "table_calc_flag",
+          "required": false,
+          "server_managed": false,
+          "type": "bool"
+        },
+        {
+          "enum": null,
+          "name": "depends_on",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "pattern_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "reason",
+          "required": false,
+          "server_managed": false,
+          "type": "text"
+        },
+        {
+          "enum": null,
+          "name": "classifier_version",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        }
+      ],
+      "side": "source"
+    },
+    "Connection": {
+      "properties": [
+        {
+          "enum": [
+            "sybase",
+            "sqlserver",
+            "snowflake",
+            "postgres",
+            "hive",
+            "excel",
+            "text",
+            "odbc",
+            "hyper"
+          ],
+          "name": "class",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "server",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "db",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "schema",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "auth_mode",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        }
+      ],
+      "side": "source"
+    },
+    "Dashboard": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "size",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "layout_json",
+          "required": true,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "contained_sheets",
+          "required": true,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "views_90d",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "distinct_viewers_90d",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "last_view",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
+        }
+      ],
+      "side": "source"
+    },
+    "Datasource": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "luid",
+          "required": false,
+          "server_managed": false,
+          "type": "luid"
+        },
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": [
+            "embedded",
+            "published"
+          ],
+          "name": "type",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "connection_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "extract_flag",
+          "required": false,
+          "server_managed": false,
+          "type": "bool"
+        },
+        {
+          "enum": null,
+          "name": "refresh_schedule",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        }
+      ],
+      "side": "source"
+    },
+    "ExceptionCase": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "mu_ref",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": [
+            "FILTER_CONTEXT",
+            "NULL_HANDLING",
+            "DATE_GRAIN",
+            "AGGREGATION",
+            "TYPE_COERCION",
+            "LOD_SCOPE",
+            "TABLE_CALC",
+            "SORT_LIMIT",
+            "KEY_MISSING",
+            "SOURCE_DRIFT",
+            "UNKNOWN"
+          ],
+          "name": "class",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "evidence_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "state",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "assignee",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "decision",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "pattern_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        }
+      ],
+      "side": "target"
+    },
+    "Field": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "datatype",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": [
+            "dimension",
+            "measure"
+          ],
+          "name": "role",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "default_agg",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "hidden",
+          "required": false,
+          "server_managed": false,
+          "type": "bool"
+        }
+      ],
+      "side": "source"
+    },
+    "Filter": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "field_ref",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": [
+            "categorical",
+            "range",
+            "relative_date",
+            "top_n",
+            "condition"
+          ],
+          "name": "type",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "values",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "context_flag",
+          "required": false,
+          "server_managed": false,
+          "type": "bool"
+        }
+      ],
+      "side": "source"
+    },
+    "GateDecision": {
+      "properties": [
+        {
+          "enum": [
+            "G1",
+            "G2",
+            "G3",
+            "G4"
+          ],
+          "name": "gate",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "subject_ref",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": [
+            "APPROVED",
+            "REJECTED",
+            "CHANGES_REQUESTED",
+            "WAIVED"
+          ],
+          "name": "decision",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "approver",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "rationale",
+          "required": false,
+          "server_managed": false,
+          "type": "text"
+        },
+        {
+          "enum": null,
+          "name": "evidence_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "timestamp",
+          "required": true,
+          "server_managed": false,
+          "type": "timestamp"
+        },
+        {
+          "enum": null,
+          "name": "approver_role",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "version_hash",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "countersigner",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "countersigner_role",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        }
+      ],
+      "side": "platform"
+    },
+    "Measure": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "dax",
+          "required": true,
+          "server_managed": false,
+          "type": "text"
+        },
+        {
+          "enum": null,
+          "name": "m_query",
+          "required": false,
+          "server_managed": false,
+          "type": "text"
+        },
+        {
+          "enum": null,
+          "name": "source_calc_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": [
+            "C1",
+            "C2",
+            "C3",
+            "C4"
+          ],
+          "name": "class",
+          "required": false,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "pattern_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "provenance_ref",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "validation_state",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        }
+      ],
+      "side": "target"
+    },
+    "ModelFamily": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "domain",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "grain",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": [
+            "PROPOSED",
+            "SINGLETON",
+            "DRAFT",
+            "IN_REVIEW",
+            "APPROVED",
+            "BUILT",
+            "PUBLISHED",
+            "DEPRECATED"
+          ],
+          "name": "state",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "owner",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "conformed_dims",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "reason",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "evidence_shared_tables",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "evidence_shared_fields",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "evidence_shared_calc_shapes",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "overridden",
+          "required": false,
+          "server_managed": false,
+          "type": "bool"
+        },
+        {
+          "enum": [
+            "SPLIT",
+            "MERGE",
+            "MOVE"
+          ],
+          "name": "override_action",
+          "required": false,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "override_reason",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "g2_cycle_count",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "conformance_ruleset_version",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        }
+      ],
+      "side": "target"
+    },
+    "ModelTable": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "source_table_refs",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": [
+            "import",
+            "directlake",
+            "directquery"
+          ],
+          "name": "mode",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "family_ref",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "semantic_model_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "schema",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "mode_reason",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "row_estimate",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "custom_sql",
+          "required": false,
+          "server_managed": false,
+          "type": "bool"
+        }
+      ],
+      "side": "target"
+    },
+    "Parameter": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "datatype",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": [
+            "list",
+            "range",
+            "any"
+          ],
+          "name": "domain",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "default",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "current_values_seen",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        }
+      ],
+      "side": "source"
+    },
+    "ParityCase": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "mu_ref",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "sheet_ref",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "grain",
+          "required": true,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "measures",
+          "required": true,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "filter_ctx",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "param_values",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "expected_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "candidate_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "state",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        }
+      ],
+      "side": "target"
+    },
+    "ParityRun": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "suite_ref",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "charter_version",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "started",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
+        },
+        {
+          "enum": null,
+          "name": "finished",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
+        },
+        {
+          "enum": null,
+          "name": "verdicts",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        }
+      ],
+      "side": "target"
+    },
+    "Pattern": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": [
+            "C1",
+            "C2",
+            "C3",
+            "C4"
+          ],
+          "name": "class",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "source_signature",
+          "required": true,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "target_template",
+          "required": true,
+          "server_managed": false,
+          "type": "text"
+        },
+        {
+          "enum": null,
+          "name": "provenance",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": [
+            "CANDIDATE",
+            "ACTIVE",
+            "RETIRED"
+          ],
+          "name": "promotion_state",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "pass_count",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        }
+      ],
+      "side": "platform"
+    },
+    "Project": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "luid",
+          "required": true,
+          "server_managed": false,
+          "type": "luid"
+        },
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "parent",
+          "required": false,
+          "server_managed": false,
+          "type": "luid"
+        }
+      ],
+      "side": "source"
+    },
+    "ReleaseTrain": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "mu_refs",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "planned_start",
+          "required": false,
+          "server_managed": false,
+          "type": "date"
+        },
+        {
+          "enum": null,
+          "name": "planned_end",
+          "required": false,
+          "server_managed": false,
+          "type": "date"
+        },
+        {
+          "enum": null,
+          "name": "actual_start",
+          "required": false,
+          "server_managed": false,
+          "type": "date"
+        },
+        {
+          "enum": null,
+          "name": "actual_end",
+          "required": false,
+          "server_managed": false,
+          "type": "date"
+        },
+        {
+          "enum": null,
+          "name": "gate_schedule",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "wip_limits",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "overridden",
+          "required": false,
+          "server_managed": false,
+          "type": "bool"
+        },
+        {
+          "enum": [
+            "MOVE",
+            "RESEQUENCE",
+            "WIP_LIMITS"
+          ],
+          "name": "override_action",
+          "required": false,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "override_reason",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        }
+      ],
+      "side": "platform"
+    },
+    "ReportDefinition": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "mu_ref",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "pbir_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "pages",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "model_ref",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "version",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "validation_state",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        }
+      ],
+      "side": "target"
+    },
+    "SemanticModel": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "family_ref",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "tmdl_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "workspace",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "state",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "version",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "rls_roles",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "grain_statement",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "design_generated_at",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
+        },
+        {
+          "enum": null,
+          "name": "design_provenance_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "design_document",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "version_number",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "published_at",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
+        },
+        {
+          "enum": null,
+          "name": "deprecated_at",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
+        }
+      ],
+      "side": "target"
+    },
+    "Site": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "luid",
+          "required": true,
+          "server_managed": false,
+          "type": "luid"
+        },
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "owner",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "user_count",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "licence_cost_annual",
+          "required": false,
+          "server_managed": false,
+          "type": "float"
+        },
+        {
+          "enum": null,
+          "name": "licence_tier",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        }
+      ],
+      "side": "source"
+    },
+    "Table": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "schema",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "custom_sql",
+          "required": false,
+          "server_managed": false,
+          "type": "text"
+        },
+        {
+          "enum": null,
+          "name": "row_estimate",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        }
+      ],
+      "side": "source"
+    },
+    "User": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "upn",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "display",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "licence_tier",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "site_roles",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "directory_id",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "directory_resolved_at",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
+        }
+      ],
+      "side": null
+    },
+    "Verdict": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "case_ref",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INCONCLUSIVE"
+          ],
+          "name": "result",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "failing_cells",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "evidence_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        }
+      ],
+      "side": "target"
+    },
+    "Visual": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "page",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "type",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "source_sheet_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "encodings",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "redesign_flag",
+          "required": false,
+          "server_managed": false,
+          "type": "bool"
+        },
+        {
+          "enum": null,
+          "name": "redesign_reason",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        }
+      ],
+      "side": "target"
+    },
+    "Wave": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "mu_refs",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "planned_start",
+          "required": false,
+          "server_managed": false,
+          "type": "date"
+        },
+        {
+          "enum": null,
+          "name": "planned_end",
+          "required": false,
+          "server_managed": false,
+          "type": "date"
+        },
+        {
+          "enum": null,
+          "name": "actual_start",
+          "required": false,
+          "server_managed": false,
+          "type": "date"
+        },
+        {
+          "enum": null,
+          "name": "actual_end",
+          "required": false,
+          "server_managed": false,
+          "type": "date"
+        }
+      ],
+      "side": "platform"
+    },
+    "Workbook": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "luid",
+          "required": true,
+          "server_managed": false,
+          "type": "luid"
+        },
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "revision",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "size",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "extract_flag",
+          "required": false,
+          "server_managed": false,
+          "type": "bool"
+        },
+        {
+          "enum": null,
+          "name": "last_published",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
+        },
+        {
+          "enum": null,
+          "name": "views_90d",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "distinct_viewers_90d",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "rls",
+          "required": false,
+          "server_managed": false,
+          "type": "bool"
+        },
+        {
+          "enum": null,
+          "name": "rls_expression",
+          "required": false,
+          "server_managed": false,
+          "type": "text"
+        },
+        {
+          "enum": null,
+          "name": "parse_quality",
+          "required": false,
+          "server_managed": false,
+          "type": "float"
+        }
+      ],
+      "side": "source"
+    },
+    "Worksheet": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "name",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "mark_type",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "rows_shelf",
+          "required": true,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "cols_shelf",
+          "required": true,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "marks_shelf",
+          "required": true,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "sort",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "filters",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "reference_lines",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "views_90d",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "distinct_viewers_90d",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "last_view",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
+        }
+      ],
+      "side": "source"
+    }
+  },
+  "schema_version": 17
+}

@@ -1,0 +1,265 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  graph-svc:
+    name: graph-svc
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: apache/age:release_PG16_1.6.0
+        env:
+          POSTGRES_DB: astra
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      ASTRA_POSTGRES_HOST: localhost
+      ASTRA_POSTGRES_PORT: "5432"
+      ASTRA_POSTGRES_DB: astra
+      ASTRA_POSTGRES_USER: astra
+      ASTRA_POSTGRES_PASSWORD: astra_ci
+      ASTRA_GRAPH_NAME: astra_estate_ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      # The SDK first: graph-svc depends on the published §6.1 contract, and installing it
+      # from the checkout is what keeps the two in step in a monorepo without a package index.
+      - name: Install
+        run: |
+          python -m pip install -e "packages/adapter-sdk[dev]"
+          python -m pip install -e "packages/adapter-tableau[dev]"
+          python -m pip install -e "services/graph-svc[dev]"
+
+      # S1.1.1 criterion 3: the generated ontology reference and the schema cannot drift,
+      # and the schema cannot drift from the specification's own §4.1.1/§4.1.2 tables.
+      - name: Ontology drift guard
+        working-directory: services/graph-svc
+        run: python tools/ontology_check.py
+
+      # S1.1.1 criterion 4: a breaking ontology change needs a migration with a backfill.
+      - name: Migration guard
+        working-directory: services/graph-svc
+        run: python tools/migration_check.py
+
+      # S1.3.1 criterion 1: a context contract is a GraphQL fragment, so it is validated
+      # against the schema generated from the ontology. The step also prints every field
+      # each contract sends across the inference boundary (§18.3), so a pull request that
+      # widens that boundary shows it in the build log.
+      - name: Context contract guard
+        working-directory: services/graph-svc
+        run: python tools/contract_check.py
+
+      - name: Lint
+        working-directory: services/graph-svc
+        run: python -m ruff check .
+
+      - name: Type check
+        working-directory: services/graph-svc
+        run: python -m mypy
+
+      - name: Unit tests
+        working-directory: services/graph-svc
+        run: python -m pytest -m "not integration" -q
+
+      - name: Migrate
+        working-directory: services/graph-svc
+        run: python tools/migrate.py
+
+      # Includes the S1.1.2 latency benchmark, which fails if a depth-3 neighbourhood
+      # on a 1,000-workbook estate exceeds the 300 ms p95 budget.
+      - name: Integration tests
+        working-directory: services/graph-svc
+        run: python -m pytest -m integration -q -s
+
+      # S5.2.2 criterion 2: every already-produced Measure re-checked against the rule set
+      # this build ships. On this workflow's own fresh graph there is nothing to regress
+      # yet, so this passes trivially here — its real job is catching a rule change that
+      # would silently break a client's already-converted artefacts before that change is
+      # promoted to their environment.
+      - name: Rule regression guard
+        working-directory: services/graph-svc
+        run: python tools/rule_regression_check.py
+
+  adapter-sdk:
+    name: adapter-sdk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -e "packages/adapter-sdk[dev]"
+
+      - name: Lint
+        working-directory: packages/adapter-sdk
+        run: python -m ruff check .
+
+      - name: Type check
+        working-directory: packages/adapter-sdk
+        run: python -m mypy
+
+      # Includes the tests that spawn real adapter worker processes and kill them: S2.1.1's
+      # "an adapter crash does not take down a worker" is not a claim a mock can support.
+      - name: Tests
+        working-directory: packages/adapter-sdk
+        run: python -m pytest -q
+
+      # §6.3: "The suite runs in CI and on tenant enablement against a client-provided
+      # sample." This is the CI half. Run twice: in process, and through the adapter RPC
+      # against a supervised worker — the second is how an adapter is actually deployed, and
+      # a suite that only ever ran in process would certify something else.
+      # §6.3: "The suite runs in CI and on tenant enablement against a client-provided
+      # sample." This is the CI half.
+      - name: Conformance (in process)
+        run: astra-adapter conformance --adapter fake
+
+      # The mode that certifies what is actually deployed: a supervised worker over the
+      # adapter RPC. The signed report is kept as a build artefact — S2.1.2 makes a passing
+      # report the thing a tenant promotes an adapter on, so a run that produced no report
+      # has produced nothing a tenant can act on.
+      - name: Conformance (over the adapter RPC)
+        env:
+          ASTRA_CONFORMANCE_SIGNING_KEY: ${{ secrets.ASTRA_CONFORMANCE_SIGNING_KEY }}
+        run: astra-adapter conformance --adapter fake --remote --out conformance-report.json
+
+      - name: Verify the report
+        if: ${{ env.ASTRA_CONFORMANCE_SIGNING_KEY != '' }}
+        env:
+          ASTRA_CONFORMANCE_SIGNING_KEY: ${{ secrets.ASTRA_CONFORMANCE_SIGNING_KEY }}
+        run: astra-adapter verify conformance-report.json
+
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-report
+          path: packages/adapter-sdk/conformance-report.json
+          if-no-files-found: warn
+
+  adapter-tableau:
+    name: adapter-tableau
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install -e "packages/adapter-sdk[dev]"
+          python -m pip install -e "packages/adapter-tableau[dev]"
+
+      - name: Lint
+        working-directory: packages/adapter-tableau
+        run: python -m ruff check .
+
+      - name: Type check
+        working-directory: packages/adapter-tableau
+        run: python -m mypy
+
+      - name: Tests
+        working-directory: packages/adapter-tableau
+        run: python -m pytest -q
+
+      # §6.3 runs the suite "in CI and on tenant enablement". The CI half needs a Tableau to
+      # point at, so the golden deployment the adapter ships is served over a real socket:
+      # running the suite in process would certify the adapter's logic, and running it over a
+      # socket certifies the adapter — its timeouts, its connection handling, its retries.
+      #
+      - name: Serve the golden deployment
+        run: |
+          nohup python -m astra_adapter_tableau.golden_serve --port 8099 &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8099/api/3.14/serverinfo >/dev/null && break
+            sleep 1
+          done
+
+      # S2.3.1 made this pass. It is no longer `continue-on-error`: the adapter is conformant
+      # for the capabilities it claims, and a regression should stop the build rather than
+      # leave a red mark somebody learns to ignore.
+      - name: Conformance
+        env:
+          ASTRA_TABLEAU_URL: http://127.0.0.1:8099
+          ASTRA_TABLEAU_SITE: golden
+          ASTRA_TABLEAU_CREDENTIAL: '{"kind":"personal_access_token","token_name":"astra","secret":"a-personal-access-token"}'
+          ASTRA_CONFORMANCE_SIGNING_KEY: ${{ secrets.ASTRA_CONFORMANCE_SIGNING_KEY }}
+        run: astra-adapter conformance --adapter tableau --out tableau-conformance.json
+
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tableau-conformance-report
+          path: packages/adapter-tableau/tableau-conformance.json
+          if-no-files-found: warn
+
+  image:
+    name: graph-svc image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build -t astra/graph-svc:ci services/graph-svc
+
+  console:
+    name: Console
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/console-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: services/console-web/package-lock.json
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      # The build type-checks too, but failing here says "types" rather than "build".
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Build the image
+        run: docker build -t astra/console-web:ci .

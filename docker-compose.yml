@@ -1,0 +1,71 @@
+# Local development only. The deployed topology is AKS + Azure Database for PostgreSQL
+# (spec 5.3); this file exists so the same images and migrations run on a laptop.
+
+name: astra-data
+
+services:
+  postgres:
+    # Apache AGE ships as a PostgreSQL image with the extension preinstalled.
+    # Pinned to an explicit release so local and CI run the same PostgreSQL and AGE.
+    image: apache/age:release_PG16_1.6.0
+    environment:
+      POSTGRES_DB: ${ASTRA_POSTGRES_DB:-astra}
+      POSTGRES_USER: ${ASTRA_POSTGRES_USER:-astra}
+      POSTGRES_PASSWORD: ${ASTRA_POSTGRES_PASSWORD:-astra_local_dev_only}
+    ports:
+      - "${ASTRA_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ASTRA_POSTGRES_USER:-astra} -d ${ASTRA_POSTGRES_DB:-astra}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  graph-svc:
+    build:
+      # Repository root, so the image can build the sibling adapter SDK it depends on.
+      context: .
+      dockerfile: ./services/graph-svc/Dockerfile
+    environment:
+      ASTRA_POSTGRES_HOST: postgres
+      ASTRA_POSTGRES_PORT: 5432
+      ASTRA_POSTGRES_DB: ${ASTRA_POSTGRES_DB:-astra}
+      ASTRA_POSTGRES_USER: ${ASTRA_POSTGRES_USER:-astra}
+      ASTRA_POSTGRES_PASSWORD: ${ASTRA_POSTGRES_PASSWORD:-astra_local_dev_only}
+      ASTRA_GRAPH_NAME: ${ASTRA_GRAPH_NAME:-astra_estate}
+      ASTRA_ENV: local
+      # The fixture adapter's credentials. Not secrets: the fixture estate is generated,
+      # accepts any token, and is only reachable because ASTRA_ENV is local. Present so
+      # that `docker compose up` gives a stack a harvest can actually run on — without
+      # them the first harvest fails on a missing credential and the console shows an
+      # empty estate with no hint why.
+      ASTRA_CREDENTIAL_TABLEAU_RQA: fixture-local-only
+      ASTRA_CREDENTIAL_TABLEAU_GTAA: fixture-local-only
+      # Set to an adapter worker's base URL to harvest out of process over the §6.1 RPC
+      # (S2.1.1), which is how an adapter is actually deployed — §5.2 makes it a worker and
+      # §5.4 runs it as its own pod. Unset, the platform uses the in-process fixture adapter,
+      # which is what the local demo wants: one container, one estate, nothing to start.
+      #   ASTRA_ADAPTER_URL: http://adapter-fake:8090
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["service"]
+
+  console-web:
+    # The Migration Console. Served by nginx, which also proxies /v1 to graph-svc so the
+    # browser makes same-origin calls and no CORS policy has to exist.
+    build:
+      context: ./services/console-web
+      args:
+        VITE_ASTRA_ENV: local
+    ports:
+      - "${ASTRA_CONSOLE_PORT:-5173}:8080"
+    depends_on:
+      - graph-svc
+    profiles: ["service"]
+
+volumes:
+  postgres-data:
