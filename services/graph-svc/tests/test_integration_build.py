@@ -25,10 +25,11 @@ pytestmark = pytest.mark.integration
 asyncpg = pytest.importorskip("asyncpg")
 
 from astra_adapter.target_fake import FixtureTargetAdapter  # noqa: E402
+
 from astra_graph.artefacts import PostgresArtefactStore  # noqa: E402
 from astra_graph.build import BuildRecord, PostgresBuildStore, build_family  # noqa: E402
-from astra_graph.conformance_rules import PostgresConformanceRulesetStore  # noqa: E402
 from astra_graph.config import Settings  # noqa: E402
+from astra_graph.conformance_rules import PostgresConformanceRulesetStore  # noqa: E402
 from astra_graph.errors import InvalidRequestError  # noqa: E402
 from astra_graph.events import source_for  # noqa: E402
 from astra_graph.g2 import PostgresQuestionStore, approve  # noqa: E402
@@ -343,9 +344,10 @@ async def test_latest_returns_the_most_recent_build(estate) -> None:
 
 @pytest.fixture
 async def http_client(estate):
+    from httpx import ASGITransport, AsyncClient
+
     from astra_graph.g2 import PostgresQuestionStore
     from astra_graph.main import create_app
-    from httpx import ASGITransport, AsyncClient
 
     app = create_app()
     app.state.modeller = estate["modeller"]
@@ -412,6 +414,8 @@ async def test_approving_at_g2_triggers_a_build_automatically(settings: Settings
     """A second, independent family, approved over HTTP rather than by calling `approve`
     directly — proving the automatic trigger `routes_g2.approve_route` wires in, not just
     the function this suite otherwise calls by hand."""
+    from httpx import ASGITransport, AsyncClient
+
     from astra_graph.artefacts import PostgresArtefactStore
     from astra_graph.build import PostgresBuildStore
     from astra_graph.conformance_rules import PostgresConformanceRulesetStore
@@ -423,7 +427,6 @@ async def test_approving_at_g2_triggers_a_build_automatically(settings: Settings
     from astra_graph.modeller import Modeller
     from astra_graph.provenance import PostgresProvenanceStore
     from astra_graph.writes import GraphWriter
-    from httpx import ASGITransport, AsyncClient
 
     pool = await create_pool(settings)
     try:

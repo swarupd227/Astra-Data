@@ -1452,6 +1452,55 @@ through the full ladder and reports the outcome, including every attempt made.
 See [ADR 0038](../../docs/adr/0038-generation-runs-a-real-ladder-behind-a-disclosed-model-seam.md)
 for the full reasoning.
 
+## The Transpiler: the Model Gateway (story S5.3.2)
+
+`gateway.py` — fills the one gap S5.3.1 deliberately left open. The Transpiler now calls
+`gateway.generate(task_class='transpile_c3', ...)`, never naming a provider, exactly as the
+acceptance criteria says.
+
+**A real task-class router in front of one real provider.** `ModelGateway` reads which
+providers are routable for a task class from a real, Postgres-backed policy store and calls
+the first one, never fabricating a response of its own — `GatewayRoutingError` if nothing is
+routable. `Gateway` (the router-level contract) and `ModelCaller` (one provider) are two
+different Protocols; `generation.py`'s own ladder holds a `Gateway`, not a bare caller.
+
+**Real Anthropic integration — this story's own explicit scope decision.** Unlike every
+infrastructure gap S5.3.1 disclosed, a real provider integration was genuinely possible here
+given credentials, so the choice was put to the product owner directly: live Anthropic calls,
+not a fixture. `AnthropicModelCaller` uses the Messages API's own structured-output feature
+(`output_config.format`, a JSON schema derived at call time from whatever `output_schema` the
+request declares) rather than prompt-engineered JSON and a regex. The installed SDK's own
+current API surface has no `temperature` parameter to set at all — confirmed directly against
+`anthropic>=1.0`'s own types, not assumed from older API shapes — so `temperature=0.0` on
+every response records the declared §5.4 policy, not an echoed request field, the same
+"provenance states the policy" reasoning `provenance.py`'s own field already carries. Azure
+OpenAI has no `ModelCaller` registered anywhere — disclosed absent, not a fake failing
+provider, so it is correctly never "configured" and never "routable."
+
+**A real, append-only, Postgres-backed tenant policy.** `PostgresGatewayPolicyStore`
+(`public.model_gateway_policy`, migration v0021) follows `conformance_ruleset`'s own "an edit
+is a new version" discipline: every eval run inserts a new row, and `routable_providers`/
+`policy_for` read the *latest* row per `(graph, task_class, provider)`. `ROUTABLE_THRESHOLD =
+0.80` is the AC's own number — confirmed to be the same one §16.6's "Class 3 proof rate"
+target names.
+
+**A real eval harness — first-pass schema + parse, a disclosed proxy for a real parity
+verdict.** No Arbiter exists (E7, the identical gap S5.3.1's own rungs 3/4 already disclosed),
+so `run_eval_set` can only grade what can really be checked today: does a response conform to
+the schema, and does its candidate pass `dax_sanity_check`, both real, both reused unchanged.
+`TRANSPILE_C3_EVAL_CASES` is a real, fixed, checked-in corpus of five table-calc idioms — the
+same "a real corpus, run for real" shape `rules.py`'s own `GoldenCase`s already established,
+generalised here to grade a live model instead of a deterministic render.
+
+**`GET /v1/model-gateway:policy`** (any Artizent role) reports every configured provider's
+last eval score and whether it is routable, for one task class. **`POST
+/v1/model-gateway:run-eval`** (`PlatformEngineerDep`, this story's own named persona) runs the
+eval set against one real, configured provider and records the verdict — the one action here
+that makes a real, billed external call, gated to the persona that should trigger it.
+
+See [ADR 0039](../../docs/adr/0039-the-model-gateway-real-anthropic-real-eval-gated-routing.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

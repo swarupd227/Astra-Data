@@ -21,12 +21,12 @@ pytestmark = pytest.mark.integration
 
 asyncpg = pytest.importorskip("asyncpg")
 
+from astra_graph.config import Settings  # noqa: E402
 from astra_graph.conformance_rules import (  # noqa: E402
     RULES,
     PostgresConformanceRulesetStore,
     RuleConfig,
 )
-from astra_graph.config import Settings  # noqa: E402
 from astra_graph.ids import new_ulid  # noqa: E402
 from astra_graph.migrations import run as run_migrations  # noqa: E402
 from astra_graph.principal import PRINCIPAL_HEADER, Principal  # noqa: E402

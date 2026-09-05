@@ -47,6 +47,12 @@ services:
       # §5.4 runs it as its own pod. Unset, the platform uses the in-process fixture adapter,
       # which is what the local demo wants: one container, one estate, nothing to start.
       #   ASTRA_ADAPTER_URL: http://adapter-fake:8090
+      # The Model Gateway's own real Anthropic provider (story S5.3.2). Unset locally on
+      # purpose — a real deployment secret, not a fixture value like the credentials
+      # above. Without it, POST /v1/model-gateway:run-eval fails each case with a real
+      # CredentialError; set it from your own shell environment (never committed) to
+      # exercise the gateway against a real model.
+      #   ASTRA_CREDENTIAL_ANTHROPIC_API_KEY: ${ASTRA_CREDENTIAL_ANTHROPIC_API_KEY:-}
     ports:
       - "8080:8080"
     depends_on:
