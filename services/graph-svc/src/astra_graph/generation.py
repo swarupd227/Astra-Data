@@ -90,6 +90,12 @@ from .graph.queries import EDGE_INDEX_TABLE, NODE_INDEX_TABLE
 from .ids import new_ulid
 from .lineage import children, hydrate
 from .ontology.types import BASE_NODE_PROPERTIES
+from .patterns import (
+    apply_active_pattern,
+    find_matching_pattern,
+    generalise_from_proof,
+    record_observation,
+)
 from .principal import Principal
 from .provenance import AgentMode, ProvenanceStore, new_record
 from .rules import dax_sanity_check
@@ -321,9 +327,13 @@ async def _matching_patterns(
     conn: asyncpg.Connection, graph_name: str, formula_ast: Any
 ) -> list[dict[str, Any]]:
     """§9.4's own "matching patterns" field, and §4.1.3's "the Pattern records whose
-    source_signature matches its AST shape" -- a real query, honestly moot today: no
-    `Pattern` node has ever been written (F5.5, not built), so this always returns empty
-    until that epic ships one."""
+    source_signature matches its AST shape" -- a real query, real data since story S5.5.1
+    (F5.5) started writing `Pattern` nodes. A C3 field whose shape an ACTIVE pattern
+    already covers never reaches this function at all: `generate_c3_field` re-evaluates it
+    to C2 and applies the pattern deterministically before `build_generation_request` is
+    ever called (`patterns.apply_active_pattern`, "ahead of any model call") -- so what
+    this still surfaces to a model, for a genuine C3, is CANDIDATE evidence the model may
+    find useful, never something that should have skipped the model entirely."""
     rows = await conn.fetch(
         f"""SELECT id FROM {NODE_INDEX_TABLE}
          WHERE graph = $1 AND kind = 'node' AND label = 'Pattern' AND retired_at IS NULL""",
@@ -559,6 +569,11 @@ class GenerationOutcome:
     tier) unless S5.3.3's own calibration floor had already been crossed, in which case
     `TRANSPILE_C3_SMALL_MODEL`. Left at the reasoning-tier default on the two early-return
     outcomes (no such field; not C3) that never reach the ladder at all."""
+    pattern_id: str | None = None
+    """Story S5.5.1: the real `Pattern` node this call was actually served by — set only
+    when an ACTIVE pattern's own deterministic application produced `measure_id`, never a
+    model call. `None` for a genuine model-served outcome (`task_class` names what served
+    it instead) and for either early-return outcome."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -569,6 +584,7 @@ class GenerationOutcome:
             "attempts": [a.as_dict() for a in self.attempts],
             "reason": self.reason,
             "task_class": self.task_class,
+            "pattern_id": self.pattern_id,
         }
 
 
@@ -769,7 +785,17 @@ async def generate_c3_field(
     `TRANSPILE_C3`'s own calibration has fallen below its floor and, if so, runs it against
     `TRANSPILE_C3_SMALL_MODEL` instead (§16.3's own "routed ... rather than trusted") — and
     afterwards records a real calibration observation for every attempt that declared a
-    confidence, so later calls have real history to check against."""
+    confidence, so later calls have real history to check against.
+
+    Story S5.5.1: before any of that, checks whether an ACTIVE `Pattern` already covers
+    this AST's own shape. If one does, it is applied deterministically
+    (`patterns.apply_active_pattern`) and the model is never called at all — the field's
+    own `class` is re-evaluated to C2 with a real `pattern_ref`, the AC's own bullet 3,
+    verbatim. A successful model-served generation instead generalises into a real
+    `Pattern` candidate (`patterns.generalise_from_proof`, bullet 1); a failed one records
+    a proof failure against any existing candidate/active pattern for its shape, so "zero
+    failures" (bullet 2's own promotion gate) is a real, checked fact and not vacuously
+    true."""
     calibration_store = calibration or NullCalibrationStore()
 
     async with pool.acquire() as conn:
@@ -786,6 +812,27 @@ async def generate_c3_field(
             calc_id, False, None, None, (),
             f"not a Class 3 calculation (classified {classification.class_}); this pipeline is C3-only",
         )
+
+    formula_ast = calc.get("formula_ast")
+    existing_pattern = await find_matching_pattern(pool, graph_name, formula_ast)
+    if existing_pattern is not None and existing_pattern.promotion_state == "ACTIVE":
+        async with pool.acquire() as conn:
+            graph_version = await _current_version(conn, graph_name)
+        measure_id = await apply_active_pattern(
+            pool, graph_name, writer, provenance_store,
+            calc_id=calc_id, calc_properties=calc, pattern=existing_pattern,
+            graph_version=graph_version, principal=principal,
+        )
+        if measure_id is not None:
+            return GenerationOutcome(
+                calc_id, True, measure_id, None, (),
+                "applied an ACTIVE Pattern deterministically -- no model was called (§9.3)",
+                pattern_id=existing_pattern.pattern_id,
+            )
+        # The pattern's own deterministic render failed even the structural sanity check
+        # (recorded as a failure observation by apply_active_pattern itself) -- fall
+        # through to the normal model-call path rather than blocking this field on one
+        # pattern's own hiccup.
 
     request = await build_generation_request(pool, graph_name, calc_id)
     assert request is not None  # calc existed above; nothing retired it in between
@@ -812,15 +859,28 @@ async def generate_c3_field(
         measure_id = await _write_measure(
             pool, graph_name, writer, provenance_store, calc_id, calc, success, principal=principal,
         )
+        pattern_id = await generalise_from_proof(
+            pool, graph_name, writer,
+            calc_id=calc_id, formula_ast=formula_ast, dax=success.dax or "", class_="C3",
+            principal=principal,
+        )
         return GenerationOutcome(
             calc_id, True, measure_id, None, attempts,
             "generated and validated through rung 4 (compile/proof are disclosed passes; see module docstring)",
-            task_class=task_class,
+            task_class=task_class, pattern_id=pattern_id,
         )
 
     exception_case_id = await _write_exception_case(
         pool, graph_name, writer, calc_id, attempts, principal=principal,
     )
+    if existing_pattern is not None:
+        # A shape an existing candidate/active pattern already covers just failed the
+        # normal model-call path too -- real evidence against it, so bullet 2's own "zero
+        # failures" promotion gate is a fact this platform checked, not an assumption.
+        await record_observation(
+            pool, graph_name, pattern_id=existing_pattern.pattern_id, calc_id=calc_id,
+            observed_pass=False, source="GENERATED_PROVED", created_by=principal.value,
+        )
     last = attempts[-1] if attempts else None
     reason = (
         last.gateway_error if last and last.gateway_error

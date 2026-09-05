@@ -11,17 +11,36 @@ evaluation, promotion and pass statistics are the Pattern Library's, which is E5
 This does one thing: turn an AST into the shape string that selects patterns by equality,
 so the contract can carry the matches rather than a promise of them.
 
-**Why structural rather than grammar-aware.** The calculation grammar belongs to the
-Tableau adapter (E2/F2.3) and does not exist yet. Encoding a guess at its node types here
-would be a second grammar to keep in step with the first. So the walk is generic: a
-dictionary carrying an operator key is a call, a dictionary carrying a single identifier
-key is a leaf, everything else is structure. An adapter that names its AST nodes
-differently declares the extra keys here rather than rewriting the walk.
+**Why structural rather than grammar-aware — and the real grammar this predates.** This
+module's own generic walk (a dictionary carrying an operator key is a call, one carrying a
+single identifier key is a leaf) was written when "the calculation grammar belongs to the
+Tableau adapter (E2/F2.3) and does not exist yet." It now does (S2.3.1): every real
+``CalculatedField.formula_ast`` is the adapter-sdk wire shape (`packages/adapter-sdk`'s
+``CalcNode``) — a uniform ``{kind, name, value, children, detail}`` per node, discriminated
+by ``kind`` (one of exactly nine: REFERENCE, LITERAL, FUNCTION, AGGREGATE, OPERATOR,
+CONDITIONAL, CAST, WINDOW, UNKNOWN), which none of the generic keys below ever matched.
+
+**This was a real, confirmed defect, not a hypothetical one.** Run against real wire ASTs,
+the generic walk could not tell `kind`/`name` apart from any other string field, so it
+rendered both as an opaque ``<str>`` literal — collapsing ``SUM([Notional]) / SUM([Margin])``
+and ``SUM([Notional]) + SUM([Margin])`` (different operators, different fields) onto the
+identical shape string. Every existing caller — `lineage.calc_shapes` (S1.4.2, feeding
+S3.1.1's own Cartographer clustering), `generation._matching_patterns` and
+`context.assembler._patterns` (both already reading real `formula_ast`, both moot until a
+Pattern existed to match) — has been computing this same degenerate shape since S1.4.2.
+Fixed here (story S5.5.1, whose own Pattern-matching this bug would otherwise silently
+break) by recognising the real wire shape as a first-class case, kind-by-kind, ahead of the
+generic dispatch below — which stays exactly as it was, unbroken, for any AST that is not
+this shape (an adapter that names its nodes differently still declares its own keys there
+rather than rewriting either walk).
 
 Captures are named in order of first appearance — ``a``, ``b``, ``c`` — and the same
 identifier appearing twice gets the same name, because ``DIV(a, a)`` and ``DIV(a, b)`` are
 different shapes and a pattern for one must not match the other. Identity is the pair
-(kind, text): a field called ``Region`` and a parameter called ``Region`` are two things.
+(kind, text): a field called ``Region`` and a parameter called ``Region`` are two things —
+including under the real wire shape, whose single REFERENCE kind cannot itself distinguish
+a field from a parameter (`classify.py`'s own docstring: "Tableau writes a parameter
+reference identically to a field reference"), so identity there is (``"REFERENCE"``, name).
 """
 
 from __future__ import annotations
@@ -57,6 +76,19 @@ IDENTIFIER_KEYS: tuple[str, ...] = (
 #: pattern, and a literal can carry client data (§18.3).
 _LITERAL: dict[type, str] = {bool: "<bool>", int: "<num>", float: "<num>", str: "<str>"}
 
+#: The real adapter-sdk wire shape's own `kind` vocabulary (`astra_adapter.calc.NodeKind`) —
+#: exactly nine values, confirmed exhaustive against both the wire contract and the Tableau
+#: parser's own construction sites. `REFERENCE` is the sole leaf-with-an-identifier kind;
+#: `LITERAL` is the sole leaf-with-a-value kind; everything else is operator-shaped (`name`
+#: is the operator, `children` its arguments) except `UNKNOWN`, which carries neither.
+_WIRE_LEAF_KIND = "REFERENCE"
+_WIRE_LITERAL_KIND = "LITERAL"
+_WIRE_UNKNOWN_KIND = "UNKNOWN"
+_WIRE_OPERATOR_KINDS = frozenset(
+    {"FUNCTION", "AGGREGATE", "OPERATOR", "CONDITIONAL", "CAST", "WINDOW"}
+)
+_WIRE_KINDS = _WIRE_OPERATOR_KINDS | {_WIRE_LEAF_KIND, _WIRE_LITERAL_KIND, _WIRE_UNKNOWN_KIND}
+
 
 class SignatureError(ValueError):
     """The AST cannot be reduced to a shape."""
@@ -78,6 +110,17 @@ def signature_of(ast: Any, *, adapter: str | None = None) -> dict[str, Any]:
     if adapter:
         signature["adapter"] = adapter
     return signature
+
+
+def capture_identifiers(ast: Any) -> dict[str, str]:
+    """The placeholder-name -> original-identifier mapping for one AST (``{"a": "Notional",
+    "b": "Margin"}``) — the same captures ``ast_shape`` abstracts away, exposed for the
+    Pattern Library (story S5.5.1) to substitute back into a ``target_template`` when
+    applying a pattern to one specific calculation's own real field/parameter names.
+    """
+    captures: dict[tuple[str, str], str] = {}
+    _render(ast, captures, depth=0)
+    return {placeholder: identifier for (_key, identifier), placeholder in captures.items()}
 
 
 def matches(signature: Any, *, shape: str, adapter: str | None) -> bool:
@@ -118,6 +161,10 @@ def _render(node: Any, captures: dict[tuple[str, str], str], *, depth: int) -> s
 
 
 def _render_dict(node: dict[str, Any], captures: dict[tuple[str, str], str], *, depth: int) -> str:
+    kind = node.get("kind")
+    if isinstance(kind, str) and kind in _WIRE_KINDS:
+        return _render_wire_node(node, kind, captures, depth=depth)
+
     leaf = _leaf(node)
     if leaf is not None:
         return _capture(leaf, captures)
@@ -149,6 +196,33 @@ def _render_dict(node: dict[str, Any], captures: dict[tuple[str, str], str], *, 
             f"{key}: {text}" for (key, _value), text in zip(children, rendered, strict=True)
         )
         return "{" + pairs + "}"
+    return f"{operator}({', '.join(rendered)})"
+
+
+def _render_wire_node(
+    node: dict[str, Any], kind: str, captures: dict[tuple[str, str], str], *, depth: int
+) -> str:
+    """The real wire shape's own dispatch — see the module docstring's own "the real
+    grammar this predates" section. ``detail`` and ``value`` (except on LITERAL) are
+    deliberately excluded from the shape: they carry classifier metadata (§9.1's own family
+    tag, table-calc addressing) that must not make two calls to the same function look like
+    different shapes just because one happened to resolve a fact the other did not.
+    """
+    if kind == _WIRE_LEAF_KIND:
+        return _capture((kind, str(node.get("name") or "")), captures)
+    if kind == _WIRE_LITERAL_KIND:
+        return _LITERAL.get(type(node.get("value")), "<unknown>")
+    if kind == _WIRE_UNKNOWN_KIND:
+        # Always C4 (classify.py's own "kept verbatim, never generable") -- never reaches a
+        # GENERATED_PROVED artefact for the Pattern Library to generalise from, so a single
+        # opaque token (rather than descending into whatever raw text it carries) is enough.
+        return "<unknown_construct>"
+
+    operator = str(node.get("name") or "")
+    children = node.get("children") or []
+    if not isinstance(children, list):
+        raise SignatureError(f"{kind} node's children is not a list")
+    rendered = [_render(child, captures, depth=depth + 1) for child in children]
     return f"{operator}({', '.join(rendered)})"
 
 
@@ -194,6 +268,7 @@ __all__ = [
     "OPERATOR_KEYS",
     "SignatureError",
     "ast_shape",
+    "capture_identifiers",
     "matches",
     "signature_of",
 ]

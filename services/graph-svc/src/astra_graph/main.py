@@ -33,6 +33,7 @@ from .api import (
     lineage_router,
     modeller_router,
     ownership_router,
+    patterns_router,
     platform_router,
     provenance_router,
     quality_router,
@@ -323,6 +324,7 @@ def create_app() -> FastAPI:
     app.include_router(redesign_router)
     app.include_router(rules_router)
     app.include_router(generation_router)
+    app.include_router(patterns_router)
     app.include_router(gateway_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app

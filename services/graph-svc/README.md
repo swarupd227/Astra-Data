@@ -1588,6 +1588,61 @@ scope, two increments out) — "referenced at G3" stays exactly that future refe
 See [ADR 0041](../../docs/adr/0041-c4-redesign-guidance-and-decision-a-disclosed-blocked-proxy-on-calculatedfield.md)
 for the full reasoning.
 
+## The Pattern Library (story S5.5.1)
+
+`patterns.py` — opens F5.5. A proved C3 transformation becomes a reusable, deterministic
+template automatically; enough of them, applied enough times, mean fewer model calls as the
+programme runs.
+
+**A real, pre-existing bug in AST shapes, fixed first.** `context/signature.py`'s
+`ast_shape()` — the function every "same shape" claim in this codebase routes through — was
+written before the real Tableau grammar existed (S1.3.1) and never updated for it. Run
+against the real wire AST (`kind`/`name`/`children`/`detail`, S2.3.1), it could not tell
+`kind`/`name` apart from any other string field, so `SUM([Notional]) / SUM([Margin])` and
+`SUM([Notional]) + SUM([Margin])` — different operators, different fields — rendered to the
+identical shape. Confirmed by direct execution, not assumed, and fixed here: a kind-aware
+dispatch recognising all nine real `NodeKind` values runs ahead of the pre-existing generic
+walk, which is otherwise untouched (still exactly correct for the one test fixture that
+predates the real grammar and still uses it). Every existing caller —
+`lineage.calc_shapes` (feeding S3.1.1's own Cartographer clustering), `generation.
+_matching_patterns`, `context.assembler._patterns` — gets a correct shape for the first time.
+
+**Generalisation reuses a pattern rather than ever duplicating one.** When
+`generate_c3_field`'s own ladder succeeds, `generalise_from_proof` looks for an existing
+CANDIDATE/ACTIVE pattern matching the AST's shape first; a match records another real proof
+observation against it (how a CANDIDATE ever accumulates "N distinct proof passes"); no
+match creates one, with `target_template` generalised from the model's own real DAX text by
+substituting each captured field/parameter's bracketed reference with a placeholder — an
+honestly limited text substitution, not a DAX parser, disclosed as such — and `guards`
+inferred, modestly, from real `Field`/`Parameter` datatypes this platform can actually
+resolve (`"a is real"`), never fabricated for one it cannot.
+
+**"Zero failures" is real, from both directions.** A normal ladder failure and a
+deterministic pattern application that fails even `rules.dax_sanity_check`'s structural
+stand-in (rare, since the template came from an already-proven artefact, but checked, not
+assumed away — it falls back to the model path rather than blocking the field) both record
+a real failure observation. Promotion (`promote_pattern`, re-checked server-side against
+`public.pattern_observation`'s own append-only history — never a maintained counter, the
+identical footing `calibration_observation` already set) refuses below the threshold and
+refuses with any recorded failure even at it.
+
+**The payoff: `generate_c3_field` checks for an ACTIVE pattern before it ever reaches the
+model.** A match renders the pattern's own template against this specific calculation's
+real references and writes a Measure directly — the source `CalculatedField`'s own `class`
+becomes C2, its `pattern_ref` a real `Pattern` node, the model never called. Proven, not
+assumed: the integration suite wires a gateway that raises if `.generate()` is ever invoked
+and confirms the outcome still succeeds.
+
+`GET /v1/patterns` and `GET /v1/patterns/{id}:promotion-status` are open to any Artizent
+role; `POST /v1/patterns/{id}:promote` is the platform engineer's (`PlatformEngineerDep`,
+reused from S5.2.1/S5.3.2) — §13.2's own MA-11 action class, autonomy ceiling L2
+("Platform Engineer approves"). No automatic RETIRED demotion on a failure threshold and no
+Parity Dashboard flag — S5.5.2's own later, explicit scope; no Pattern Library console
+screen — this story's own acceptance criteria asks for the mechanism, not one.
+
+See [ADR 0042](../../docs/adr/0042-the-pattern-library-a-real-shape-fix-generalisation-and-deterministic-promotion.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

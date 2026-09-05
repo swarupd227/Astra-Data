@@ -579,10 +579,23 @@ NODE_TYPES: tuple[NodeType, ...] = (
             _p("source_signature", T.JSON, required=True,
                note="AST shape with leaf identifiers abstracted to typed placeholders."),
             _p("target_template", T.TEXT, required=True),
+            _p("guards", T.STRING_LIST,
+               note="Human-readable preconditions the captured placeholders must satisfy "
+                    "(§4.3's own worked example: ['dims ⊆ model.dimensions', 'a,b numeric']) "
+                    "-- story S5.5.1. Descriptive, not machine-evaluated, the identical "
+                    "footing `RuleMeta.guards` already has (consulted by a coverage report, "
+                    "never enforced by a renderer); matching stays exact-shape only."),
             _p("provenance", T.JSON, note="Origin, first sighting, promotion timestamp."),
             _p("promotion_state", T.ENUM, required=True,
                enum=("CANDIDATE", "ACTIVE", "RETIRED"), note="Spec §4.3."),
-            _p("pass_count", T.INT),
+            _p("pass_count", T.INT,
+               note="A point-in-time snapshot (written at creation and at promotion), not a "
+                    "live-maintained counter -- story S5.5.1's own `pattern_observation` "
+                    "table (append-only, one row per real proof pass or failure) is the "
+                    "authoritative source promotion eligibility is actually checked "
+                    "against, the identical 'computed from the raw table, never a "
+                    "maintained running total' footing `calibration_observation` already "
+                    "set (S5.3.3)."),
         ),
     ),
     NodeType(
@@ -941,5 +954,21 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "milestone I4); a real G3 gate that references these decisions is "
                "S9.1.1/S9.1.2's own later, explicit scope (milestone I5) — this story adds "
                "only what its own acceptance criteria asks for now.",
+    ),
+    SpecDeviation(
+        element="Pattern.guards",
+        reason="Section 4.1.1's own node table lists Pattern with no `guards` property at "
+               "all — §4.3's worked example (a narrative section, not the §4.1.1 table) "
+               "already shows one (`guards: [ 'dims ⊆ model.dimensions', 'a,b numeric' ]`), "
+               "and backlog story S5.5.1's own acceptance criteria requires the platform "
+               "to store 'its (source AST shape, target template, guards) tuple' for every "
+               "candidate pattern — the ontology simply never declared the third element "
+               "of that tuple until this story needed to write one.",
+        detail="Descriptive text, not a machine-evaluated precondition — the identical "
+               "footing `rules.RuleMeta.guards` already has (consulted by a coverage "
+               "report and by tests, never enforced by the renderer itself). §9.3 also "
+               "says matching is 'guarded on types and model context'; building a real "
+               "guard-evaluation engine is a future refinement this story does not "
+               "attempt — matching stays exact-shape only, as it already was.",
     ),
 )

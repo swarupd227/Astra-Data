@@ -16,6 +16,7 @@ from .routes_harvest import router as harvest_router
 from .routes_lineage import router as lineage_router
 from .routes_modeller import router as modeller_router
 from .routes_ownership import router as ownership_router
+from .routes_patterns import router as patterns_router
 from .routes_platform import router as platform_router
 from .routes_provenance import router as provenance_router
 from .routes_quality import router as quality_router
@@ -40,6 +41,7 @@ __all__ = [
     "lineage_router",
     "modeller_router",
     "ownership_router",
+    "patterns_router",
     "platform_router",
     "provenance_router",
     "quality_router",

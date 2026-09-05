@@ -1471,6 +1471,13 @@
         },
         {
           "enum": null,
+          "name": "guards",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
           "name": "provenance",
           "required": false,
           "server_managed": false,
@@ -2175,5 +2182,5 @@
       "side": "source"
     }
   },
-  "schema_version": 18
+  "schema_version": 19
 }

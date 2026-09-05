@@ -199,7 +199,10 @@ def require_platform_engineer(roles: RoleSetDep) -> RoleSet:
     want a rules engine..."). Applying rules writes real Measure/MAPS_TO/provenance
     artefacts estate-wide — the first route to drive this role (declared in `roles.py`
     since S1.1.1, gated nowhere until now — the same trajectory `parity_engineer` took at
-    S5.1.1)."""
+    S5.1.1). Story S5.5.1 reuses it for the Pattern Library's own MA-11 action (§13.2,
+    autonomy ceiling L2, "Platform Engineer approves") — promoting a candidate pattern to
+    ACTIVE is the identical persona approving the identical kind of estate-wide,
+    deterministic-generation-affecting change."""
     if Role.PLATFORM_ENGINEER not in roles.roles:
         raise ForbiddenError(
             f"applying the deterministic rules engine is the platform engineer's; declare "
