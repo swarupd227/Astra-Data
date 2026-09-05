@@ -27,13 +27,21 @@ FROM nginx:1.27-alpine AS runtime
 
 # nginx's own default site would serve its welcome page at / and 404 every deep link.
 RUN rm /etc/nginx/conf.d/default.conf
-COPY nginx.conf /etc/nginx/conf.d/console.conf
+# A template, not a static file: the base image's own entrypoint envsubst's
+# /etc/nginx/templates/*.template into /etc/nginx/conf.d/ at container start, so
+# $GRAPH_SVC_UPSTREAM (default below, matching the compose service name locally) can be
+# overridden per deployment without a rebuild.
+COPY nginx.conf /etc/nginx/templates/console.conf.template
+ENV GRAPH_SVC_UPSTREAM=http://graph-svc:8080
+ENV GRAPH_SVC_HOST=graph-svc
 COPY --from=build /build/dist /usr/share/nginx/html
 
 # The image runs unprivileged. nginx:alpine ships an `nginx` user; the directories it
-# writes to at runtime are chowned so it does not need to start as root to do it.
+# writes to at runtime are chowned so it does not need to start as root to do it —
+# including conf.d now, since the entrypoint's own envsubst step writes the rendered
+# template there as this same non-root user.
 RUN touch /var/run/nginx.pid \
- && chown -R nginx:nginx /var/run/nginx.pid /var/cache/nginx /usr/share/nginx/html
+ && chown -R nginx:nginx /var/run/nginx.pid /var/cache/nginx /usr/share/nginx/html /etc/nginx/conf.d
 
 USER nginx
 EXPOSE 8080
