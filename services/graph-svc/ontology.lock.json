@@ -570,6 +570,59 @@
           "required": false,
           "server_managed": false,
           "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "appendix_b_guidance",
+          "required": false,
+          "server_managed": false,
+          "type": "text"
+        },
+        {
+          "enum": null,
+          "name": "redesign_suggestion",
+          "required": false,
+          "server_managed": false,
+          "type": "text"
+        },
+        {
+          "enum": null,
+          "name": "redesign_suggestion_provenance_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": [
+            "IMPLEMENT_AS_SUGGESTED",
+            "ALTERNATIVE",
+            "DROP"
+          ],
+          "name": "redesign_decision",
+          "required": false,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "redesign_decision_reason",
+          "required": false,
+          "server_managed": false,
+          "type": "text"
+        },
+        {
+          "enum": null,
+          "name": "redesign_decision_by",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "redesign_decision_at",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
         }
       ],
       "side": "source"
@@ -2122,5 +2175,5 @@
       "side": "source"
     }
   },
-  "schema_version": 17
+  "schema_version": 18
 }

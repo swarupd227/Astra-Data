@@ -43,6 +43,9 @@ from .graph.queries import NODE_INDEX_TABLE
 from .lineage import children, hydrate
 from .ontology.types import BASE_NODE_PROPERTIES
 from .principal import Principal
+from .provenance import ProvenanceStore
+from .redesign import C4_PROPERTIES, c4_properties
+from .versions import EVENT_TABLE
 from .writes import GraphWriter, NodeWrite
 
 #: Bumped whenever the rule set below changes — S5.1.1's own "re-classification runs when
@@ -250,10 +253,13 @@ class ClassificationEngine:
     `Modeller`/`Cartographer` already use, so `app.state.classifier` follows the identical
     convention every other agent-backed route already reads its engine from."""
 
-    def __init__(self, pool: asyncpg.Pool, *, graph_name: str, writer: GraphWriter) -> None:
+    def __init__(
+        self, pool: asyncpg.Pool, *, graph_name: str, writer: GraphWriter, provenance_store: ProvenanceStore
+    ) -> None:
         self._pool = pool
         self._graph = graph_name
         self._writer = writer
+        self._provenance = provenance_store
 
     @property
     def pool(self) -> asyncpg.Pool:
@@ -266,6 +272,10 @@ class ClassificationEngine:
     @property
     def writer(self) -> GraphWriter:
         return self._writer
+
+    @property
+    def provenance(self) -> ProvenanceStore:
+        return self._provenance
 
 
 # ------------------------------------------------------------------------- estate-wide pass
@@ -313,12 +323,21 @@ class ReclassifyResult:
 
 
 async def reclassify_estate(
-    pool: asyncpg.Pool, graph_name: str, writer: GraphWriter, *, principal: Principal
+    pool: asyncpg.Pool,
+    graph_name: str,
+    writer: GraphWriter,
+    *,
+    provenance_store: ProvenanceStore,
+    principal: Principal,
 ) -> ReclassifyResult:
     """Classify every live `CalculatedField` against the current rule set, write the
     result, and report what moved class (story S5.1.1's own "re-classification... reports
-    what moved class")."""
+    what moved class"). Story S5.4.1: a C4 verdict also gets Appendix B guidance and a real
+    ASSISTED-mode redesign suggestion (`redesign.c4_properties`); a field that moves *away*
+    from C4 has those properties dropped, since they describe a decision that is no longer
+    relevant, not one that quietly persists as clutter."""
     async with pool.acquire() as conn:
+        graph_version = await _current_version(conn, graph_name)
         calc_rows = await conn.fetch(
             f"""SELECT id FROM {NODE_INDEX_TABLE}
              WHERE graph = $1 AND kind = 'node' AND label = 'CalculatedField' AND retired_at IS NULL""",
@@ -371,19 +390,33 @@ async def reclassify_estate(
                 )
             )
 
-        writes.append(
-            NodeWrite(
-                type="CalculatedField",
-                id=calc_id,
-                properties={
-                    **_writable_node_properties(properties),
-                    "class": result.class_,
-                    "pattern_ref": result.rule_id,
-                    "reason": result.reason,
-                    "classifier_version": CLASSIFIER_VERSION,
-                },
-            )
+        # C4-only properties are dropped here by construction (excluded from the base
+        # dict) unless result.class_ == "C4" re-adds them below — the same "omit rather
+        # than write a stale value" convention this codebase already follows elsewhere,
+        # applied to a whole property group at once rather than a single optional field.
+        node_properties: dict[str, Any] = {
+            key: value
+            for key, value in _writable_node_properties(properties).items()
+            if key not in C4_PROPERTIES
+        }
+        node_properties.update(
+            {
+                "class": result.class_,
+                "pattern_ref": result.rule_id,
+                "reason": result.reason,
+                "classifier_version": CLASSIFIER_VERSION,
+            }
         )
+        if result.class_ == "C4":
+            node_properties.update(
+                await c4_properties(
+                    provenance_store,
+                    calc_id=calc_id, rule_id=result.rule_id, existing=properties,
+                    graph_version=graph_version, principal=principal,
+                )
+            )
+
+        writes.append(NodeWrite(type="CalculatedField", id=calc_id, properties=node_properties))
 
     if writes:
         await writer.upsert_nodes(writes, principal=principal)
@@ -442,6 +475,13 @@ async def class_mix(pool: asyncpg.Pool, graph_name: str) -> dict[str, Any]:
         # None rather than picking one — the console shows "mixed" rather than a guess.
         "classifier_version": versions.pop() if len(versions) == 1 else None,
     }
+
+
+async def _current_version(conn: asyncpg.Connection, graph_name: str) -> int:
+    row = await conn.fetchrow(
+        f"SELECT seq FROM {EVENT_TABLE} WHERE graph = $1 ORDER BY seq DESC LIMIT 1", graph_name
+    )
+    return int(row["seq"]) if row else 0
 
 
 __all__ = [

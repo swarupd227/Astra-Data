@@ -73,10 +73,16 @@ class ContractName(str, Enum):
     ``context_hash``) over the gathered family evidence, so the record is still honest and
     reproducible — just not routed through ``ContextAssembler``. Once a real model call
     exists, register a full contract here and this deviation note can go.
+
+    **TRANSPILER_C4_REDESIGN is the same "name only" deviation (story S5.4.1).** A C4
+    redesign suggestion is a real, deterministic template composed from Appendix B's own
+    guidance text and the calculation's own rule id — never a model call — so there is no
+    inference boundary here either. Same reasoning as ``MODELLER_FAMILY``, a second time.
     """
 
     TRANSPILER_CALC = "transpiler_calc"
     MODELLER_FAMILY = "modeller_family"
+    TRANSPILER_C4_REDESIGN = "transpiler_c4_redesign"
 
 
 class ContractDefinitionError(Exception):

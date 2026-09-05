@@ -38,11 +38,14 @@ from astra_graph.lineage import hydrate  # noqa: E402
 from astra_graph.migrations import run as run_migrations  # noqa: E402
 from astra_graph.ontology import EDGE_LABELS, NODE_LABELS  # noqa: E402
 from astra_graph.principal import PRINCIPAL_HEADER, Principal  # noqa: E402
+from astra_graph.provenance import PostgresProvenanceStore  # noqa: E402
+from astra_graph.redesign import APPENDIX_B_GUIDANCE, C4_PROPERTIES  # noqa: E402
 from astra_graph.roles import ROLES_HEADER  # noqa: E402
 from astra_graph.writes import EdgeWrite, GraphWriter, NodeWrite  # noqa: E402
 
 PRINCIPAL = Principal("agent:harvester", run_id="run-classify")
 PARITY_ENGINEER = Principal("user:parity@artizent.example")
+MIGRATION_ENGINEER = Principal("user:migration@artizent.example")
 
 
 def _settings(graph_name: str) -> Settings:
@@ -175,6 +178,7 @@ async def estate(settings: Settings):
     from astra_graph.events import source_for
 
     writer = GraphWriter(repository, event_source=source_for(settings.graph_name))
+    provenance = PostgresProvenanceStore(pool, graph_name=settings.graph_name)
     suffix = new_ulid()[10:18].lower()
 
     sum_calc = await _write(
@@ -226,6 +230,7 @@ async def estate(settings: Settings):
             "pool": pool,
             "graph_name": settings.graph_name,
             "writer": writer,
+            "provenance": provenance,
             "sum_calc": sum_calc,
             "rawsql_calc": rawsql_calc,
             "parameterised_calc": parameterised_calc,
@@ -241,7 +246,8 @@ async def estate(settings: Settings):
 
 async def test_reclassify_writes_class_pattern_ref_reason_and_version(estate) -> None:
     result = await reclassify_estate(
-        estate["pool"], estate["graph_name"], estate["writer"], principal=PRINCIPAL
+        estate["pool"], estate["graph_name"], estate["writer"],
+        provenance_store=estate["provenance"], principal=PRINCIPAL,
     )
     async with estate["pool"].acquire() as conn:
         properties = await hydrate(conn, estate["graph_name"], "CalculatedField", [estate["sum_calc"]])
@@ -254,7 +260,10 @@ async def test_reclassify_writes_class_pattern_ref_reason_and_version(estate) ->
 
 
 async def test_a_parameter_dependency_is_resolved_from_a_real_depends_on_edge(estate) -> None:
-    await reclassify_estate(estate["pool"], estate["graph_name"], estate["writer"], principal=PRINCIPAL)
+    await reclassify_estate(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        provenance_store=estate["provenance"], principal=PRINCIPAL,
+    )
     async with estate["pool"].acquire() as conn:
         properties = await hydrate(
             conn, estate["graph_name"], "CalculatedField", [estate["parameterised_calc"]]
@@ -265,7 +274,10 @@ async def test_a_parameter_dependency_is_resolved_from_a_real_depends_on_edge(es
 
 
 async def test_table_calc_addressing_resolves_from_a_real_encoding_worksheet(estate) -> None:
-    await reclassify_estate(estate["pool"], estate["graph_name"], estate["writer"], principal=PRINCIPAL)
+    await reclassify_estate(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        provenance_store=estate["provenance"], principal=PRINCIPAL,
+    )
     async with estate["pool"].acquire() as conn:
         properties = await hydrate(
             conn, estate["graph_name"], "CalculatedField",
@@ -280,7 +292,8 @@ async def test_table_calc_addressing_resolves_from_a_real_encoding_worksheet(est
 
 async def test_reclassify_reports_what_moved_class(estate) -> None:
     first = await reclassify_estate(
-        estate["pool"], estate["graph_name"], estate["writer"], principal=PRINCIPAL
+        estate["pool"], estate["graph_name"], estate["writer"],
+        provenance_store=estate["provenance"], principal=PRINCIPAL,
     )
     moved_ids = {m.calculated_field_id for m in first.moved}
     assert estate["sum_calc"] in moved_ids
@@ -290,7 +303,8 @@ async def test_reclassify_reports_what_moved_class(estate) -> None:
     assert first_move.to_class == "C1"
 
     second = await reclassify_estate(
-        estate["pool"], estate["graph_name"], estate["writer"], principal=PRINCIPAL
+        estate["pool"], estate["graph_name"], estate["writer"],
+        provenance_store=estate["provenance"], principal=PRINCIPAL,
     )
     assert second.moved == ()
 
@@ -299,7 +313,10 @@ async def test_class_mix_reads_back_what_reclassify_wrote(estate) -> None:
     # The graph is shared across this module's own tests, so only facts every reclassified
     # field in it is guaranteed to share are checked — never "nothing else is unclassified",
     # which a sibling test (deliberately) leaves untrue.
-    await reclassify_estate(estate["pool"], estate["graph_name"], estate["writer"], principal=PRINCIPAL)
+    await reclassify_estate(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        provenance_store=estate["provenance"], principal=PRINCIPAL,
+    )
     mix = await class_mix(estate["pool"], estate["graph_name"])
     assert mix["counts"]["C1"] >= 1
     assert mix["counts"]["C4"] >= 1
@@ -330,7 +347,8 @@ async def http_client(estate):
 
     app = create_app()
     app.state.classifier = ClassificationEngine(
-        estate["pool"], graph_name=estate["graph_name"], writer=estate["writer"]
+        estate["pool"], graph_name=estate["graph_name"], writer=estate["writer"],
+        provenance_store=estate["provenance"],
     )
 
     transport = ASGITransport(app=app)
@@ -366,3 +384,188 @@ async def test_reclassify_over_http_reports_class_mix_and_moved(http_client, est
     assert body["classifier_version"] == CLASSIFIER_VERSION
     assert body["class_mix"]["C1"] >= 1
     assert any(m["calculated_field_id"] == estate["sum_calc"] for m in body["moved"])
+
+
+# ------------------------------------------------------------------ C4 redesign (story S5.4.1)
+
+
+async def test_reclassify_writes_guidance_suggestion_and_provenance_for_a_c4_field(estate) -> None:
+    await reclassify_estate(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        provenance_store=estate["provenance"], principal=PRINCIPAL,
+    )
+    async with estate["pool"].acquire() as conn:
+        properties = await hydrate(conn, estate["graph_name"], "CalculatedField", [estate["rawsql_calc"]])
+    node = properties[estate["rawsql_calc"]]
+    assert node["class"] == "C4"
+    guidance = APPENDIX_B_GUIDANCE[node["pattern_ref"]]
+    assert node["appendix_b_guidance"] == guidance.appendix_b_guidance
+    assert node["redesign_suggestion"] == guidance.suggestion
+    assert node["redesign_suggestion_provenance_ref"]
+    assert "redesign_decision" not in node  # nobody has decided yet — §3.2's own BLOCKED proxy
+
+    record = await estate["provenance"].get(node["redesign_suggestion_provenance_ref"])
+    assert record is not None
+    assert record.mode.value == "ASSISTED"
+    assert record.contract.value == "transpiler_c4_redesign"
+    assert record.subject_id == estate["rawsql_calc"]
+
+
+async def test_reclassify_is_idempotent_and_does_not_spam_a_new_provenance_record(estate) -> None:
+    await reclassify_estate(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        provenance_store=estate["provenance"], principal=PRINCIPAL,
+    )
+    async with estate["pool"].acquire() as conn:
+        first = (await hydrate(conn, estate["graph_name"], "CalculatedField", [estate["rawsql_calc"]]))[
+            estate["rawsql_calc"]
+        ]
+
+    await reclassify_estate(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        provenance_store=estate["provenance"], principal=PRINCIPAL,
+    )
+    async with estate["pool"].acquire() as conn:
+        second = (await hydrate(conn, estate["graph_name"], "CalculatedField", [estate["rawsql_calc"]]))[
+            estate["rawsql_calc"]
+        ]
+
+    assert second["redesign_suggestion_provenance_ref"] == first["redesign_suggestion_provenance_ref"]
+
+
+async def test_a_recorded_redesign_decision_survives_reclassification(estate) -> None:
+    await reclassify_estate(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        provenance_store=estate["provenance"], principal=PRINCIPAL,
+    )
+    await estate["writer"].set_node_properties(
+        estate["rawsql_calc"],
+        {
+            "redesign_decision": "DROP",
+            "redesign_decision_reason": "report owner agreed to drop this measure",
+            "redesign_decision_by": MIGRATION_ENGINEER.value,
+            "redesign_decision_at": "2026-01-01T00:00:00.000Z",
+        },
+        principal=MIGRATION_ENGINEER,
+    )
+
+    await reclassify_estate(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        provenance_store=estate["provenance"], principal=PRINCIPAL,
+    )
+    async with estate["pool"].acquire() as conn:
+        properties = await hydrate(conn, estate["graph_name"], "CalculatedField", [estate["rawsql_calc"]])
+    node = properties[estate["rawsql_calc"]]
+    assert node["redesign_decision"] == "DROP"
+    assert node["redesign_decision_by"] == MIGRATION_ENGINEER.value
+
+
+async def test_a_field_that_moves_away_from_c4_has_its_redesign_properties_cleared(estate) -> None:
+    # RAWSQL is always C4 by rule, so this exercises the clearing path directly against the
+    # writer rather than needing a field whose classification genuinely moves — the fact
+    # under test is that `upsert_nodes`/`set_node_properties`'s own full-replace semantics
+    # actually drop a stale key when a fresh write omits it, not that classification changed.
+    await reclassify_estate(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        provenance_store=estate["provenance"], principal=PRINCIPAL,
+    )
+    async with estate["pool"].acquire() as conn:
+        before = (await hydrate(conn, estate["graph_name"], "CalculatedField", [estate["rawsql_calc"]]))[
+            estate["rawsql_calc"]
+        ]
+    assert "redesign_suggestion" in before
+
+    from astra_graph.classify import _writable_node_properties
+    from astra_graph.writes import NodeWrite
+
+    node_properties = {k: v for k, v in _writable_node_properties(before).items() if k not in C4_PROPERTIES}
+    node_properties.update({"class": "C1", "pattern_ref": "b1:aggregate", "reason": "manually reclassified for this test"})
+    await estate["writer"].upsert_nodes(
+        [NodeWrite(type="CalculatedField", id=estate["rawsql_calc"], properties=node_properties)],
+        principal=PRINCIPAL,
+    )
+
+    async with estate["pool"].acquire() as conn:
+        after = (await hydrate(conn, estate["graph_name"], "CalculatedField", [estate["rawsql_calc"]]))[
+            estate["rawsql_calc"]
+        ]
+    for key in C4_PROPERTIES:
+        assert key not in after
+
+
+async def test_redesign_decision_over_http_requires_the_migration_engineer_role(http_client, estate) -> None:
+    await http_client.post(
+        "/v1/calculations:reclassify", headers=_headers("parity_engineer", PARITY_ENGINEER)
+    )
+    response = await http_client.post(
+        f"/v1/calculations/{estate['rawsql_calc']}:redesign-decision",
+        headers=_headers("parity_engineer", PARITY_ENGINEER),
+        json={"decision": "DROP", "reason": "report owner agreed"},
+    )
+    assert response.status_code == 403
+
+
+async def test_redesign_decision_over_http_rejects_an_invalid_decision_or_empty_reason(http_client, estate) -> None:
+    await http_client.post(
+        "/v1/calculations:reclassify", headers=_headers("parity_engineer", PARITY_ENGINEER)
+    )
+    bad_decision = await http_client.post(
+        f"/v1/calculations/{estate['rawsql_calc']}:redesign-decision",
+        headers=_headers("migration_engineer", MIGRATION_ENGINEER),
+        json={"decision": "SKIP", "reason": "not one of the three"},
+    )
+    assert bad_decision.status_code == 400
+
+    empty_reason = await http_client.post(
+        f"/v1/calculations/{estate['rawsql_calc']}:redesign-decision",
+        headers=_headers("migration_engineer", MIGRATION_ENGINEER),
+        json={"decision": "DROP", "reason": "   "},
+    )
+    assert empty_reason.status_code == 400
+
+
+async def test_redesign_decision_over_http_rejects_a_non_c4_field(http_client, estate) -> None:
+    await http_client.post(
+        "/v1/calculations:reclassify", headers=_headers("parity_engineer", PARITY_ENGINEER)
+    )
+    response = await http_client.post(
+        f"/v1/calculations/{estate['sum_calc']}:redesign-decision",
+        headers=_headers("migration_engineer", MIGRATION_ENGINEER),
+        json={"decision": "IMPLEMENT_AS_SUGGESTED", "reason": "not applicable"},
+    )
+    assert response.status_code == 400
+
+
+async def test_redesign_decision_over_http_records_it_and_it_is_visible_at_the_read_route(
+    http_client, estate
+) -> None:
+    await http_client.post(
+        "/v1/calculations:reclassify", headers=_headers("parity_engineer", PARITY_ENGINEER)
+    )
+    record_response = await http_client.post(
+        f"/v1/calculations/{estate['rawsql_calc']}:redesign-decision",
+        headers=_headers("migration_engineer", MIGRATION_ENGINEER),
+        json={"decision": "ALTERNATIVE", "reason": "replace with a native measure instead"},
+    )
+    assert record_response.status_code == 200
+    body = record_response.json()
+    assert body["redesign_decision"] == "ALTERNATIVE"
+    assert body["redesign_decision_by"] == MIGRATION_ENGINEER.value
+
+    for role, principal in (("programme_manager", PARITY_ENGINEER), ("client_report_owner", MIGRATION_ENGINEER)):
+        read_response = await http_client.get(
+            "/v1/calculations:c4-redesigns", headers=_headers(role, principal)
+        )
+        assert read_response.status_code == 200
+        redesigns = read_response.json()["redesigns"]
+        entry = next(r for r in redesigns if r["calculated_field_id"] == estate["rawsql_calc"])
+        assert entry["redesign_decision"] == "ALTERNATIVE"
+
+
+async def test_list_c4_redesigns_over_http_is_refused_to_a_client_role_that_is_not_the_report_owner(
+    http_client, estate
+) -> None:
+    response = await http_client.get(
+        "/v1/calculations:c4-redesigns", headers=_headers("client_data_owner", PARITY_ENGINEER)
+    )
+    assert response.status_code == 403

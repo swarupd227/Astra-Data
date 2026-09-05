@@ -50,7 +50,10 @@ async def reclassify(
     request: Request, principal: PrincipalDep, roles: ParityEngineerDep
 ) -> dict[str, Any]:
     engine = _engine(request)
-    result = await reclassify_estate(engine.pool, engine.graph_name, engine.writer, principal=principal)
+    result = await reclassify_estate(
+        engine.pool, engine.graph_name, engine.writer,
+        provenance_store=engine.provenance, principal=principal,
+    )
     return result.as_dict()
 
 

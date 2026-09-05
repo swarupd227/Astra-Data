@@ -36,6 +36,7 @@ from .api import (
     platform_router,
     provenance_router,
     quality_router,
+    redesign_router,
     router,
     rules_router,
     schedules_router,
@@ -221,7 +222,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.target_workspace_published = config.target_workspace_published
     # Story S5.1.1: the Transpiler's own first piece, classification — reads Appendix B.1's
     # families straight off the AST the Tableau grammar already stamps, no new store.
-    app.state.classifier = ClassificationEngine(pool, graph_name=config.graph_name, writer=writer)
+    app.state.classifier = ClassificationEngine(
+        pool, graph_name=config.graph_name, writer=writer, provenance_store=app.state.provenance_store,
+    )
     # Story S5.2.1: the deterministic rules engine — C1/C2 calculations rendered into real
     # DAX, with real provenance, no model call.
     app.state.rules_engine = RulesEngine(
@@ -317,6 +320,7 @@ def create_app() -> FastAPI:
     app.include_router(modeller_router)
     app.include_router(conformance_router)
     app.include_router(classification_router)
+    app.include_router(redesign_router)
     app.include_router(rules_router)
     app.include_router(generation_router)
     app.include_router(gateway_router)

@@ -19,6 +19,7 @@ from .routes_ownership import router as ownership_router
 from .routes_platform import router as platform_router
 from .routes_provenance import router as provenance_router
 from .routes_quality import router as quality_router
+from .routes_redesign import router as redesign_router
 from .routes_rules import router as rules_router
 from .routes_schedules import router as schedules_router
 from .routes_trains import router as trains_router
@@ -42,6 +43,7 @@ __all__ = [
     "platform_router",
     "provenance_router",
     "quality_router",
+    "redesign_router",
     "router",
     "rules_router",
     "schedules_router",

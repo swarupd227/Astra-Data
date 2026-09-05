@@ -1543,6 +1543,51 @@ evaluation data at scale); this story's own acceptance criteria asks for a repor
 See [ADR 0040](../../docs/adr/0040-confidence-calibration-a-real-floor-onto-a-disclosed-absent-tier.md)
 for the full reasoning.
 
+## The Transpiler: C4 redesign (story S5.4.1)
+
+`redesign.py` — opens F5.4. For each construct the classifier flags C4, the Transpiler now
+writes Appendix B's own guidance, a real ASSISTED-mode redesign suggestion, and holds the
+field's own decision-shaped "gate" until a Migration Engineer records one.
+
+**Appendix B becomes data a second time.** `APPENDIX_B_GUIDANCE` turns Appendix B.1's own
+literal target/notes cell for every C4-producing `classify.py` rule_id into real data — the
+identical "spec table becomes code" move that made B.1's function-family table
+`classify.py`'s own `_FAMILY_CLASS` (ADR 0035). A rule_id the classifier can reach but this
+table has no entry for is a real drift bug (`c4_properties` raises rather than guessing), and
+`test_redesign.py` proves the two modules agree in both directions.
+
+**The redesign suggestion is `AgentMode.ASSISTED`, a second "name only" contract — never a
+model call.** `modeller.py` already drives `ASSISTED` for its own grain-statement draft; this
+is the identical footing, a real deterministic template composed from Appendix B's own
+guidance text. `ContractName.TRANSPILER_C4_REDESIGN` is a name only, unregistered in
+`CONTRACTS`, matching `MODELLER_FAMILY`'s own precedent — no model gateway call, no inference
+boundary to police.
+
+**No Migration Unit exists anywhere in this codebase, so `CalculatedField.redesign_decision`
+(absent) is the disclosed proxy for §3.2's own BLOCKED state.** Confirmed by direct research
+against the spec: §4.1.1 declares no `MigrationUnit` node; §3.1 defines an MU as a
+control-plane concept spanning several existing nodes, not itself one; no story has ever
+created a real MU record. The product owner's own explicit choice (over a new platform-table
+record) put seven new properties directly on `CalculatedField`
+(`appendix_b_guidance`/`redesign_suggestion`/`redesign_suggestion_provenance_ref`/
+`redesign_decision`/`redesign_decision_reason`/`redesign_decision_by`/`redesign_decision_at`),
+present only while `class` is C4 — reclassification drops all seven the moment a field is no
+longer C4, and always carries forward an already-recorded decision untouched.
+
+**`POST /v1/calculations/{calc_id}:redesign-decision`** (`MigrationEngineerDep` — the first
+route to ever drive `Role.MIGRATION_ENGINEER`) records one of the AC's own three outcomes
+(`IMPLEMENT_AS_SUGGESTED` / `ALTERNATIVE` / `DROP`) with a real, required reason — for DROP,
+this is where the report-owner agreement the AC requires is documented, rather than building
+a second countersign workflow duplicating G2's own (S4.2.1). **`GET
+/v1/calculations:c4-redesigns`** (`C4RedesignReaderDep` — any Artizent role, or the report
+owner specifically; the first route to ever drive `Role.CLIENT_REPORT_OWNER`) lists every C4
+field's guidance, suggestion and decision state. No `GateDecision`-shaped generic record
+(S8.3.1's own later Exception Desk scope) and no real G3 gate (S9.1.1/S9.1.2's own later
+scope, two increments out) — "referenced at G3" stays exactly that future reference.
+
+See [ADR 0041](../../docs/adr/0041-c4-redesign-guidance-and-decision-a-disclosed-blocked-proxy-on-calculatedfield.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

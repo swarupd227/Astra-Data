@@ -245,6 +245,31 @@ NODE_TYPES: tuple[NodeType, ...] = (
                note="Which classifier ruleset version last classified this field — the "
                     "same 'stamped on every attempt' footing conformance_ruleset_version "
                     "already has (story S5.1.1)."),
+            _p("appendix_b_guidance", T.TEXT,
+               note="Appendix B's own target/notes text for the rule that produced a C4 "
+                    "verdict (story S5.4.1). Absent unless `class` is C4."),
+            _p("redesign_suggestion", T.TEXT,
+               note="A real, deterministic ASSISTED-mode next-step suggestion (story "
+                    "S5.4.1) — never a model call, the same footing the Modeller's own "
+                    "grain-statement draft already established for this mode. Absent "
+                    "unless `class` is C4."),
+            _p("redesign_suggestion_provenance_ref", T.STRING,
+               note="The ProvenanceRecord (mode ASSISTED) for `redesign_suggestion` "
+                    "(story S5.4.1). Absent alongside it."),
+            _p("redesign_decision", T.ENUM,
+               enum=("IMPLEMENT_AS_SUGGESTED", "ALTERNATIVE", "DROP"),
+               note="A Migration Engineer's own recorded decision (story S5.4.1). Absent "
+                    "is the disclosed proxy for a C4 field's own Migration Unit being "
+                    "BLOCKED (§3.2) — no real MU record exists anywhere in this codebase "
+                    "to hold that state (§4.1.1 declares none; confirmed by research, not "
+                    "assumed)."),
+            _p("redesign_decision_reason", T.TEXT,
+               note="The engineer's own rationale (story S5.4.1) — for a DROP decision, "
+                    "where the report-owner agreement the acceptance criteria requires is "
+                    "recorded, since this platform has no separate co-sign workflow "
+                    "(that is G2's own dedicated mechanism, not rebuilt here)."),
+            _p("redesign_decision_by", T.STRING, note="The principal who recorded the decision."),
+            _p("redesign_decision_at", T.TIMESTAMP, note="When the decision was recorded."),
         ),
     ),
     NodeType(
@@ -885,5 +910,36 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "carry yet. classifier_version is `conformance_ruleset_version`'s own "
                "precedent (S4.3.2): stamped on every classification attempt so a field's "
                "class is always checkable against exactly the rule set that produced it.",
+    ),
+    SpecDeviation(
+        element="CalculatedField.appendix_b_guidance, CalculatedField.redesign_suggestion, "
+                "CalculatedField.redesign_suggestion_provenance_ref, "
+                "CalculatedField.redesign_decision, CalculatedField.redesign_decision_reason, "
+                "CalculatedField.redesign_decision_by, CalculatedField.redesign_decision_at",
+        reason="Backlog story S5.4.1 requires 'the Transpiler writes the reason, the "
+               "Appendix B guidance, and an ASSISTED-mode redesign suggestion' for every "
+               "C4 construct, and 'the MU is BLOCKED until a Migration Engineer records "
+               "the redesign decision' — Section 4.1.1 lists only `class`/`pattern_ref`/"
+               "`reason` on CalculatedField (the last two already a declared deviation, "
+               "S5.1.1) and defines no Migration Unit node at all to hold a BLOCKED state "
+               "on (Section 4.1.1's own node table has no `MigrationUnit` row; confirmed "
+               "directly against the spec, not assumed from this codebase's own prior "
+               "claims about the gap).",
+        detail="No Migration Unit record exists anywhere in this codebase to set to "
+               "BLOCKED (§3.2) — it is a control-plane concept spanning several nodes "
+               "(§3.1), not itself a graph node, and no story before this one has ever "
+               "created one. `redesign_decision` absent on the one real, existing "
+               "per-construct record (`CalculatedField`) is the disclosed proxy for that "
+               "state: a C4 field with no decision yet is exactly a field this platform "
+               "would otherwise call BLOCKED. `appendix_b_guidance`/`redesign_suggestion` "
+               "are real, deterministic data (Appendix B's own text; a template-composed "
+               "suggestion, `AgentMode.ASSISTED` — never a model call, the identical "
+               "footing the Modeller's own grain-statement draft already established for "
+               "this mode since S3.1.1/S4.1.2). The fuller generic decision-recording "
+               "mechanism (a `GateDecision`-shaped record, visible to the report owner by "
+               "construction) is S8.3.1's own later, explicit scope (Exception Desk, "
+               "milestone I4); a real G3 gate that references these decisions is "
+               "S9.1.1/S9.1.2's own later, explicit scope (milestone I5) — this story adds "
+               "only what its own acceptance criteria asks for now.",
     ),
 )

@@ -210,6 +210,43 @@ def require_platform_engineer(roles: RoleSetDep) -> RoleSet:
 
 PlatformEngineerDep = Annotated[RoleSet, Depends(require_platform_engineer)]
 
+
+def require_migration_engineer(roles: RoleSetDep) -> RoleSet:
+    """Gate an endpoint on the role story S5.4.1 itself names ("As a migration engineer, I
+    want C4 constructs flagged ... and routed to a redesign decision"). Recording that
+    decision is what §3.2's own BLOCKED state clears, on the one real construct this
+    platform has for it (`CalculatedField`) — the first route to drive this role (declared
+    in `roles.py` since S1.1.1, gated nowhere until now — the same trajectory
+    `parity_engineer`/`platform_engineer` each already took)."""
+    if Role.MIGRATION_ENGINEER not in roles.roles:
+        raise ForbiddenError(
+            f"recording a C4 redesign decision is the migration engineer's; declare "
+            f"'{Role.MIGRATION_ENGINEER.value}' in {ROLES_HEADER}"
+        )
+    return roles
+
+
+MigrationEngineerDep = Annotated[RoleSet, Depends(require_migration_engineer)]
+
+
+def require_c4_redesign_reader(roles: RoleSetDep) -> RoleSet:
+    """Gate C4 redesign visibility on "any Artizent role, or the report owner specifically"
+    (story S5.4.1's own "decisions are visible to the report owner"). The report owner is a
+    client role with no estate-wide visibility otherwise (`ArtizentDep` would refuse it) —
+    this is the first route to ever drive `Role.CLIENT_REPORT_OWNER` (declared since
+    S1.1.1, gated nowhere until now), and it is deliberately narrower than opening the
+    endpoint to every client role: a different client persona (e.g. the licence admin)
+    still has no reason to see a redesign decision."""
+    if not (roles.is_artizent() or Role.CLIENT_REPORT_OWNER in roles.roles):
+        raise ForbiddenError(
+            f"C4 redesign visibility is open to Artizent roles and the report owner; "
+            f"declare one in {ROLES_HEADER}"
+        )
+    return roles
+
+
+C4RedesignReaderDep = Annotated[RoleSet, Depends(require_c4_redesign_reader)]
+
 DOMAIN_SCOPE_HEADER = "X-Astra-Domain-Scope"
 
 
