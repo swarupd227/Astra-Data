@@ -28,8 +28,18 @@ pytestmark = pytest.mark.integration
 
 asyncpg = pytest.importorskip("asyncpg")
 
+from astra_graph.calibration import PostgresCalibrationStore  # noqa: E402
 from astra_graph.config import Settings  # noqa: E402
-from astra_graph.gateway import RawModelResponse, StaticGateway  # noqa: E402
+from astra_graph.gateway import (  # noqa: E402
+    TRANSPILE_C3,
+    TRANSPILE_C3_SMALL_MODEL,
+    EvalCaseResult,
+    EvalReport,
+    ModelGateway,
+    PostgresGatewayPolicyStore,
+    RawModelResponse,
+    StaticGateway,
+)
 from astra_graph.generation import (  # noqa: E402
     FixtureModelCaller,
     GenerationEngine,
@@ -186,6 +196,27 @@ class _ScriptedCaller:
             tokens_in=42,
             tokens_out=17,
         )
+
+
+class _FakeCalibrationStore:
+    """A `CalibrationStore` test double whose `is_below_floor` answer is set directly,
+    rather than needing `MIN_OBSERVATIONS_FOR_FLOOR_CHECK` real rows recorded first --
+    `PostgresCalibrationStore`'s own real accumulation is `test_integration_calibration.py`'s
+    scope; this is only for deterministically exercising `generate_c3_field`'s own routing
+    decision."""
+
+    def __init__(self, *, below_floor: bool) -> None:
+        self.below_floor = below_floor
+        self.recorded: list[dict[str, Any]] = []
+
+    async def record(self, **kwargs: Any) -> None:
+        self.recorded.append(kwargs)
+
+    async def report(self, task_class: str, *, floor: float = 0.80) -> Any:
+        raise NotImplementedError("not used by these tests")
+
+    async def is_below_floor(self, task_class: str, *, floor: float = 0.80) -> bool:
+        return self.below_floor
 
 
 @pytest.fixture
@@ -355,6 +386,94 @@ async def test_generate_c3_field_with_a_valid_candidate_writes_measure_maps_to_a
     assert record.temperature == 0.0
     assert record.tokens_in == 42
     assert record.tokens_out == 17
+
+
+# --------------------------------------------------------------------- calibration (S5.3.3)
+
+
+async def test_generate_c3_field_records_a_real_calibration_observation_on_success(estate) -> None:
+    caller = _ScriptedCaller(dax="Running Total = CALCULATE(SUM([Notional]))")
+    calibration = PostgresCalibrationStore(estate["pool"], graph_name=estate["graph_name"])
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], estate["c3_calc"],
+        gateway=StaticGateway(caller), calibration=calibration, principal=PARITY_ENGINEER,
+    )
+    assert outcome.ok is True
+    assert outcome.task_class == TRANSPILE_C3
+
+    report = await calibration.report(TRANSPILE_C3)
+    bucket = report.buckets[8]  # caller's own declared confidence, 0.87, is [0.8, 0.9)
+    assert bucket.count >= 1
+    assert bucket.observed_pass_rate == 1.0
+
+
+async def test_generate_c3_field_records_a_real_calibration_observation_on_a_decline(estate) -> None:
+    calibration = PostgresCalibrationStore(estate["pool"], graph_name=estate["graph_name"])
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], estate["c3_calc"],
+        gateway=StaticGateway(FixtureModelCaller()), calibration=calibration, principal=PARITY_ENGINEER,
+    )
+    assert outcome.ok is False
+
+    report = await calibration.report(TRANSPILE_C3)
+    bucket = report.buckets[0]  # FixtureModelCaller's own declared confidence is 0.0
+    assert bucket.count >= 1
+    assert bucket.observed_pass_rate == 0.0
+
+
+async def test_generate_c3_field_uses_the_reasoning_tier_when_calibration_is_not_below_floor(estate) -> None:
+    caller = _ScriptedCaller(dax="Running Total = CALCULATE(SUM([Notional]))")
+    policy = PostgresGatewayPolicyStore(estate["pool"], graph_name=estate["graph_name"])
+    await policy.record_eval(
+        task_class=TRANSPILE_C3,
+        report=EvalReport(
+            provider=caller.provider, model=caller.model, task_class=TRANSPILE_C3,
+            total=5, passed=5, pass_rate=1.0, ran_at="2027-01-01T00:00:00+00:00",
+            results=tuple(EvalCaseResult(name=f"c{i}", passed=True, detail="ok") for i in range(5)),
+        ),
+        updated_by=PARITY_ENGINEER.value,
+    )
+    gateway = ModelGateway(providers={caller.provider: caller}, policy_store=policy)
+    calibration = _FakeCalibrationStore(below_floor=False)
+
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], estate["c3_calc"],
+        gateway=gateway, calibration=calibration, principal=PARITY_ENGINEER,
+    )
+    assert outcome.task_class == TRANSPILE_C3
+    assert outcome.ok is True
+
+
+async def test_generate_c3_field_reroutes_to_the_small_model_path_when_below_floor(estate) -> None:
+    caller = _ScriptedCaller(dax="Running Total = CALCULATE(SUM([Notional]))")
+    policy = PostgresGatewayPolicyStore(estate["pool"], graph_name=estate["graph_name"])
+    # Routable for the reasoning tier only -- nothing is ever recorded, let alone passing,
+    # for TRANSPILE_C3_SMALL_MODEL, since no real small-model provider exists to eval-score.
+    await policy.record_eval(
+        task_class=TRANSPILE_C3,
+        report=EvalReport(
+            provider=caller.provider, model=caller.model, task_class=TRANSPILE_C3,
+            total=5, passed=5, pass_rate=1.0, ran_at="2027-01-01T00:00:00+00:00",
+            results=tuple(EvalCaseResult(name=f"c{i}", passed=True, detail="ok") for i in range(5)),
+        ),
+        updated_by=PARITY_ENGINEER.value,
+    )
+    gateway = ModelGateway(providers={caller.provider: caller}, policy_store=policy)
+    calibration = _FakeCalibrationStore(below_floor=True)
+
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], estate["c3_calc"],
+        gateway=gateway, calibration=calibration, principal=PARITY_ENGINEER,
+    )
+    assert outcome.task_class == TRANSPILE_C3_SMALL_MODEL
+    assert outcome.ok is False
+    assert outcome.exception_case_id is not None
+    assert len(outcome.attempts) == 1
+    assert outcome.attempts[0].gateway_error is not None
+    assert "transpile_c3_small_model" in outcome.attempts[0].gateway_error
+    # No real model was ever reached under the rerouted task class, so nothing was
+    # recorded -- there is no confidence to have declared.
+    assert calibration.recorded == []
 
 
 async def test_a_second_generation_of_an_already_converted_field_writes_a_second_measure(estate) -> None:

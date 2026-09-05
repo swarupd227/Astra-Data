@@ -1501,6 +1501,48 @@ that makes a real, billed external call, gated to the persona that should trigge
 See [ADR 0039](../../docs/adr/0039-the-model-gateway-real-anthropic-real-eval-gated-routing.md)
 for the full reasoning.
 
+## The Transpiler: confidence calibration (story S5.3.3)
+
+`calibration.py` — closes F5.3. Every declared confidence is now recorded, win or lose, and
+a task class whose own real history falls below a configurable floor is routed to a
+disclosed-absent "small-model-plus-proof" tier rather than trusted.
+
+**A real, append-only observation for every declared confidence — not only survivors.**
+`PostgresCalibrationStore` (`public.calibration_observation`, migration v0022) records one
+row per `LadderAttempt` that got far enough to declare a confidence, for both successful and
+failed/declined generations. Before this story, a failed attempt's confidence was hashed
+into an opaque `ExceptionCase.evidence_ref` and never durably queryable — a curve built only
+from successes would have been trivially 100% at every bucket.
+
+**"Observed pass" is the epic's own real, disclosed proxy for proof, reused a third time.**
+No Arbiter exists (E7, the identical gap S5.3.1/S5.3.2 already disclosed), so "observed"
+means exactly what it already meant twice before: a candidate that cleared rung 1 (schema)
+and rung 2 (parse) on its own attempt. `build_report` computes the AC's own ten buckets from
+real observation history, plus §16.6's own "mean |declared − observed|" calibration-error
+metric — pure aggregation, unit-tested without a database.
+
+**The floor is real; the small-model-plus-proof path it reroutes to is a disclosed-absent
+destination, not a second model — this story's own explicit scope decision.**
+`DEFAULT_CALIBRATION_FLOOR = 0.80` reuses §16.6's own "Class 3 proof rate" target and
+`gateway.ROUTABLE_THRESHOLD`'s own number. `generate_c3_field` checks it for real before
+running the ladder, routing to a second, real `TaskClass` (`TRANSPILE_C3_SMALL_MODEL`) when
+crossed — but no `ModelCaller` is ever registered under it, since no backlog story stands up
+a real small-model provider, so a reroute honestly raises `GatewayRoutingError` and escalates
+to the Exception Desk, the identical footing Azure OpenAI already has under `TRANSPILE_C3`
+(ADR 0039). Once triggered, a reroute stays triggered by design — with no real small-model
+path, no new observations are ever recorded while pinned, matching §16.3's own "pins routing
+to the reasoning tier until *reviewed*" rather than something meant to self-heal.
+
+**`GET /v1/model-gateway:calibration`** (any Artizent role; `task_class`/`floor` as optional,
+bounded query parameters, this codebase's own established shape for a configurable business
+threshold) reports the ten-bucket calibration curve for one task class. No console screen —
+a calibration-curve screen is S13.2.2's own later, explicit differentiator ("flagged on the
+Pattern Library", a later milestone after the Calibration Wave exists to generate real
+evaluation data at scale); this story's own acceptance criteria asks for a report, not one.
+
+See [ADR 0040](../../docs/adr/0040-confidence-calibration-a-real-floor-onto-a-disclosed-absent-tier.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

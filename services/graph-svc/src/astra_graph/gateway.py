@@ -69,12 +69,21 @@ from .context.canonical import context_hash
 from .credentials import CredentialProvider
 from .ids import new_ulid
 
-#: §5.5: "routes by task class". Only one task class exists in this codebase today (the
-#: Transpiler's own C3 path, story S5.3.1) — a plain string alias, not an enum with one
-#: member, per the same "don't design for a second case that doesn't exist yet" discipline
-#: this session already follows elsewhere.
+#: §5.5: "routes by task class" — a plain string alias, not an enum, since a closed set
+#: would need extending for every new caller and buys nothing a string doesn't already
+#: give a `GatewayPolicyStore` keyed by (graph, task_class, provider).
 TaskClass = str
 TRANSPILE_C3: TaskClass = "transpile_c3"
+
+#: Story S5.3.3, §16.3: the routing *destination* a task class whose calibration falls
+#: below its floor is sent to instead of the reasoning tier — "small-model-plus-proof",
+#: never the reasoning tier itself. No `ModelCaller` is ever registered under this task
+#: class (`build_gateway`'s own provider map only ever holds `anthropic`, under
+#: `TRANSPILE_C3`): no story in this backlog stands up a real small-model provider, so a
+#: reroute here honestly finds nothing routable and raises `GatewayRoutingError`, the
+#: identical "disclosed absent, not a fake failing provider" footing Azure OpenAI already
+#: has under `TRANSPILE_C3` itself.
+TRANSPILE_C3_SMALL_MODEL: TaskClass = "transpile_c3_small_model"
 
 #: §16.6's own "Class 3 proof rate >= 0.80" target and the AC's own literal "0.80" —
 #: confirmed, by research, to be the same number this gate uses.
@@ -527,6 +536,7 @@ __all__ = [
     "GATEWAY_POLICY_TABLE",
     "ROUTABLE_THRESHOLD",
     "TRANSPILE_C3",
+    "TRANSPILE_C3_SMALL_MODEL",
     "AnthropicModelCaller",
     "EvalCase",
     "EvalCaseResult",

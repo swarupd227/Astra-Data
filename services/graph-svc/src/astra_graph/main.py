@@ -47,6 +47,7 @@ from .api.routes_quality import DEFAULT_THRESHOLD
 from .api.routes_trains import TrainProposalStatus
 from .artefacts import PostgresArtefactStore
 from .build import PostgresBuildStore
+from .calibration import PostgresCalibrationStore
 from .cartographer import Cartographer
 from .classify import ClassificationEngine
 from .config import settings
@@ -234,11 +235,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         config, pool=pool, graph_name=config.graph_name,
         credentials=build_credential_provider(config),
     )
+    # Story S5.3.3: real confidence calibration (§16.3) — every declared confidence is
+    # recorded, win or lose, and a task class whose own history falls below the floor is
+    # routed to the (disclosed-absent) small-model-plus-proof path rather than trusted.
+    app.state.calibration = PostgresCalibrationStore(pool, graph_name=config.graph_name)
     # Story S5.3.1: Class 3 calculations, generated behind the §16.1 validation ladder,
     # calling the Model Gateway above for a candidate — never naming a provider itself.
     app.state.generation_engine = GenerationEngine(
         pool, graph_name=config.graph_name, writer=writer, provenance_store=app.state.provenance_store,
-        gateway=app.state.gateway,
+        gateway=app.state.gateway, calibration=app.state.calibration,
     )
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(

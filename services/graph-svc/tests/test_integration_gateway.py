@@ -34,6 +34,7 @@ pytestmark = pytest.mark.integration
 
 asyncpg = pytest.importorskip("asyncpg")
 
+from astra_graph.calibration import PostgresCalibrationStore  # noqa: E402
 from astra_graph.config import Settings  # noqa: E402
 from astra_graph.credentials import EnvironmentCredentialProvider  # noqa: E402
 from astra_graph.gateway import (  # noqa: E402
@@ -51,7 +52,8 @@ from astra_graph.generation import TRANSPILE_C3_EVAL_CASES, run_transpile_c3_eva
 from astra_graph.graph import create_pool  # noqa: E402
 from astra_graph.ids import new_ulid  # noqa: E402
 from astra_graph.migrations import run as run_migrations  # noqa: E402
-from astra_graph.principal import Principal  # noqa: E402
+from astra_graph.principal import PRINCIPAL_HEADER, Principal  # noqa: E402
+from astra_graph.roles import ROLES_HEADER  # noqa: E402
 
 PRINCIPAL = Principal("user:platform@artizent.example")
 
@@ -306,3 +308,50 @@ async def test_running_and_recording_a_real_anthropic_eval_makes_it_routable_or_
     # only if the real pass rate cleared ROUTABLE_THRESHOLD -- not asserted as always true,
     # since a real model's own accuracy is the thing being measured, not assumed.
     assert entry.routable == (report.pass_rate >= ROUTABLE_THRESHOLD)
+
+
+# ---------------------------------------------------------------------------------- the API
+
+
+@pytest.fixture
+async def http_client(settings: Settings):
+    from httpx import ASGITransport, AsyncClient
+
+    from astra_graph.main import create_app
+
+    pool = await create_pool(settings)
+    app = create_app()
+    app.state.calibration = PostgresCalibrationStore(pool, graph_name=settings.graph_name)
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://graph-svc") as async_client:
+            yield async_client
+    finally:
+        await pool.close()
+
+
+def _headers(role: str, principal: Principal) -> dict[str, str]:
+    return {PRINCIPAL_HEADER: principal.value, ROLES_HEADER: role}
+
+
+async def test_get_calibration_over_http_is_open_to_any_artizent_role(http_client) -> None:
+    response = await http_client.get(
+        "/v1/model-gateway:calibration",
+        params={"task_class": TRANSPILE_C3},
+        headers=_headers("programme_manager", PRINCIPAL),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["task_class"] == TRANSPILE_C3
+    assert len(body["buckets"]) == 10
+
+
+async def test_get_calibration_over_http_honours_a_custom_floor_query_param(http_client) -> None:
+    response = await http_client.get(
+        "/v1/model-gateway:calibration",
+        params={"task_class": TRANSPILE_C3, "floor": 0.5},
+        headers=_headers("programme_manager", PRINCIPAL),
+    )
+    assert response.status_code == 200
+    assert response.json()["floor"] == 0.5

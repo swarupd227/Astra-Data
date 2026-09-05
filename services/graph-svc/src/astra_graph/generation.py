@@ -45,6 +45,15 @@ separate gap this module does not attempt to fix). `charter_excerpt` names no li
 Tolerance Charter: nothing in this codebase has ever recorded one (§4.4's charter/tolerance
 mechanism is not built). Both are disclosed directly in the request document rather than
 silently omitted.
+
+**Story S5.3.3 adds real confidence calibration (`.calibration`, §16.3).** Every attempt
+that declares a confidence is recorded as a real observation, win or lose; before running
+the ladder, `generate_c3_field` checks whether `TRANSPILE_C3`'s own calibration has crossed
+`calibration.DEFAULT_CALIBRATION_FLOOR` and, if so, runs the ladder against
+`TRANSPILE_C3_SMALL_MODEL` instead — a real routing decision onto a disclosed-absent
+destination (no small-model `ModelCaller` is ever registered), the identical footing
+Azure OpenAI already has under `TRANSPILE_C3` itself. See `calibration.py`'s own module
+docstring for why this reroute is designed to stay pinned rather than self-heal.
 """
 
 from __future__ import annotations
@@ -58,6 +67,7 @@ import asyncpg
 from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic import Field as PydanticField
 
+from .calibration import CalibrationStore, NullCalibrationStore
 from .classify import ClassificationContext, classify
 from .context.canonical import context_hash
 from .context.contract import ContractName
@@ -65,6 +75,7 @@ from .context.signature import ast_shape
 from .context.signature import matches as signature_matches
 from .gateway import (
     TRANSPILE_C3,
+    TRANSPILE_C3_SMALL_MODEL,
     EvalCase,
     EvalReport,
     Gateway,
@@ -543,6 +554,11 @@ class GenerationOutcome:
     exception_case_id: str | None
     attempts: tuple[LadderAttempt, ...]
     reason: str
+    task_class: str = TRANSPILE_C3
+    """Which routing destination actually served this call — `TRANSPILE_C3` (reasoning
+    tier) unless S5.3.3's own calibration floor had already been crossed, in which case
+    `TRANSPILE_C3_SMALL_MODEL`. Left at the reasoning-tier default on the two early-return
+    outcomes (no such field; not C3) that never reach the ladder at all."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -552,23 +568,25 @@ class GenerationOutcome:
             "exception_case_id": self.exception_case_id,
             "attempts": [a.as_dict() for a in self.attempts],
             "reason": self.reason,
+            "task_class": self.task_class,
         }
 
 
 async def _run_ladder(
-    request: GenerationRequest, *, gateway: Gateway
+    request: GenerationRequest, *, gateway: Gateway, task_class: str = TRANSPILE_C3
 ) -> tuple[tuple[LadderAttempt, ...], LadderAttempt | None]:
     """Runs the request through the ladder, up to `MAX_ATTEMPTS` times, calling
-    `gateway.generate(task_class=TRANSPILE_C3, ...)` -- never a provider by name (S5.3.2's
-    own AC). Returns every attempt made, and the attempt that succeeded (parsed) if one
-    did."""
+    `gateway.generate(task_class=..., ...)` -- never a provider by name (S5.3.2's own AC).
+    `task_class` defaults to `TRANSPILE_C3` (the reasoning tier); `generate_c3_field` passes
+    `TRANSPILE_C3_SMALL_MODEL` instead when S5.3.3's own calibration floor has been crossed.
+    Returns every attempt made, and the attempt that succeeded (parsed) if one did."""
     attempts: list[LadderAttempt] = []
     previous_error: str | None = None
 
     for attempt_number in range(1, MAX_ATTEMPTS + 1):
         try:
             response = await gateway.generate(
-                task_class=TRANSPILE_C3, request=request, previous_error=previous_error
+                task_class=task_class, request=request, previous_error=previous_error
             )
         except GatewayRoutingError as exc:
             attempts.append(
@@ -698,12 +716,14 @@ class GenerationEngine:
         writer: GraphWriter,
         provenance_store: ProvenanceStore,
         gateway: Gateway | None = None,
+        calibration: CalibrationStore | None = None,
     ) -> None:
         self._pool = pool
         self._graph = graph_name
         self._writer = writer
         self._provenance = provenance_store
         self._gateway = gateway or null_gateway()
+        self._calibration = calibration or NullCalibrationStore()
 
     @property
     def pool(self) -> asyncpg.Pool:
@@ -725,6 +745,10 @@ class GenerationEngine:
     def gateway(self) -> Gateway:
         return self._gateway
 
+    @property
+    def calibration(self) -> CalibrationStore:
+        return self._calibration
+
 
 async def generate_c3_field(
     pool: asyncpg.Pool,
@@ -734,13 +758,20 @@ async def generate_c3_field(
     calc_id: str,
     *,
     gateway: Gateway,
+    calibration: CalibrationStore | None = None,
     principal: Principal,
 ) -> GenerationOutcome:
     """Runs one C3 `CalculatedField` through §9.4/§16.1: build the request, run the ladder
     (up to `MAX_ATTEMPTS`), and on success write a real `Measure`/`MAPS_TO`/
     `ProvenanceRecord` (mode `GENERATED_PROVED`); on exhaustion or `NOT_EXPRESSIBLE`, write
     a real `ExceptionCase` with every attempt attached (this story's own acceptance
-    criteria, verbatim)."""
+    criteria, verbatim). Story S5.3.3: before running the ladder, checks whether
+    `TRANSPILE_C3`'s own calibration has fallen below its floor and, if so, runs it against
+    `TRANSPILE_C3_SMALL_MODEL` instead (§16.3's own "routed ... rather than trusted") — and
+    afterwards records a real calibration observation for every attempt that declared a
+    confidence, so later calls have real history to check against."""
+    calibration_store = calibration or NullCalibrationStore()
+
     async with pool.acquire() as conn:
         calc = (await hydrate(conn, graph_name, "CalculatedField", [calc_id])).get(calc_id)
     if calc is None:
@@ -759,7 +790,23 @@ async def generate_c3_field(
     request = await build_generation_request(pool, graph_name, calc_id)
     assert request is not None  # calc existed above; nothing retired it in between
 
-    attempts, success = await _run_ladder(request, gateway=gateway)
+    task_class = (
+        TRANSPILE_C3_SMALL_MODEL
+        if await calibration_store.is_below_floor(TRANSPILE_C3)
+        else TRANSPILE_C3
+    )
+    attempts, success = await _run_ladder(request, gateway=gateway, task_class=task_class)
+
+    # A real observation for every attempt that got far enough to declare a confidence --
+    # under TRANSPILE_C3's own identity always: a rerouted call never reaches a real model
+    # (no ModelCaller is ever registered under TRANSPILE_C3_SMALL_MODEL), so it never has a
+    # confidence to record here regardless of which task_class was actually asked for.
+    for attempt in attempts:
+        if attempt.confidence is not None:
+            await calibration_store.record(
+                task_class=TRANSPILE_C3, agent=_AGENT, model=attempt.model, provider=attempt.provider,
+                confidence=attempt.confidence, observed_pass=attempt.parse_ok, created_by=principal.value,
+            )
 
     if success is not None:
         measure_id = await _write_measure(
@@ -768,6 +815,7 @@ async def generate_c3_field(
         return GenerationOutcome(
             calc_id, True, measure_id, None, attempts,
             "generated and validated through rung 4 (compile/proof are disclosed passes; see module docstring)",
+            task_class=task_class,
         )
 
     exception_case_id = await _write_exception_case(
@@ -780,7 +828,7 @@ async def generate_c3_field(
         else "model declined: NOT_EXPRESSIBLE" if last and last.not_expressible
         else f"exhausted {MAX_ATTEMPTS} attempts without a parseable candidate"
     )
-    return GenerationOutcome(calc_id, False, None, exception_case_id, attempts, reason)
+    return GenerationOutcome(calc_id, False, None, exception_case_id, attempts, reason, task_class=task_class)
 
 
 async def _classification_context_from_pool(
