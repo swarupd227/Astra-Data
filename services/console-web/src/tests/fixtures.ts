@@ -43,6 +43,10 @@ import type {
   RuleCatalog,
   RuleCatalogEntry,
   RuleCoverage,
+  SimulateResult,
+  ToleranceCharter,
+  ToleranceCharterFieldMetadata,
+  ToleranceCharterVersion,
   Train,
   TrainEvent,
   TrainMember,
@@ -715,6 +719,75 @@ export function conformanceRuleset(overrides: Partial<ConformanceRuleset> = {}):
   };
 }
 
+export const DEFAULT_CHARTER: ToleranceCharter = {
+  numeric: { abs_epsilon: 0.005, rel_epsilon: 1e-6, rounding: 'HALF_EVEN', currency_scale: 2 },
+  nulls: { source_null_vs_target_zero: 'FAIL', source_null_vs_target_blank: 'PASS', empty_string_is_null: true },
+  dates: { grain_alignment: 'TRUNCATE_TO_SOURCE_GRAIN', timezone: 'UTC', fiscal_year_start: 1 },
+  strings: { trim: true, case_sensitive: false, collation: 'en-US' },
+  ordering: { sort_sensitive: false, top_n_tie_break: 'SOURCE_ORDER' },
+  rows: { missing_key: 'FAIL', extra_key: 'FAIL', row_count_tolerance: 0 },
+  sampling: { full_compare_max_rows: 200_000, sample_rows: 50_000, stratify_by: 'grain' },
+  params: { enumerate_max_values: 12, enumerate_strategy: 'DEFAULT_PLUS_OBSERVED' },
+  waiver: { allowed_classes: ['C4'], requires: ['engineer', 'client_owner'], justification_min_chars: 120 },
+};
+
+export const CHARTER_FIELD_METADATA_FIXTURE: ToleranceCharterFieldMetadata = {
+  numeric: {
+    abs_epsilon: 'Two numbers pass if they differ by no more than this absolute amount.',
+    rel_epsilon: 'Two numbers also pass within this fraction of the larger magnitude.',
+    rounding: 'How a value is rounded before comparison.',
+    currency_scale: 'Decimal places a currency value is rounded to before comparison.',
+  },
+  nulls: {
+    source_null_vs_target_zero: 'Verdict when the source is null and the target is zero.',
+    source_null_vs_target_blank: 'Verdict when the source is null and the target is blank.',
+    empty_string_is_null: 'Treat an empty string as null before every other null rule.',
+  },
+  dates: {
+    grain_alignment: "How a date is truncated to the case's own grain before comparison.",
+    timezone: 'The timezone both sides are normalised to before comparing.',
+    fiscal_year_start: 'The calendar month a fiscal year begins in.',
+  },
+  strings: {
+    trim: 'Strip leading/trailing whitespace before comparing.',
+    case_sensitive: 'Whether case differences fail the comparison.',
+    collation: 'The collation used to compare and sort strings.',
+  },
+  ordering: {
+    sort_sensitive: 'Whether row order itself is part of what is compared.',
+    top_n_tie_break: 'How a tie at the boundary of a top-N result is resolved.',
+  },
+  rows: {
+    missing_key: 'Verdict when a source key is absent on the target.',
+    extra_key: 'Verdict when a target key is absent on the source.',
+    row_count_tolerance: 'How many rows the two sides may differ by and still pass.',
+  },
+  sampling: {
+    full_compare_max_rows: 'Below this row count, every row is compared.',
+    sample_rows: 'Above the threshold, this many rows are sampled instead.',
+    stratify_by: 'The field a sample is stratified by.',
+  },
+  params: {
+    enumerate_max_values: 'The most parameter-value combinations a derivation will enumerate.',
+    enumerate_strategy: 'Which combinations are chosen when there are more than the maximum.',
+  },
+  waiver: {
+    allowed_classes: 'Which failure classes may ever be waived rather than fixed.',
+    requires: 'Which parties must all sign a waiver before it is accepted.',
+    justification_min_chars: "The minimum length a waiver's own justification must have.",
+  },
+};
+
+export function toleranceCharterVersion(overrides: Partial<ToleranceCharterVersion> = {}): ToleranceCharterVersion {
+  return {
+    version: 0,
+    charter: DEFAULT_CHARTER,
+    updated_by: 'system',
+    updated_at: null,
+    ...overrides,
+  };
+}
+
 export function patternRecord(overrides: Partial<PatternRecord> = {}): PatternRecord {
   const provenance: PatternProvenance = {
     origin: 'PROMOTED_FROM_LLM',
@@ -816,10 +889,13 @@ export function fakeApi(
   initialClassMix: ClassMix = classMix(),
   initialRuleCoverage: RuleCoverage = ruleCoverage(),
   initialPatterns: PatternsResponse = patternsResponse(),
+  initialCharter: ToleranceCharterVersion = toleranceCharterVersion(),
 ): FakeApi {
   const calls: FakeApi['calls'] = { estate: [], workbook: [], lineage: [], quality: 0 };
   const recorded: FakeApi['recorded'] = [];
   let queued: ApiError | null = null;
+  let charterState: ToleranceCharterVersion = { ...initialCharter, charter: { ...initialCharter.charter } };
+  let g1Approved = false;
   const programmeRows = programmes.programmes.map((row) => ({ ...row }));
   const trainRows = trains.trains.map((train) => ({
     ...train,
@@ -1390,6 +1466,46 @@ export function fakeApi(
         ruleset: { ...rulesetState, rules: rulesetState.rules.map((r) => ({ ...r })) },
         rule_metadata: RULE_METADATA_FIXTURE,
       };
+    },
+    async toleranceCharter() {
+      return {
+        charter: { ...charterState, charter: { ...charterState.charter } },
+        field_metadata: CHARTER_FIELD_METADATA_FIXTURE,
+      };
+    },
+    async saveToleranceCharter(charter, identity, clientAnalyticsLeadAck, reason) {
+      maybeFail();
+      if (g1Approved && !clientAnalyticsLeadAck) {
+        throw new ApiError(
+          400, 'invalid_request',
+          'the charter has already been approved at G1; changing it needs the client analytics lead’s own named sign-off',
+        );
+      }
+      charterState = {
+        version: charterState.version + 1,
+        charter: { ...charter },
+        updated_by: identity.principal,
+        updated_at: new Date().toISOString(),
+      };
+      recorded.push({ kind: 'SAVE_TOLERANCE_CHARTER', id: '', reason: reason ?? '' });
+      const isRevision = g1Approved;
+      if (isRevision) g1Approved = true; // a revision re-records G1, so it stays approved
+      return {
+        charter: { ...charterState, charter: { ...charterState.charter } },
+        is_revision: isRevision,
+        reproved_workbook_ids: [],
+      };
+    },
+    async approveG1(version, countersignedBy, rationale, identity) {
+      maybeFail();
+      g1Approved = true;
+      recorded.push({ kind: 'APPROVE_G1', id: identity.principal, reason: rationale });
+      void countersignedBy;
+      return { gate_decision_id: 'gd_1', version, decision: 'APPROVED' };
+    },
+    async simulateToleranceCharter(workbookId): Promise<SimulateResult> {
+      recorded.push({ kind: 'SIMULATE_CHARTER', id: workbookId, reason: '' });
+      return { workbook_id: workbookId, has_prior_run: false, message: 'no ParityRun exists yet for this workbook', verdicts: [] };
     },
     async classMix() {
       return {

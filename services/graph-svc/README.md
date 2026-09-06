@@ -1970,6 +1970,60 @@ persona compose/deploy already use) and `GET /v1/workbooks/{id}:documentation`
 See [ADR 0049](../../docs/adr/0049-report-documentation-a-deterministic-assisted-draft-linked-from-reportdefinition.md)
 for the full reasoning.
 
+## The Tolerance Charter (story S7.1.1, opens E7/F7.1)
+
+`tolerance_charter.py`. §4.4's nine-block schema (numeric, nulls, dates, strings,
+ordering, rows, sampling, params, waiver) as a versioned, admin-editable document -- the
+same `conformance_ruleset`/`visual_mapping_ruleset` template a third time: an edit is
+always a new, immutable version (`public.tolerance_charter_version`, migration v0026),
+never an update. Not a graph node -- §4.1.1 declares none, and §4.4's own "stored in Git"
+is the same already-accepted gap those two precedents already carry.
+
+**"Client analytics lead" (§13.1's own G1 approver) is a real, twelfth `Role` this story
+adds -- §2.4's own roles table never names it at all**, a genuine spec-internal
+inconsistency confirmed by direct research, not a codebase oversight. `GateDecision.gate`
+already declares `"G1"` in its own closed enum; G1's decision reuses G2's exact
+approver/countersigner shape (`g2.py::approve()`'s own pattern) -- the client analytics
+lead approves, the Parity Engineer countersigns.
+
+**Changing the charter after G1 is enforced inside `save()`, not a second endpoint** --
+once a G1 decision exists, saving a further version requires the client analytics lead's
+own named sign-off and a reason in the same call, then writes a fresh G1 `GateDecision`
+and calls `MigrationUnitRegistry.mark_for_reproof` for every workbook
+`affected_workbook_ids` finds proved under the superseded version (via the real
+`ReportDefinition --PROVED_BY--> ParityRun` edge) -- the exact seam the Harvester's own
+source-drift path already uses. **This correctly marks zero workbooks today**: no story
+has ever written a `ParityRun` (E7 is otherwise entirely unbuilt), so there is nothing yet
+to find -- the same "real function, honestly empty today" posture `can_enter_proving`
+(S6.2.1) already took.
+
+**`simulate` is a real, tested cell comparator, not a rebuild of §10.3's own diff** --
+§10.1-§10.6 (case derivation, execution, the full row/key diff, sampling) are F7.2/F7.3's
+own later scope. `compare_numeric`/`compare_null`/`compare_string` are the real logic
+each charter block actually means, backing both the console's own inline explanation and
+`simulate_charter`'s own recompute against a workbook's most recent `Verdict.
+failing_cells` -- honestly "no ParityRun exists yet" for every real workbook today, since
+none has ever been written either.
+
+**Reading (and simulating) is open to any Artizent role, or the client analytics lead --
+found live, not designed up front.** The first cut gated every read on `ArtizentDep`
+alone; driving the console against the real, rebuilt Docker stack surfaced the gap
+directly, switching to the client analytics lead role to test the G1 panel and hitting a
+real 403 on the charter read itself. Fixed with `ToleranceCharterReaderDep`, the identical
+"any Artizent role, or this one client role" shape `C4RedesignReaderDep` already
+established for the report owner.
+
+`GET /v1/tolerance-charter`, `GET /v1/tolerance-charter/{version}` and `POST
+/v1/workbooks/{id}/tolerance-charter:simulate` (all `ToleranceCharterReaderDep`), `POST
+/v1/tolerance-charter` (`ParityEngineerDep`), `POST
+/v1/tolerance-charter/{version}:approve-g1` (`ClientAnalyticsLeadDep`). A new console
+surface (`services/charter/ToleranceCharter.tsx`) gives the Parity Engineer its own
+"Charter editor," per §2.4 -- distinct from Admin, the Migration Architect's own surface
+for a different concern.
+
+See [ADR 0050](../../docs/adr/0050-the-tolerance-charter-a-versioned-document-and-a-real-spec-role-gap.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

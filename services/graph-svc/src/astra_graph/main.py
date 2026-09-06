@@ -43,6 +43,7 @@ from .api import (
     router,
     rules_router,
     schedules_router,
+    tolerance_charter_router,
     trains_router,
 )
 from .api.graphql import build_router as build_graphql_router
@@ -92,6 +93,7 @@ from .retention import PostgresProgrammeStore
 from .rules import RulesEngine
 from .scope import PostgresScopeStore
 from .target_setup import build_target_adapter
+from .tolerance_charter import PostgresToleranceCharterStore, ToleranceCharterService
 from .trains import TrainPlanner
 from .versions import HistoricalGraphReader
 from .visual_mapping import PostgresVisualMappingRulesetStore
@@ -266,6 +268,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Story S6.1.2: commit and deploy a composed report through the same target adapter
     # `build_family` already uses — reused verbatim, no second commit/deploy mechanism.
     app.state.report_deploy_store = PostgresReportDeployStore(pool, graph_name=config.graph_name)
+    # Story S7.1.1, opening E7: the Tolerance Charter. A fresh graph builds against the
+    # in-memory default (§4.4's own worked example, version 0) until a parity engineer
+    # saves one of their own — the identical posture `visual_mapping_store` already has.
+    app.state.tolerance_charter_store = PostgresToleranceCharterStore(pool, graph_name=config.graph_name)
+    app.state.tolerance_charter = ToleranceCharterService(
+        pool, graph_name=config.graph_name, writer=writer,
+        store=app.state.tolerance_charter_store, migration_units=app.state.migration_units,
+    )
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(
         quality=quality_store,
@@ -345,6 +355,7 @@ def create_app() -> FastAPI:
     app.include_router(gateway_router)
     app.include_router(compositor_router)
     app.include_router(exceptions_router)
+    app.include_router(tolerance_charter_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

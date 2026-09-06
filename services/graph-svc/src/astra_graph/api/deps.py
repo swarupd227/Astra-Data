@@ -194,6 +194,22 @@ def require_parity_engineer(roles: RoleSetDep) -> RoleSet:
 ParityEngineerDep = Annotated[RoleSet, Depends(require_parity_engineer)]
 
 
+def require_client_analytics_lead(roles: RoleSetDep) -> RoleSet:
+    """Gate an endpoint on the role story S7.1.1 itself names as G1's client-side
+    approver ("the client analytics lead"). `Role.CLIENT_ANALYTICS_LEAD` is not one of
+    §2.4's own eleven roles — see `roles.py`'s own module docstring for the real
+    spec-internal gap this closes; this is the first route to ever drive it."""
+    if Role.CLIENT_ANALYTICS_LEAD not in roles.roles:
+        raise ForbiddenError(
+            f"approving the Tolerance Charter at G1 is the client analytics lead's; "
+            f"declare '{Role.CLIENT_ANALYTICS_LEAD.value}' in {ROLES_HEADER}"
+        )
+    return roles
+
+
+ClientAnalyticsLeadDep = Annotated[RoleSet, Depends(require_client_analytics_lead)]
+
+
 def require_platform_engineer(roles: RoleSetDep) -> RoleSet:
     """Gate an endpoint on the role story S5.2.1 itself names ("As a platform engineer, I
     want a rules engine..."). Applying rules writes real Measure/MAPS_TO/provenance
@@ -249,6 +265,26 @@ def require_c4_redesign_reader(roles: RoleSetDep) -> RoleSet:
 
 
 C4RedesignReaderDep = Annotated[RoleSet, Depends(require_c4_redesign_reader)]
+
+
+def require_tolerance_charter_reader(roles: RoleSetDep) -> RoleSet:
+    """Gate Tolerance Charter visibility on "any Artizent role, or the client analytics
+    lead specifically" (story S7.1.1) — the identical shape `require_c4_redesign_reader`
+    already set for the report owner. The client analytics lead is G1's own client-side
+    approver (§13.1); a live gap found by driving the console against this route for
+    real: `ArtizentDep` alone would let them approve a charter at G1 they could never
+    actually read first. Deliberately narrower than opening the endpoint to every client
+    role, the same reasoning `require_c4_redesign_reader` already gives for its own
+    reader gate."""
+    if not (roles.is_artizent() or Role.CLIENT_ANALYTICS_LEAD in roles.roles):
+        raise ForbiddenError(
+            f"Tolerance Charter visibility is open to Artizent roles and the client "
+            f"analytics lead; declare one in {ROLES_HEADER}"
+        )
+    return roles
+
+
+ToleranceCharterReaderDep = Annotated[RoleSet, Depends(require_tolerance_charter_reader)]
 
 DOMAIN_SCOPE_HEADER = "X-Astra-Domain-Scope"
 

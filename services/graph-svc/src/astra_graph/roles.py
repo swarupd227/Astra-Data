@@ -9,6 +9,18 @@ shaping the console applies to client surfaces (§15.2, "client surfaces are cal
 Like the principal (see ``principal.py``), roles are asserted by the caller in a header
 until E11 maps them from Entra ID groups. The set of roles and their organisations is
 real and enforced; only the source of the assertion is provisional.
+
+**CLIENT_ANALYTICS_LEAD is not one of §2.4's own eleven roles — added for story S7.1.1,
+closing a real spec-internal gap rather than reusing the nearest client role.** §2.4's
+own roles table (transcribed above) never names an analytics lead at all. §13.1's own
+gate table does, though, as G1's client-side approver: "G1 Tolerance Charter | ... |
+Client analytics lead + Artizent Parity Engineer". Confirmed by direct research: this is
+a genuine inconsistency between two sections of the same spec document, not a codebase
+omission. `client_data_owner` (G2's own approver) and `client_report_owner` (G3's) are
+both already spoken for by a different gate with a different meaning, so substituting
+either for G1 would conflate two distinct approvals the spec itself keeps separate. Added
+as a twelfth, real role instead — the same "declare it for real" call this codebase made
+each time a role turned out to be missing where a gate genuinely needed one.
 """
 
 from __future__ import annotations
@@ -41,6 +53,8 @@ class Role(str, Enum):
     CLIENT_LICENCE_ADMIN = "client_licence_admin"
     CLIENT_INFOSEC_REVIEWER = "client_infosec_reviewer"
     CLIENT_PROGRAMME_SPONSOR = "client_programme_sponsor"
+    CLIENT_ANALYTICS_LEAD = "client_analytics_lead"
+    """Not one of §2.4's own eleven — added for story S7.1.1; see the module docstring."""
 
 
 ORGANISATION_OF: dict[Role, Organisation] = {
@@ -55,6 +69,7 @@ ORGANISATION_OF: dict[Role, Organisation] = {
     Role.CLIENT_LICENCE_ADMIN: Organisation.CLIENT,
     Role.CLIENT_INFOSEC_REVIEWER: Organisation.CLIENT,
     Role.CLIENT_PROGRAMME_SPONSOR: Organisation.CLIENT,
+    Role.CLIENT_ANALYTICS_LEAD: Organisation.CLIENT,
 }
 
 ARTIZENT_ROLES = frozenset(r for r, org in ORGANISATION_OF.items() if org is Organisation.ARTIZENT)

@@ -29,9 +29,13 @@ from .conftest import ARTIZENT_HEADERS, CLIENT_HEADERS, HEADERS
 
 
 def test_every_role_in_the_specification_has_an_organisation() -> None:
-    """Spec §2.4 gives an Organisation for each of the eleven roles."""
+    """Spec §2.4 gives an Organisation for each of its own eleven roles, plus
+    `CLIENT_ANALYTICS_LEAD` (story S7.1.1) -- a twelfth, real role this codebase added to
+    close a genuine gap between §2.4's own roles table and §13.1's own gate table, which
+    names a "client analytics lead" as G1's approver that §2.4 never declares (see
+    `roles.py`'s own module docstring)."""
     assert set(ORGANISATION_OF) == set(Role)
-    assert len(Role) == 11
+    assert len(Role) == 12
 
 
 def test_artizent_roles_are_the_delivery_side() -> None:

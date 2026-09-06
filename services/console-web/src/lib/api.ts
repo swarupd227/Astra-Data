@@ -556,6 +556,119 @@ export interface ConformanceRulesResponse {
   rule_metadata: Record<string, RuleMetadataEntry>;
 }
 
+// -------------------------------------------------------------- tolerance charter (S7.1.1)
+
+export interface NumericRule {
+  abs_epsilon: number;
+  rel_epsilon: number;
+  rounding: string;
+  currency_scale: number;
+}
+
+export interface NullRule {
+  source_null_vs_target_zero: 'PASS' | 'FAIL';
+  source_null_vs_target_blank: 'PASS' | 'FAIL';
+  empty_string_is_null: boolean;
+}
+
+export interface DateRule {
+  grain_alignment: string;
+  timezone: string;
+  fiscal_year_start: number;
+}
+
+export interface StringRule {
+  trim: boolean;
+  case_sensitive: boolean;
+  collation: string;
+}
+
+export interface OrderingRule {
+  sort_sensitive: boolean;
+  top_n_tie_break: string;
+}
+
+export interface RowRule {
+  missing_key: 'PASS' | 'FAIL';
+  extra_key: 'PASS' | 'FAIL';
+  row_count_tolerance: number;
+}
+
+export interface SamplingRule {
+  full_compare_max_rows: number;
+  sample_rows: number;
+  stratify_by: string;
+}
+
+export interface ParamRule {
+  enumerate_max_values: number;
+  enumerate_strategy: string;
+}
+
+export interface WaiverRule {
+  allowed_classes: string[];
+  requires: string[];
+  justification_min_chars: number;
+}
+
+export interface ToleranceCharter {
+  numeric: NumericRule;
+  nulls: NullRule;
+  dates: DateRule;
+  strings: StringRule;
+  ordering: OrderingRule;
+  rows: RowRule;
+  sampling: SamplingRule;
+  params: ParamRule;
+  waiver: WaiverRule;
+}
+
+export interface ToleranceCharterVersion {
+  version: number;
+  charter: ToleranceCharter;
+  updated_by: string;
+  updated_at: string | null;
+}
+
+export interface ToleranceCharterFieldMetadata {
+  [block: string]: Record<string, string>;
+}
+
+export interface ToleranceCharterResponse {
+  charter: ToleranceCharterVersion;
+  field_metadata: ToleranceCharterFieldMetadata;
+}
+
+export interface SaveToleranceCharterResult {
+  charter: ToleranceCharterVersion;
+  is_revision: boolean;
+  reproved_workbook_ids: string[];
+}
+
+export interface ApproveG1Result {
+  gate_decision_id: string;
+  version: number;
+  decision: string;
+}
+
+export interface SimulatedCell {
+  verdict_id: string;
+  grain_key: unknown;
+  measure: unknown;
+  expected: unknown;
+  candidate: unknown;
+  result: 'PASS' | 'FAIL';
+  reason: string;
+}
+
+export interface SimulateResult {
+  workbook_id: string;
+  has_prior_run: boolean;
+  run_id?: string;
+  message: string | null;
+  verdicts: SimulatedCell[];
+}
+
 // -------------------------------------------------------------- classification (S5.1.1)
 
 export interface ClassMix {
@@ -964,6 +1077,24 @@ export interface Api {
   triggerBuild(familyId: string, identity: Identity): Promise<BuildRecord>;
   conformanceRules(identity: Identity): Promise<ConformanceRulesResponse>;
   saveConformanceRules(rules: RuleConfig[], identity: Identity): Promise<ConformanceRulesResponse>;
+  toleranceCharter(identity: Identity): Promise<ToleranceCharterResponse>;
+  saveToleranceCharter(
+    charter: ToleranceCharter,
+    identity: Identity,
+    clientAnalyticsLeadAck?: string,
+    reason?: string,
+  ): Promise<SaveToleranceCharterResult>;
+  approveG1(
+    version: number,
+    countersignedBy: string,
+    rationale: string,
+    identity: Identity,
+  ): Promise<ApproveG1Result>;
+  simulateToleranceCharter(
+    workbookId: string,
+    charter: ToleranceCharter,
+    identity: Identity,
+  ): Promise<SimulateResult>;
   classMix(identity: Identity): Promise<ClassMix>;
   reclassify(identity: Identity): Promise<ReclassifyResult>;
   ruleCatalog(identity: Identity): Promise<RuleCatalog>;
@@ -1194,6 +1325,30 @@ export function createApi(base = ''): Api {
     },
     async saveConformanceRules(rules, identity) {
       return (await post('/v1/conformance/rules', { rules }, identity)) as ConformanceRulesResponse;
+    },
+    async toleranceCharter(identity) {
+      return (await get('/v1/tolerance-charter', identity)) as ToleranceCharterResponse;
+    },
+    async saveToleranceCharter(charter, identity, clientAnalyticsLeadAck, reason) {
+      return (await post(
+        '/v1/tolerance-charter',
+        { charter, client_analytics_lead_ack: clientAnalyticsLeadAck ?? null, reason: reason ?? null },
+        identity,
+      )) as SaveToleranceCharterResult;
+    },
+    async approveG1(version, countersignedBy, rationale, identity) {
+      return (await post(
+        `/v1/tolerance-charter/${version}:approve-g1`,
+        { countersigned_by: countersignedBy, rationale },
+        identity,
+      )) as ApproveG1Result;
+    },
+    async simulateToleranceCharter(workbookId, charter, identity) {
+      return (await post(
+        `/v1/workbooks/${workbookId}/tolerance-charter:simulate`,
+        { charter },
+        identity,
+      )) as SimulateResult;
     },
     async classMix(identity) {
       return (await get('/v1/calculations:class-mix', identity)) as ClassMix;

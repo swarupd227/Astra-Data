@@ -14,6 +14,7 @@
 import { useMemo, useState } from 'react';
 
 import { Admin } from './admin/Admin';
+import { ToleranceCharter } from './charter/ToleranceCharter';
 import { EstateExplorer } from './estate/EstateExplorer';
 import { ModelProposal } from './g2/ModelProposal';
 import { createApi, type Identity } from './lib/api';
@@ -37,7 +38,11 @@ import { WaveBoard } from './trains/WaveBoard';
  * yet, so it stands on its own rather than waiting on an Admin shell nobody has built. The
  * full Programme Board is S10.2.1's, the Foundry Workbench's fuller family queue is
  * nobody's yet, and Platform Health/Model Gateway & TokenOps/Data Handling/Tenant & Access
- * still belong to E11/E12. */
+ * still belong to E11/E12.
+ * The Tolerance Charter editor (S7.1.1, opening E7) is its own top-level surface for the
+ * identical reason the Pattern Library already is: §2.4 names "Parity Dashboard, Charter
+ * editor" as the Parity Engineer's own surfaces, and neither is a natural sub-screen of
+ * Admin (the Migration Architect's own single-purpose surface). */
 export const SURFACES = [
   { key: 'estate', label: 'Estate Explorer' },
   { key: 'lineage', label: 'Lineage View' },
@@ -48,6 +53,7 @@ export const SURFACES = [
   { key: 'proposal', label: 'Model Proposal' },
   { key: 'admin', label: 'Admin' },
   { key: 'patterns', label: 'Pattern Library' },
+  { key: 'charter', label: 'Tolerance Charter' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -92,6 +98,11 @@ export const ROLES: { value: string; label: string; principal: string }[] = [
     value: 'parity_engineer',
     label: 'Parity Engineer',
     principal: 'user:parity@artizent.example',
+  },
+  {
+    value: 'client_analytics_lead',
+    label: 'Client Analytics Lead',
+    principal: 'user:lead@client.example',
   },
 ];
 
@@ -178,6 +189,7 @@ export function App({
       {surface === 'proposal' && <ModelProposal api={api} identity={identity} />}
       {surface === 'admin' && <Admin api={api} identity={identity} />}
       {surface === 'patterns' && <PatternLibrary api={api} identity={identity} />}
+      {surface === 'charter' && <ToleranceCharter api={api} identity={identity} />}
     </div>
   );
 }

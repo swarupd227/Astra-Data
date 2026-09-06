@@ -25,6 +25,7 @@ from .routes_quality import router as quality_router
 from .routes_redesign import router as redesign_router
 from .routes_rules import router as rules_router
 from .routes_schedules import router as schedules_router
+from .routes_tolerance_charter import router as tolerance_charter_router
 from .routes_trains import router as trains_router
 
 __all__ = [
@@ -53,5 +54,6 @@ __all__ = [
     "router",
     "rules_router",
     "schedules_router",
+    "tolerance_charter_router",
     "trains_router",
 ]
