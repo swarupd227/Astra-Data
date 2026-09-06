@@ -1723,7 +1723,7 @@ carrying the local-only override), not worked around.
 See [ADR 0044](../../docs/adr/0044-the-pattern-library-screen-and-the-nginx-resolver-bug-it-found.md)
 for the full reasoning.
 
-## The Compositor: visual mapping and PBIR emission (stories S6.1.1 and S6.1.2)
+## The Compositor: visual mapping and PBIR emission (stories S6.1.1, S6.1.2 and S6.1.3)
 
 `compositor.py` / `visual_mapping.py` / `pbir.py` -- opens E6. Each Tableau sheet becomes a
 Power BI `Visual`, field wells bound through real `MAPS_TO` edges where they exist, filters
@@ -1842,6 +1842,47 @@ but the workbook is what a Migration Unit actually is.
 finding S6.1.1 already made.
 
 See [ADR 0046](../../docs/adr/0046-deploying-a-report-a-disclosed-mu-proxy-and-a-real-retry-budget.md)
+for the full reasoning.
+
+### Parameters, actions and interactivity (story S6.1.3)
+
+Closes F6.1. `compose_report` now also resolves, per worksheet: which `Parameter`s its own
+calculated-field wells depend on (`DEPENDS_ON`), classified by `domain` into a what-if
+parameter (`range`) or a slicer (`list`) -- `any` (unconstrained) has no bounded Power BI
+equivalent and is left unsupported; and every live `Action` naming that worksheet as a
+source or target, classified by `type` into a cross-filter setting (`filter`), a highlight
+setting (`highlight` -- Appendix B.2 groups it with filter under one identical outcome, the
+fuller reading of a backlog AC that only names filter and URL explicitly), a URL field
+(`url`), or left unsupported with Appendix B.2's own guidance (`parameter`/`set`: "→ C3 or
+C4"). Both lists land on the new `Visual.interactivity` property (additive, schema version
+24) -- "recorded on the Visual node" satisfies the AC's own second bullet for both halves
+of the first at once, since no MU page exists yet to list unsupported actions on (F10.3,
+still unbuilt).
+
+**A parameter is found only through a calculated field that already depends on it** -- the
+real `DEPENDS_ON` edge is the only path this platform has from a worksheet to a parameter,
+since `Parameter` carries no edge back to its own `Workbook` at all (§4.1.2). A range-domain
+parameter is classified correctly but discloses a real data gap rather than inventing
+bounds: `sheets.py`'s own `Parameter` dataclass never captures a range's start/end/increment,
+only a `list` domain's own values.
+
+**`Action` has no `name` property** -- confirmed directly against the ontology and the
+adapter's own `as_properties()` (only `type`/`source_sheets`/`target_sheets` exist); an
+early draft of the interactivity mapping invented one anyway before the first integration
+fixture caught it. `ActionMapping` carries `other_sheets` instead -- real data every action
+has.
+
+**Actions are matched to a worksheet by a global name scan -- a real, disclosed
+cross-workbook collision risk**, not a hypothetical one. With no edge from `Action` to
+`Workbook`, finding "this workbook's own actions" means scanning every live `Action` and
+matching sheet names -- the identical trust `Dashboard.contained_sheets` already places in
+strings, extended to a node type with no scoping at all. This story's own integration suite
+demonstrated the collision directly: a shared test graph accumulating same-named fixture
+sheets across tests caused one test's own action query to return other tests' fixtures too.
+Fixing this for real needs a new `Workbook`-containing edge on the adapter side
+(`fragments.py`, S2.3.2's own territory) -- real, disclosed future work, not attempted here.
+
+See [ADR 0047](../../docs/adr/0047-interactivity-mapping-a-real-scope-limit-on-actions-with-no-workbook-edge.md)
 for the full reasoning.
 
 ## Grammar issues

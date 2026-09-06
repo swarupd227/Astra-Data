@@ -1,4 +1,4 @@
-"""The Compositor -- E6's first story, S6.1.1, spec §8.8/§7.1/Appendix B.
+"""The Compositor -- E6, stories S6.1.1/S6.1.2/S6.1.3, spec §8.8/§7.1/Appendix B.
 
     "As a migration engineer, I want each Tableau sheet mapped to a Power BI visual type
     with encodings and filters translated, so that the generated report is structurally
@@ -10,12 +10,18 @@ parameters to slicers and report-level filters, ... lays out dashboards from the
 zone tree into PBIR page layouts... Visuals with no mapping ... receive a redesign flag and
 a placeholder card so the report still generates and proves for its other visuals."
 
-**Parameters, actions and interactivity are explicitly not this story's scope** (backlog
-S6.1.3, the next story in F6.1) -- "visual-level filters" here is `Worksheet.filters`
-translated as-is; slicers, cross-filter/drill-through settings and URL actions are S6.1.3's.
-Committing/deploying to a workspace is S6.1.2's. Layout-collision resolution (§8.8's own
-"small model proposing a grid", ASSISTED) has no collision to resolve yet -- this story
-places one visual per dashboard zone, unchanged from where the zone tree already put it.
+**Parameters, actions and interactivity (S6.1.3) are resolved per worksheet, alongside
+field wells.** A worksheet's own parameters are found through the same calculated-field
+wells S6.1.1 already resolves (`DEPENDS_ON` from a referenced `CalculatedField` to a
+`Parameter`) -- the only real path this platform has from a worksheet to a parameter, since
+`Parameter`/`Action` carry no edge back to their own `Workbook` at all (§4.1.2 declares
+none). `Action`s are found by a name match against every worksheet's own source sheet (the
+identical trust `Dashboard.contained_sheets` already places in name strings, not ids) --
+see `Visual.interactivity`'s own `SpecDeviation` for the real, disclosed limitation this
+carries. Committing/deploying to a workspace is S6.1.2's. Layout-collision resolution
+(§8.8's own "small model proposing a grid", ASSISTED) has no collision to resolve yet --
+this story places one visual per dashboard zone, unchanged from where the zone tree already
+put it.
 
 **One Migration Unit per Workbook** (`Workbook`'s own §4.1.1 note) settles what a
 `ReportDefinition.mu_ref` names: no real Migration Unit record exists anywhere in this
@@ -142,6 +148,124 @@ class VisualResolution:
     redesign_flag: bool
     redesign_reason: str | None
     notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ParameterMapping:
+    """A Tableau ``Parameter`` this visual's own field wells depend on, classified into a
+    Power BI construct by ``domain`` (story S6.1.3)."""
+
+    name: str
+    datatype: str
+    domain: str
+    kind: str | None
+    """``"what_if"`` or ``"slicer"``; ``None`` when unsupported."""
+    supported: bool
+    values: tuple[str, ...]
+    default: Any
+    reason: str | None
+    """Populated when unsupported, or as a disclosed caveat on an otherwise-supported kind."""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "datatype": self.datatype,
+            "domain": self.domain,
+            "kind": self.kind,
+            "supported": self.supported,
+            "values": list(self.values),
+            "default": self.default,
+            "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ActionMapping:
+    """One live ``Action`` naming this visual's own source sheet, classified into a Power
+    BI interactivity setting by ``type`` (story S6.1.3). No ``name`` field: §4.1.1 declares
+    none on ``Action`` at all (only ``type``/``source_sheets``/``target_sheets``) -- the
+    type plus which other sheet it connects to is the only real, identifying data this
+    platform has ever harvested for one."""
+
+    type: str
+    role: str
+    """``"source"`` or ``"target"`` -- which side of the action this visual plays."""
+    other_sheets: tuple[str, ...]
+    """The sheet(s) on the opposite side of this action from this visual's own sheet."""
+    power_bi_setting: str | None
+    supported: bool
+    reason: str | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "role": self.role,
+            "otherSheets": list(self.other_sheets),
+            "powerBiSetting": self.power_bi_setting,
+            "supported": self.supported,
+            "reason": self.reason,
+        }
+
+
+#: Appendix B.2's own literal row: "Dashboard actions (filter, highlight, URL) ->
+#: Cross-filter/highlight settings, drill-through, URL via conditional formatting;
+#: Parameter and set actions -> C3 or C4." Filter and highlight share one outcome in the
+#: appendix (a cross-filter/highlight setting); the backlog's own S6.1.3 AC text names only
+#: filter and URL explicitly, but does not carve highlight out either -- treated identically
+#: to filter here, the fuller, spec-consistent reading, disclosed as such (see the module's
+#: own ADR).
+_SUPPORTED_ACTION_SETTINGS = {"filter": "crossFilter", "highlight": "highlight", "url": "url"}
+
+_UNSUPPORTED_ACTION_REASON = (
+    "Appendix B.2: 'Parameter and set actions -> C3 or C4' -- not translated directly; "
+    "redesign as a bookmark/button-driven navigation, or treat the underlying "
+    "calculation as its own C3/C4 case if it changes what is computed, not just what is "
+    "shown."
+)
+
+#: Tableau's own "any" domain (unconstrained: no min/max, no fixed member list) has no
+#: bounded Power BI equivalent -- a what-if parameter needs a start/end/increment, and a
+#: slicer needs a set of values, neither of which this domain provides.
+_UNBOUNDED_PARAMETER_REASON = (
+    "Tableau's 'any' domain (unconstrained) has no bounded Power BI equivalent -- neither "
+    "a range (no min/max) nor a fixed list (no members) can be derived from it."
+)
+
+#: Appendix B.1's own "Parameters" row: "What-if parameter tables" — real Power BI what-if
+#: parameters are themselves a bounded range (start/end/increment); this platform's own
+#: harvested `Parameter` never captures those bounds (`sheets.py`'s own dataclass has only
+#: `default`/`values`, no min/max/step), so a range parameter is classified correctly but
+#: discloses the gap rather than inventing bounds nobody supplied.
+_UNBOUNDED_RANGE_REASON = (
+    "range bounds (start/end/increment) are not captured by the harvester -- Parameter "
+    "carries only a default and any observed values, not a real min/max/step -- so the "
+    "what-if parameter table itself must still be configured by hand in Power BI Desktop."
+)
+
+
+def classify_parameter(parameter: Mapping[str, Any]) -> ParameterMapping:
+    domain = str(parameter.get("domain") or "any")
+    name = str(parameter.get("name") or "")
+    datatype = str(parameter.get("datatype") or "")
+    values = tuple(parameter.get("current_values_seen") or ())
+    default = parameter.get("default")
+    if domain == "list":
+        return ParameterMapping(name, datatype, domain, "slicer", True, values, default, None)
+    if domain == "range":
+        return ParameterMapping(
+            name, datatype, domain, "what_if", True, values, default, _UNBOUNDED_RANGE_REASON
+        )
+    return ParameterMapping(
+        name, datatype, domain, None, False, values, default, _UNBOUNDED_PARAMETER_REASON
+    )
+
+
+def classify_action(action_type: str, *, role: str, other_sheets: Sequence[str]) -> ActionMapping:
+    setting = _SUPPORTED_ACTION_SETTINGS.get(action_type)
+    other = tuple(other_sheets)
+    if setting is not None:
+        return ActionMapping(action_type, role, other, setting, True, None)
+    return ActionMapping(action_type, role, other, None, False, _UNSUPPORTED_ACTION_REASON)
 
 
 def _shelf_role(shelf: str, *, is_measure: bool) -> str:
@@ -430,6 +554,70 @@ async def _resolve_worksheet_wells(
     return wells
 
 
+async def _worksheet_parameters(
+    conn: asyncpg.Connection, graph: str, wells: Sequence[ResolvedWell]
+) -> list[ParameterMapping]:
+    """Every ``Parameter`` a calculated-field well on this worksheet depends on
+    (``DEPENDS_ON``), classified by domain. The only real path from a worksheet to a
+    parameter this platform has -- see `Visual.interactivity`'s own `SpecDeviation` for why
+    a parameter reachable only through a filter or a native Tableau action, never through a
+    calculation, is a disclosed gap this function cannot close."""
+    calc_ids = sorted({w.source_id for w in wells if w.source_kind == "CalculatedField" and w.source_id})
+    if not calc_ids:
+        return []
+    parameter_map = await children(conn, graph, calc_ids, "DEPENDS_ON", "Parameter")
+    parameter_ids = sorted({p for owned in parameter_map.values() for p in owned})
+    if not parameter_ids:
+        return []
+    parameters = await hydrate(conn, graph, "Parameter", parameter_ids)
+    return [classify_parameter(properties) for properties in parameters.values()]
+
+
+async def _gather_workbook_actions(
+    conn: asyncpg.Connection, graph: str, worksheet_names: Sequence[str]
+) -> list[dict[str, Any]]:
+    """Every live ``Action`` naming at least one of this workbook's own worksheets.
+
+    §4.1.2 gives `Action` no containing edge back to its own `Workbook` at all (only
+    `source_sheets`/`target_sheets` name strings, matching `Dashboard.contained_sheets`'s
+    own convention) -- so this is a scan of every live `Action` in the graph, filtered by
+    name. A real, disclosed limitation, not a new one this story introduces: two different
+    workbooks whose worksheets happen to share a name could, in principle, cross-attribute
+    an action neither one actually has. Harmless at this platform's own current scale, and
+    the identical name-matching trust `Dashboard.contained_sheets` already carries.
+    """
+    wanted = set(worksheet_names)
+    if not wanted:
+        return []
+    rows = await conn.fetch(
+        f"""SELECT id FROM {NODE_INDEX_TABLE}
+         WHERE graph = $1 AND kind = 'node' AND label = 'Action' AND retired_at IS NULL""",
+        graph,
+    )
+    actions = await hydrate(conn, graph, "Action", [row["id"] for row in rows])
+    return [
+        properties
+        for properties in actions.values()
+        if wanted & set(properties.get("source_sheets") or ())
+        or wanted & set(properties.get("target_sheets") or ())
+    ]
+
+
+def _worksheet_action_mappings(
+    actions: Sequence[Mapping[str, Any]], worksheet_name: str
+) -> list[ActionMapping]:
+    mappings: list[ActionMapping] = []
+    for action in actions:
+        action_type = str(action.get("type") or "")
+        source_sheets = tuple(action.get("source_sheets") or ())
+        target_sheets = tuple(action.get("target_sheets") or ())
+        if worksheet_name in source_sheets:
+            mappings.append(classify_action(action_type, role="source", other_sheets=target_sheets))
+        if worksheet_name in target_sheets:
+            mappings.append(classify_action(action_type, role="target", other_sheets=source_sheets))
+    return mappings
+
+
 async def _report_and_visual_ids(
     conn: asyncpg.Connection, graph_name: str, workbook_id: str
 ) -> tuple[list[str], list[str]]:
@@ -540,12 +728,19 @@ async def compose_report(
             placements.append((str(name), worksheet_id, worksheet_properties, None))
 
     wells_by_worksheet: dict[str, list[ResolvedWell]] = {}
+    parameters_by_worksheet: dict[str, list[ParameterMapping]] = {}
     async with pool.acquire() as conn:
         for _, worksheet_id, worksheet_properties, _ in placements:
             if worksheet_id not in wells_by_worksheet:
                 wells_by_worksheet[worksheet_id] = await _resolve_worksheet_wells(
                     conn, graph_name, worksheet_id, worksheet_properties
                 )
+                parameters_by_worksheet[worksheet_id] = await _worksheet_parameters(
+                    conn, graph_name, wells_by_worksheet[worksheet_id]
+                )
+        workbook_actions = await _gather_workbook_actions(
+            conn, graph_name, [str(props.get("name")) for _, _, props, _ in placements]
+        )
 
     pages_seen: list[str] = []
     visual_writes: list[NodeWrite] = []
@@ -558,6 +753,7 @@ async def compose_report(
         wells = wells_by_worksheet[worksheet_id]
         resolution = resolve_visual(str(worksheet_properties.get("mark_type") or ""), wells, ruleset)
         visual_id = new_ulid()
+        worksheet_name = str(worksheet_properties.get("name") or "")
         properties: dict[str, Any] = {
             "page": page_id,
             "type": resolution.visual_type,
@@ -571,6 +767,13 @@ async def compose_report(
             "redesign_flag": resolution.redesign_flag,
             "redesign_reason": resolution.redesign_reason,
             "layout": layout,
+            "interactivity": {
+                "parameters": [p.as_dict() for p in parameters_by_worksheet[worksheet_id]],
+                "actions": [
+                    a.as_dict()
+                    for a in _worksheet_action_mappings(workbook_actions, worksheet_name)
+                ],
+            },
         }
         visual_writes.append(NodeWrite(type="Visual", id=visual_id, properties=properties))
         edge_writes.append(

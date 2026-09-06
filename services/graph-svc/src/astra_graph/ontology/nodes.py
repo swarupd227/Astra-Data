@@ -537,6 +537,14 @@ NODE_TYPES: tuple[NodeType, ...] = (
                     "zone tree. Absent on a standalone sheet with no containing dashboard: "
                     "its own page has just the one visual, filling it, so there is no "
                     "container geometry to preserve."),
+            _p("interactivity", T.JSON,
+               note="Parameters this visual's own calculated-field wells depend on "
+                    "(DEPENDS_ON), classified into a what-if parameter or a slicer by "
+                    "domain, and every Action naming this visual's source sheet as a "
+                    "source or target, classified into a cross-filter/highlight setting, "
+                    "a URL field, or left unsupported with Appendix B.2's own guidance "
+                    "(story S6.1.3). Always present once composed (an empty list either "
+                    "way means 'none found', not 'not looked for')."),
         ),
     ),
     NodeType(
@@ -1082,5 +1090,30 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "and deploy, 'DEPLOY_FAILED' with the failing step's own detail in "
                "deploy_error after every retry is exhausted; both absent before this "
                "report has ever been deployed.",
+    ),
+    SpecDeviation(
+        element="Visual.interactivity",
+        reason="Section 4.1.1's own node table gives Visual no property carrying "
+               "parameter or action mappings, and backlog story S6.1.3's own acceptance "
+               "criteria requires exactly that: 'interactivity mapping is recorded on the "
+               "Visual node'. Section 8.8 already names the source ('translates filters "
+               "and parameters to slicers and report-level filters, translates actions to "
+               "drill-through and cross-filter settings'); this property is where that "
+               "translation for one visual lands.",
+        detail="Two lists, computed from real edges/properties this platform already "
+               "harvests -- never fabricated. Parameters: found via DEPENDS_ON from a "
+               "calculated field this visual's own field wells already reference, "
+               "classified by Parameter.domain (list -> slicer, range -> what-if "
+               "parameter, any -> unsupported, no bounded Power BI equivalent exists). "
+               "Actions: every live Action naming this visual's own source sheet in "
+               "source_sheets or target_sheets, classified by Action.type (filter/"
+               "highlight -> a cross-filter/highlight setting, url -> a URL field, "
+               "parameter/set -> unsupported, Appendix B.2's own 'Parameter and set "
+               "actions -> C3 or C4'). A parameter reachable only through a filter or an "
+               "action nothing computes -- never through a calculated field -- is a real, "
+               "disclosed gap this property does not claim to close: Parameter/Action "
+               "nodes carry no edge back to their own Workbook at all (§4.1.2 declares "
+               "none), so DEPENDS_ON-from-a-referenced-calculation is the only real path "
+               "this platform has to either.",
     ),
 )

@@ -1,4 +1,4 @@
-"""PBIR emission and schema validation -- story S6.1.1, spec §7.1.
+"""PBIR emission and schema validation -- stories S6.1.1 and S6.1.3, spec §7.1.
 
     "JSON schema validation against PBIR schema; visual-type whitelist; binding check that
     every field reference resolves in the model."
@@ -113,3 +113,74 @@ def test_a_document_missing_a_required_field_is_a_schema_error() -> None:
 def test_an_unrecognised_document_path_is_reported() -> None:
     errors, _ = validate_pbir({"pages/p1/theme.json": {}})
     assert any("not a recognised PBIR document path" in e for e in errors)
+
+
+# ----------------------------------------------------------------------------- interactivity
+
+
+def _parameter(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "name": "Region", "datatype": "string", "domain": "list", "kind": "slicer",
+        "supported": True, "values": ["EMEA", "APAC"], "default": "EMEA", "reason": None,
+    }
+    base.update(overrides)
+    return base
+
+
+def _action(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "type": "filter", "role": "source", "otherSheets": ["Detail"],
+        "powerBiSetting": "crossFilter", "supported": True, "reason": None,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_emit_pbir_always_carries_an_interactivity_block_even_when_absent() -> None:
+    bundle = emit_pbir(visuals=[_visual()])
+    document = bundle["pages/p1/visuals/v1/visual.json"]
+    assert document["interactivity"] == {"parameters": [], "actions": []}
+
+
+def test_emit_pbir_carries_through_parameters_and_actions() -> None:
+    bundle = emit_pbir(
+        visuals=[_visual(interactivity={"parameters": [_parameter()], "actions": [_action()]})]
+    )
+    document = bundle["pages/p1/visuals/v1/visual.json"]
+    assert document["interactivity"]["parameters"] == [_parameter()]
+    assert document["interactivity"]["actions"] == [_action()]
+
+
+def test_a_well_formed_interactivity_block_has_no_errors_or_warnings() -> None:
+    bundle = emit_pbir(
+        visuals=[_visual(interactivity={"parameters": [_parameter()], "actions": [_action()]})]
+    )
+    errors, warnings = validate_pbir(bundle)
+    assert errors == []
+    assert warnings == []
+
+
+def test_an_unsupported_parameter_is_a_warning_not_an_error() -> None:
+    unsupported = _parameter(kind=None, supported=False, reason="Tableau's 'any' domain ...")
+    bundle = emit_pbir(visuals=[_visual(interactivity={"parameters": [unsupported], "actions": []})])
+    errors, warnings = validate_pbir(bundle)
+    assert errors == []
+    assert len(warnings) == 1
+    assert "Region" in warnings[0]
+
+
+def test_an_unsupported_action_is_a_warning_not_an_error() -> None:
+    unsupported = _action(type="parameter", powerBiSetting=None, supported=False, reason="Appendix B.2 ...")
+    bundle = emit_pbir(visuals=[_visual(interactivity={"parameters": [], "actions": [unsupported]})])
+    errors, warnings = validate_pbir(bundle)
+    assert errors == []
+    assert len(warnings) == 1
+    assert "parameter" in warnings[0]
+    assert "Detail" in warnings[0]
+
+
+def test_a_malformed_interactivity_block_is_a_schema_error() -> None:
+    bundle = emit_pbir(visuals=[_visual()])
+    bundle["pages/p1/visuals/v1/visual.json"]["interactivity"]["parameters"] = [{"name": "incomplete"}]
+    errors, _ = validate_pbir(bundle)
+    assert any("visual.json" in e for e in errors)

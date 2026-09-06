@@ -1,12 +1,16 @@
-"""The Compositor's pure logic -- story S6.1.1, spec §8.8/Appendix B.
+"""The Compositor's pure logic -- stories S6.1.1 and S6.1.3, spec §8.8/Appendix B.
 
     "Mapping table from Appendix B (mark type x encodings -> visual type) is data,
     versioned, and editable by the architect."
     "Sheets whose mark type has no mapping are emitted as a placeholder visual with
     redesign_flag: true and the reason."
+    "Tableau parameters become what-if parameters or slicers by type; filter actions
+    become cross-filter settings; URL actions become URL fields; unsupported actions are
+    listed on the MU page with the Appendix B guidance."
 
-`resolve_visual` and the zone-layout helpers are pure functions of already-resolved data --
-every test here runs with no database, matching `test_conformance_rules.py`'s own footing.
+`resolve_visual`, `classify_parameter`, `classify_action` and the zone-layout helpers are
+pure functions of already-resolved data -- every test here runs with no database, matching
+`test_conformance_rules.py`'s own footing.
 """
 
 from __future__ import annotations
@@ -14,8 +18,11 @@ from __future__ import annotations
 from astra_graph.compositor import (
     ResolvedWell,
     _find_zone,
+    _worksheet_action_mappings,
     _zone_layout,
     _zone_list,
+    classify_action,
+    classify_parameter,
     resolve_visual,
 )
 from astra_graph.visual_mapping import DEFAULT_MAPPINGS, VisualMappingRuleset
@@ -222,3 +229,107 @@ def test_find_zone_skips_non_dict_entries_without_crashing() -> None:
     zones = _zone_list({"zones": [{"sheet": "workbook:x/worksheet:0"}]})
     assert _find_zone(zones, "VaR sheet") is None
     assert _find_zone(["not-a-dict"], "VaR sheet") is None
+
+
+# --------------------------------------------------------------------------- parameters
+
+
+def _parameter(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "name": "Growth Rate", "datatype": "real", "domain": "range",
+        "current_values_seen": [], "default": "0.05",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_a_list_domain_parameter_becomes_a_slicer() -> None:
+    mapping = classify_parameter(_parameter(domain="list", current_values_seen=["EMEA", "APAC"]))
+    assert mapping.kind == "slicer"
+    assert mapping.supported
+    assert mapping.reason is None
+    assert mapping.values == ("EMEA", "APAC")
+
+
+def test_a_range_domain_parameter_becomes_a_what_if_but_discloses_missing_bounds() -> None:
+    mapping = classify_parameter(_parameter(domain="range"))
+    assert mapping.kind == "what_if"
+    assert mapping.supported
+    assert "bounds" in mapping.reason
+
+
+def test_an_any_domain_parameter_is_unsupported() -> None:
+    mapping = classify_parameter(_parameter(domain="any"))
+    assert mapping.kind is None
+    assert not mapping.supported
+    assert "unconstrained" in mapping.reason
+
+
+def test_a_missing_domain_defaults_to_any_and_is_unsupported() -> None:
+    parameter = _parameter()
+    del parameter["domain"]
+    mapping = classify_parameter(parameter)
+    assert mapping.domain == "any"
+    assert not mapping.supported
+
+
+# -------------------------------------------------------------------------------- actions
+
+
+def test_a_filter_action_becomes_a_cross_filter_setting() -> None:
+    mapping = classify_action("filter", role="source", other_sheets=["Detail"])
+    assert mapping.power_bi_setting == "crossFilter"
+    assert mapping.supported
+    assert mapping.reason is None
+    assert mapping.other_sheets == ("Detail",)
+
+
+def test_a_highlight_action_becomes_a_highlight_setting() -> None:
+    """Appendix B.2 groups highlight with filter under one outcome (`Cross-filter/
+    highlight settings`); the backlog's own AC text names only filter and URL explicitly
+    but does not carve highlight out either -- treated identically here."""
+    mapping = classify_action("highlight", role="target", other_sheets=["Overview"])
+    assert mapping.power_bi_setting == "highlight"
+    assert mapping.supported
+
+
+def test_a_url_action_becomes_a_url_field() -> None:
+    mapping = classify_action("url", role="source", other_sheets=[])
+    assert mapping.power_bi_setting == "url"
+    assert mapping.supported
+
+
+def test_a_parameter_action_is_unsupported_with_the_appendix_b_guidance() -> None:
+    mapping = classify_action("parameter", role="target", other_sheets=["Overview"])
+    assert mapping.power_bi_setting is None
+    assert not mapping.supported
+    assert "Appendix B.2" in mapping.reason
+    assert "C3 or C4" in mapping.reason
+
+
+def test_a_set_action_is_unsupported_with_the_appendix_b_guidance() -> None:
+    mapping = classify_action("set", role="source", other_sheets=["Overview"])
+    assert not mapping.supported
+    assert "Appendix B.2" in mapping.reason
+
+
+def test_worksheet_action_mappings_matches_by_source_and_target_sheet_name() -> None:
+    actions = [
+        {"type": "filter", "source_sheets": ["Overview"], "target_sheets": ["Detail"]},
+        {"type": "url", "source_sheets": ["Other sheet"], "target_sheets": []},
+    ]
+    source_side = _worksheet_action_mappings(actions, "Overview")
+    assert len(source_side) == 1
+    assert source_side[0].role == "source"
+
+    target_side = _worksheet_action_mappings(actions, "Detail")
+    assert len(target_side) == 1
+    assert target_side[0].role == "target"
+
+    assert _worksheet_action_mappings(actions, "Neither sheet") == []
+
+
+def test_worksheet_action_mappings_can_be_both_source_and_target() -> None:
+    actions = [{"type": "filter", "source_sheets": ["Overview"], "target_sheets": ["Overview"]}]
+    mappings = _worksheet_action_mappings(actions, "Overview")
+    assert {m.role for m in mappings} == {"source", "target"}

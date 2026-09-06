@@ -195,6 +195,26 @@ async def estate(settings: Settings):
         )
         await _edge(writer, "MAPS_TO", margin_calc, measure, **{"class": "C2"})
 
+        growth_rate = await _write(
+            writer, "Parameter", name="Growth Rate", datatype="real", domain="range",
+            default="0.05", current_values_seen=[],
+        )
+        await _edge(writer, "DEPENDS_ON", margin_calc, growth_rate)
+        # A real parameter nothing in this workbook's own calculations references --
+        # confirmed unreachable by design (§4.1.2 gives Parameter no edge to its own
+        # Workbook at all), not swept in by a broader, less honest query.
+        await _write(
+            writer, "Parameter", name="Unrelated Region Filter", datatype="string",
+            domain="list", default="EMEA", current_values_seen=["EMEA", "APAC"],
+        )
+
+        await _write(
+            writer, "Action", type="filter", source_sheets=["Bar sheet"], target_sheets=["Weird sheet"],
+        )
+        await _write(
+            writer, "Action", type="parameter", source_sheets=["Bar sheet"], target_sheets=[],
+        )
+
         bar_sheet = await _write(
             writer, "Worksheet", name="Bar sheet", mark_type="bar",
             rows_shelf=["MarginCalc"], cols_shelf=["Desk"], marks_shelf=["color:Region"],
@@ -288,6 +308,48 @@ async def test_the_mapped_sheet_resolves_encodings_and_binds_the_calculated_fiel
     assert wells["Region"]["role"] == "legend"
     assert visual["encodings"]["sort"][0]["field"] == "Desk"
     assert visual["encodings"]["filters"][0]["field_ref"] == "Desk"
+
+
+async def test_the_bar_sheets_own_parameter_is_found_through_its_calculated_field(estate) -> None:
+    result = await compose_report(
+        estate["pool"], estate["settings"].graph_name, estate["writer"],
+        workbook_id=estate["workbook"], ruleset=_ruleset(), principal=ENGINEER,
+    )
+    visual = next(v for v in result["visuals"] if v["source_sheet_ref"] == estate["bar_sheet"])
+    parameters = {p["name"]: p for p in visual["interactivity"]["parameters"]}
+    assert parameters.keys() == {"Growth Rate"}
+    assert parameters["Growth Rate"]["kind"] == "what_if"
+    assert parameters["Growth Rate"]["supported"] is True
+    assert "bounds" in parameters["Growth Rate"]["reason"]
+    # The unrelated, list-domain parameter nothing on this sheet's own wells depends on
+    # must not appear -- disclosed unreachability, not a broader (and wrong) sweep.
+    assert "Unrelated Region Filter" not in parameters
+
+
+async def test_the_bar_sheets_own_actions_are_found_by_sheet_name(estate) -> None:
+    """`_gather_workbook_actions` scans every live `Action` in the graph and matches by
+    sheet name (§4.1.2 gives `Action` no edge back to its own `Workbook` at all -- the
+    disclosed limitation `Visual.interactivity`'s own `SpecDeviation` names). This test's
+    own shared graph accumulates a same-named 'Bar sheet'/'Weird sheet' pair from every
+    other test in this module using the identical fixture sheet names -- exactly the
+    cross-workbook collision that limitation warns about -- so this asserts the expected
+    entries are *present*, not that they are the *only* ones found."""
+    result = await compose_report(
+        estate["pool"], estate["settings"].graph_name, estate["writer"],
+        workbook_id=estate["workbook"], ruleset=_ruleset(), principal=ENGINEER,
+    )
+    bar_visual = next(v for v in result["visuals"] if v["source_sheet_ref"] == estate["bar_sheet"])
+    actions = bar_visual["interactivity"]["actions"]
+    filter_actions = [a for a in actions if a["type"] == "filter" and a["role"] == "source"]
+    parameter_actions = [a for a in actions if a["type"] == "parameter" and a["role"] == "source"]
+    assert filter_actions and filter_actions[0]["powerBiSetting"] == "crossFilter"
+    assert filter_actions[0]["otherSheets"] == ["Weird sheet"]
+    assert parameter_actions and parameter_actions[0]["supported"] is False
+    assert "Appendix B.2" in parameter_actions[0]["reason"]
+
+    weird_visual = next(v for v in result["visuals"] if v["source_sheet_ref"] == estate["weird_sheet"])
+    weird_targets = [a for a in weird_visual["interactivity"]["actions"] if a["role"] == "target"]
+    assert weird_targets and weird_targets[0]["otherSheets"] == ["Bar sheet"]
 
 
 async def test_the_dashboard_zone_geometry_survives_onto_the_visual(estate) -> None:

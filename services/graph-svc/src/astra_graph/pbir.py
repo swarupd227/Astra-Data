@@ -1,4 +1,4 @@
-"""PBIR emission and schema validation -- story S6.1.1, spec §7.1.
+"""PBIR emission and schema validation -- stories S6.1.1 and S6.1.3, spec §7.1.
 
     "Report | PBIR (Power BI enhanced report format): definition/report.json,
     pages/*/page.json, visuals/*/visual.json, theme | Compositor | JSON schema validation
@@ -69,8 +69,8 @@ def emit_pbir(*, visuals: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, An
 
     ``visuals`` is the same plain-dict shape ``compositor.compose_report`` already builds
     for its own return value (id/page/type/source_sheet_ref/encodings/redesign_flag/
-    redesign_reason/layout) -- one caller-facing shape, not a second one this function
-    invents for itself.
+    redesign_reason/layout/interactivity) -- one caller-facing shape, not a second one this
+    function invents for itself.
     """
     pages: dict[str, list[str]] = {}
     bundle: dict[str, dict[str, Any]] = {}
@@ -80,6 +80,7 @@ def emit_pbir(*, visuals: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, An
         visual_id = str(visual["id"])
         pages.setdefault(page, []).append(visual_id)
         encodings = visual.get("encodings") or {}
+        interactivity = visual.get("interactivity") or {}
         bundle[f"pages/{page}/visuals/{visual_id}/visual.json"] = {
             "$schema": _VISUAL_SCHEMA_URI,
             "name": visual_id,
@@ -91,6 +92,10 @@ def emit_pbir(*, visuals: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, An
             "redesignFlag": bool(visual.get("redesign_flag")),
             "redesignReason": visual.get("redesign_reason"),
             "sourceSheetRef": visual.get("source_sheet_ref"),
+            "interactivity": {
+                "parameters": list(interactivity.get("parameters") or ()),
+                "actions": list(interactivity.get("actions") or ()),
+            },
         }
 
     for page, visual_ids in pages.items():
@@ -152,6 +157,19 @@ def validate_pbir(bundle: Mapping[str, dict[str, Any]]) -> tuple[list[str], list
                 warnings.append(
                     f"{path}: field well '{well.get('sourceName')}' ({well.get('shelf')}) "
                     f"does not resolve in the model -- {well.get('reason')}"
+                )
+        interactivity = document.get("interactivity") or {}
+        for parameter in interactivity.get("parameters") or ():
+            if not parameter.get("supported"):
+                warnings.append(
+                    f"{path}: parameter '{parameter.get('name')}' ({parameter.get('domain')}) "
+                    f"is not translated -- {parameter.get('reason')}"
+                )
+        for action in interactivity.get("actions") or ():
+            if not action.get("supported"):
+                warnings.append(
+                    f"{path}: {action.get('type')} action ({action.get('role')} of "
+                    f"{action.get('otherSheets')}) is not translated -- {action.get('reason')}"
                 )
 
     return errors, warnings

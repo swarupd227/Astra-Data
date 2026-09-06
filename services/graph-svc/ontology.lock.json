@@ -2008,6 +2008,13 @@
           "required": false,
           "server_managed": false,
           "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "interactivity",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
         }
       ],
       "side": "target"
@@ -2224,5 +2231,5 @@
       "side": "source"
     }
   },
-  "schema_version": 23
+  "schema_version": 24
 }
