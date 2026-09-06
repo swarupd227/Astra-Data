@@ -656,6 +656,18 @@ class Compositor:
         self._graph = graph_name
         self._writer = writer
 
+    @property
+    def pool(self) -> asyncpg.Pool:
+        return self._pool
+
+    @property
+    def graph_name(self) -> str:
+        return self._graph
+
+    @property
+    def writer(self) -> GraphWriter:
+        return self._writer
+
     async def compose(
         self, workbook_id: str, *, ruleset: VisualMappingRuleset, principal: Principal
     ) -> dict[str, Any]:

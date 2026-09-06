@@ -291,6 +291,18 @@ async def build_family(
             principal=principal,
         )
         if state == "SUCCEEDED":
+            # `SemanticModel.state`'s own note promises "deployment state within an
+            # environment" — a promise nothing ever kept before this story (every write
+            # site sets it to DRAFT/PUBLISHED/DEPRECATED only, never BUILT, even though
+            # `ModelFamily.state` already gets it above). Closed here rather than worked
+            # around, since S6.1.2 (the Compositor's own deploy story) needs to check
+            # "PUBLISHED or BUILT" on the *model* a report is bound to, not the family.
+            semantic_model_id = raw_document.get("semantic_model_id")
+            if semantic_model_id:
+                await writer.set_node_properties(
+                    semantic_model_id, {"state": "BUILT"}, principal=principal
+                )
+        if state == "SUCCEEDED":
             logger.info("family %s built and deployed to %s by %s", family_id, workspace, principal.value)
         else:
             logger.warning(

@@ -86,6 +86,7 @@ from .logging_setup import configure_logging
 from .modeller import Modeller
 from .ontology import SCHEMA_VERSION
 from .provenance import ContextVerifier, PostgresProvenanceStore
+from .report_deploy import PostgresReportDeployStore
 from .retention import PostgresProgrammeStore
 from .rules import RulesEngine
 from .scope import PostgresScopeStore
@@ -258,6 +259,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # architect saves one of their own, the identical posture `conformance_store` already has.
     app.state.visual_mapping_store = PostgresVisualMappingRulesetStore(pool, graph_name=config.graph_name)
     app.state.compositor = Compositor(pool, graph_name=config.graph_name, writer=writer)
+    # Story S6.1.2: commit and deploy a composed report through the same target adapter
+    # `build_family` already uses — reused verbatim, no second commit/deploy mechanism.
+    app.state.report_deploy_store = PostgresReportDeployStore(pool, graph_name=config.graph_name)
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(
         quality=quality_store,

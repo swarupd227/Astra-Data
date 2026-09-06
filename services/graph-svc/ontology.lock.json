@@ -1680,6 +1680,20 @@
           "required": false,
           "server_managed": false,
           "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "deploy_state",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "deploy_error",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
         }
       ],
       "side": "target"
@@ -2210,5 +2224,5 @@
       "side": "source"
     }
   },
-  "schema_version": 22
+  "schema_version": 23
 }

@@ -1,15 +1,18 @@
-"""The Compositor's own API -- story S6.1.1.
+"""The Compositor's own API -- stories S6.1.1 and S6.1.2.
 
     "Mapping table from Appendix B ... is data, versioned, and editable by the architect."
+    "I want the report definition committed to Git and deployed to the dev workspace bound
+    to the family model, so that I can open the generated report in Fabric within minutes
+    of generation."
 
 Reading the visual-mapping ruleset is open to any Artizent role, the identical posture
 `routes_conformance.py` already set for the same shape of table; saving a new version is
 the architect's (`MigrationArchitectDep`), spec §2.4: "Owns target architecture and
 conformance rules" -- a visual-type mapping is target architecture by the same reading.
-Composing a workbook is the migration engineer's (`MigrationEngineerDep`), the persona
-this story's own acceptance criteria names ("As a migration engineer, I want each Tableau
-sheet mapped..."). Reading a workbook's current report back is open to any Artizent role,
-the same posture every other "read what a prior action produced" route in this API has.
+Composing and deploying a workbook are both the migration engineer's
+(`MigrationEngineerDep`), the persona both stories' own acceptance criteria name. Reading a
+workbook's current report or deploy log back is open to any Artizent role, the same posture
+every other "read what a prior action produced" route in this API has.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..compositor import Compositor, CompositorError
 from ..errors import ElementNotFoundError, InvalidRequestError
 from ..pbir import VISUAL_TYPE_WHITELIST
+from ..report_deploy import ReportDeployError, ReportDeployStore, deploy_report
 from ..visual_mapping import MappingRule, VisualMappingRulesetStore
 from .deps import ArtizentDep, MigrationArchitectDep, MigrationEngineerDep, PrincipalDep
 
@@ -41,6 +45,13 @@ def _mapping_store(request: Request) -> VisualMappingRulesetStore:
     store: VisualMappingRulesetStore | None = getattr(request.app.state, "visual_mapping_store", None)
     if store is None:
         raise InvalidRequestError("the visual-mapping ruleset is not available on this deployment")
+    return store
+
+
+def _deploy_store(request: Request) -> ReportDeployStore:
+    store: ReportDeployStore | None = getattr(request.app.state, "report_deploy_store", None)
+    if store is None:
+        raise InvalidRequestError("report deployment is not available on this deployment")
     return store
 
 
@@ -138,6 +149,47 @@ async def get_workbook_report(
     if report is None:
         raise ElementNotFoundError(f"workbook '{workbook_id}' has not been composed into a report yet")
     return report
+
+
+# --------------------------------------------------------------------------- story S6.1.2
+
+
+@router.post(
+    "/v1/workbooks/{workbook_id}:deploy",
+    tags=["compositor"],
+    summary="Commit and deploy a workbook's own current report to the dev workspace (§7.1/§7.2)",
+)
+async def deploy_workbook(
+    request: Request,
+    principal: PrincipalDep,
+    roles: MigrationEngineerDep,
+    workbook_id: str = _WORKBOOK_ID,
+) -> dict[str, Any]:
+    target_adapter = getattr(request.app.state, "target_adapter", None)
+    if target_adapter is None:
+        raise InvalidRequestError("report deployment is not available on this deployment")
+    workspace = getattr(request.app.state, "target_workspace", "dev")
+    engine = _compositor(request)
+    try:
+        record = await deploy_report(
+            engine.pool, engine.graph_name, engine.writer, target_adapter, _deploy_store(request),
+            workbook_id=workbook_id, workspace=workspace, principal=principal,
+        )
+    except (ElementNotFoundError, ReportDeployError) as exc:
+        raise InvalidRequestError(str(exc)) from exc
+    return record.as_dict()
+
+
+@router.get(
+    "/v1/workbooks/{workbook_id}/deploy",
+    tags=["compositor"],
+    summary="The most recent deploy attempt for one workbook's own report (§15.3.3)",
+)
+async def get_workbook_deploy(
+    request: Request, principal: PrincipalDep, roles: ArtizentDep, workbook_id: str = _WORKBOOK_ID
+) -> dict[str, Any]:
+    record = await _deploy_store(request).latest(workbook_id)
+    return {"workbook_id": workbook_id, "deploy": record.as_dict() if record else None}
 
 
 __all__ = ["router"]

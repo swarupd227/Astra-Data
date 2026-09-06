@@ -1723,7 +1723,7 @@ carrying the local-only override), not worked around.
 See [ADR 0044](../../docs/adr/0044-the-pattern-library-screen-and-the-nginx-resolver-bug-it-found.md)
 for the full reasoning.
 
-## The Compositor: visual mapping and PBIR emission (story S6.1.1)
+## The Compositor: visual mapping and PBIR emission (stories S6.1.1 and S6.1.2)
 
 `compositor.py` / `visual_mapping.py` / `pbir.py` -- opens E6. Each Tableau sheet becomes a
 Power BI `Visual`, field wells bound through real `MAPS_TO` edges where they exist, filters
@@ -1798,6 +1798,50 @@ Modeller/Cartographer each had before their own override stories. `GET`/`POST
 Compositor, confirmed by direct research against the full backlog text.
 
 See [ADR 0045](../../docs/adr/0045-the-compositor-visual-mapping-as-data-a-disclosed-subset-pbir-schema.md)
+for the full reasoning.
+
+### Committing and deploying a report (story S6.1.2)
+
+`report_deploy.py` closes F6.1. `deploy_report` reads back a workbook's own already-composed
+report (`compositor.read_report`) and commits + deploys it through the identical
+`TargetAdapter.commit`/`.deploy` contract `build_family` (S4.3.1) already uses -- no second
+commit/deploy mechanism, `TmdlBundle` reused verbatim for the PBIR bundle's own JSON bytes.
+This is deliberately a second, separate action from composing, not a hidden step chained
+onto it: `compose_report`'s own acceptance criteria (S6.1.1) stops at validation, and a
+Migration Engineer reviews S6.1.1's own disclosed binding warnings before choosing to
+deploy.
+
+**"Bound to the PUBLISHED or BUILT model" closes a real, disclosed gap rather than working
+around it.** Tracing every write site found `SemanticModel.state` was never once set to
+`"BUILT"` anywhere in this codebase -- only `ModelFamily.state` was, even though
+`SemanticModel.state`'s own declared note already promised "deployment state within an
+environment." `build.py`'s own `finish()` now also stamps `SemanticModel.state = "BUILT"`
+on a successful build, so `deploy_report`'s own check (`state in ("BUILT", "PUBLISHED")`)
+reads the *model* the AC actually names, not a family-level proxy that would get the wrong
+answer the moment a family has a DRAFT v(n+1) alongside its still-live BUILT/PUBLISHED v(n).
+
+**"Returns the MU to GENERATED with the error" is a disclosed proxy -- the sixth time this
+exact gap has been found.** No real Migration Unit node or §3.2 state machine exists
+anywhere (`migration_units.py`'s own registry declares no state-setting method at all); "the
+MU page" is F10.3's own unbuilt future screen. `ReportDefinition.deploy_state`/
+`.deploy_error` (new, additive, schema version 23) carry exactly this fact on the one real
+node this action touches -- `"GENERATED"` once commit and deploy both succeed,
+`"DEPLOY_FAILED"` with the failing step's own detail once every retry is exhausted.
+
+**Retries wrap the deploy call only, as a fixed three-attempt budget with a small fixed
+backoff schedule** (`DEPLOY_RETRY_DEFAULT = 3`, `(2.0, 5.0)` seconds between attempts) --
+no spec text names a retry count or backoff shape for deployment anywhere, so this story
+owns the shape, read the same "budget" way the Mender's own "pass budget (default 3)"
+already is rather than "three retries after a first attempt" (four total). `public.
+report_deploy_run` (migration v0025) mirrors `build_run`'s own shape exactly, keyed by
+`workbook_id` rather than `report_id` since a recompose retires and replaces the report id
+but the workbook is what a Migration Unit actually is.
+
+`POST /v1/workbooks/{id}:deploy` and `GET /v1/workbooks/{id}/deploy` reuse
+`MigrationEngineerDep`/`ArtizentDep` -- no new role. No console screen, the identical
+finding S6.1.1 already made.
+
+See [ADR 0046](../../docs/adr/0046-deploying-a-report-a-disclosed-mu-proxy-and-a-real-retry-budget.md)
 for the full reasoning.
 
 ## Grammar issues

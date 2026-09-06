@@ -491,12 +491,31 @@ NODE_TYPES: tuple[NodeType, ...] = (
         note="The Compositor's product.",
         properties=(
             _p("mu_ref", T.STRING, required=True),
-            _p("pbir_ref", T.STRING),
+            _p("pbir_ref", T.STRING,
+               note="The Git commit this report last deployed from (story S6.1.2) -- "
+                    "absent until the first successful commit; the Fabric item path "
+                    "itself is not recorded here, since it is derived from the "
+                    "workbook's own name and never stored as an independent fact."),
             _p("pages", T.STRING_LIST),
             _p("model_ref", T.STRING, required=True,
                note="A report definition that binds to no model cannot be proved."),
             _p("version", T.STRING),
             _p("validation_state", T.STRING, note=_VALIDATION_STATE_NOTE),
+            _p("deploy_state", T.STRING,
+               note="The disclosed proxy for this report's own place in §3.2's MU state "
+                    "machine (story S6.1.2) -- no real Migration Unit node exists anywhere "
+                    "in this codebase to hold GENERATED/PROVING/etc for real (confirmed a "
+                    "sixth time, the identical gap S5.4.1/S5.5.1/S5.5.2/S5.5.3/S6.1.1 each "
+                    "already found). 'GENERATED' after a successful commit and deploy; "
+                    "'DEPLOY_FAILED' after every retry is exhausted -- the AC's own "
+                    "'deployment failure returns the MU to GENERATED' read as 'never claims "
+                    "the deploy succeeded', since nothing here can roll back a state that "
+                    "was never really entered by a real MU record to begin with. Absent "
+                    "before this report has ever been deployed at all."),
+            _p("deploy_error", T.STRING,
+               note="The failing step's own detail (story S6.1.2) -- 'the error on the MU "
+                    "page' (F10.3, not yet built); absent whenever deploy_state is absent "
+                    "or 'GENERATED'."),
         ),
     ),
     NodeType(
@@ -1049,5 +1068,19 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "geometry) and on a placeholder visual for an unmapped mark type, where "
                "section 8.8's own 'small model proposing a grid' collision resolution is "
                "future, unbuilt scope this story does not attempt.",
+    ),
+    SpecDeviation(
+        element="ReportDefinition.deploy_state, ReportDefinition.deploy_error",
+        reason="Section 4.1.1's own node table declares neither property, and backlog "
+               "story S6.1.2's own acceptance criteria requires 'deployment failure "
+               "returns the MU to GENERATED with the error on the MU page' -- section 3.2's "
+               "own state machine names GENERATED as a real Migration Unit state, but no MU "
+               "node exists anywhere in this codebase to hold it (confirmed a sixth time, "
+               "the identical gap S5.4.1/S5.5.1/S5.5.2/S5.5.3/S6.1.1 each already found).",
+        detail="A disclosed proxy on the one real node this story's own deploy action "
+               "touches, not a fabricated MU record. 'GENERATED' after a successful commit "
+               "and deploy, 'DEPLOY_FAILED' with the failing step's own detail in "
+               "deploy_error after every retry is exhausted; both absent before this "
+               "report has ever been deployed.",
     ),
 )
