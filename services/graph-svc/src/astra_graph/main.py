@@ -261,6 +261,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.visual_mapping_store = PostgresVisualMappingRulesetStore(pool, graph_name=config.graph_name)
     app.state.compositor = Compositor(
         pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
+        provenance_store=app.state.provenance_store,
     )
     # Story S6.1.2: commit and deploy a composed report through the same target adapter
     # `build_family` already uses — reused verbatim, no second commit/deploy mechanism.

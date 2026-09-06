@@ -1931,6 +1931,45 @@ role gates -- no new role.
 See [ADR 0048](../../docs/adr/0048-redesign-flags-as-real-work-items-a-second-use-of-exceptioncase.md)
 for the full reasoning.
 
+## Report documentation (story S6.2.2)
+
+`report_documentation.py`. A deterministic markdown page per report, rendered entirely
+from already-composed graph facts -- purpose (the workbook's own `name`; `Workbook` has
+no `description` property, confirmed directly), pages/visuals with their Tableau sheet of
+origin, measures with their source calc names, parameters, known differences (open C4
+calculations with their Appendix B guidance/suggestion/decision, and redesigned visuals
+with their reason), the model (family, grain, version, state) and every distinct refresh
+schedule its worksheets' own datasources carry.
+
+**§8.11 names the Steward as the agent that drafts report documentation; this platform
+has no Steward yet (E9, unbuilt), and the backlog places this story in F6.2/E6 anyway** --
+`agent="compositor"` is recorded rather than borrowing an identity that does not exist,
+disclosed as a departure rather than silent. **ASSISTED, never a model call** -- the
+markdown is a deterministic template, the same "real, reproducible, no inference boundary
+to police" footing `modeller.py`'s grain-statement drafting and `redesign.py`'s own C4
+suggestion already established; `ContractName.COMPOSITOR_REPORT_DOC` is a third "name
+only" contract for the same reason.
+
+**Generation is a deliberate, separate action, not automatic on every compose** -- the
+same shape `deploy_workbook` (S6.1.2) already took relative to `compose_workbook`
+(S6.1.1); composing is cheap and iterative, and spamming the artefact store with a fresh
+documentation draft on every one of those composes serves nobody. This is unlike S6.2.1's
+`ExceptionCase`, which the AC phrased causally and which therefore does open automatically
+during compose.
+
+**"Linked from the MU page"** is the same disclosed proxy ADRs 0045-0048 already used four
+times: no MU page exists (F10.3, unbuilt), so `ReportDefinition.documentation_artefact_ref`/
+`.documentation_provenance_ref` make the link real and queryable today, from the one real,
+existing node this touches.
+
+`POST /v1/workbooks/{id}:generate-documentation` (`MigrationEngineerDep`, the same
+persona compose/deploy already use) and `GET /v1/workbooks/{id}:documentation`
+(`C4RedesignReaderDep` -- any Artizent role or the report owner, reused verbatim from
+`routes_redesign.py`'s own precedent) -- no new role.
+
+See [ADR 0049](../../docs/adr/0049-report-documentation-a-deterministic-assisted-draft-linked-from-reportdefinition.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

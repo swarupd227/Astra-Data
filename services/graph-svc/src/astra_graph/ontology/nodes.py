@@ -517,6 +517,14 @@ NODE_TYPES: tuple[NodeType, ...] = (
                note="The failing step's own detail (story S6.1.2) -- 'the error on the MU "
                     "page' (F10.3, not yet built); absent whenever deploy_state is absent "
                     "or 'GENERATED'."),
+            _p("documentation_artefact_ref", T.STRING,
+               note="The generated markdown documentation page for this report (story "
+                    "S6.2.2) -- an ArtefactRecord id (kind 'report_documentation'). "
+                    "Absent until documentation has been generated at least once."),
+            _p("documentation_provenance_ref", T.STRING,
+               note="The ProvenanceRecord (mode ASSISTED) for the documentation-drafting "
+                    "step that produced `documentation_artefact_ref` (story S6.2.2). "
+                    "Absent alongside it."),
         ),
     ),
     NodeType(
@@ -1189,5 +1197,22 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "are the AC's own three closing facts, the identical `*_by`/`*_at` shape "
                "`CalculatedField.redesign_decision_by`/`.redesign_decision_at` (S5.4.1) "
                "already set for a comparable closing action.",
+    ),
+    SpecDeviation(
+        element="ReportDefinition.documentation_artefact_ref, "
+                "ReportDefinition.documentation_provenance_ref",
+        reason="Section 4.1.1's own node table declares neither -- `ReportDefinition` as "
+               "specified carries no reference to a generated documentation page at all. "
+               "Backlog story S6.2.2's own acceptance criteria requires the generated "
+               "documentation to be 'stored as an artefact and linked from the MU page'; "
+               "no MU page exists (F10.3, unbuilt, the identical gap ADRs 0045-0048 each "
+               "already found), so the link is made real and queryable from the one real, "
+               "existing node this touches instead.",
+        detail="`documentation_artefact_ref` is an `ArtefactRecord` id (kind "
+               "'report_documentation'); `documentation_provenance_ref` is the "
+               "ProvenanceRecord (mode ASSISTED) for the drafting step that produced it -- "
+               "the same 'a real fact, additive, on the one node a later story's proxy can "
+               "attach to' shape `ReportDefinition.pbir_ref`/`.deploy_state` (S6.1.2) "
+               "already set for this exact node.",
     ),
 )

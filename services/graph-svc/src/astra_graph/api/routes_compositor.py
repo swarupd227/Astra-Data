@@ -26,8 +26,15 @@ from ..compositor import Compositor, CompositorError
 from ..errors import ElementNotFoundError, InvalidRequestError
 from ..pbir import VISUAL_TYPE_WHITELIST
 from ..report_deploy import ReportDeployError, ReportDeployStore, deploy_report
+from ..report_documentation import ReportDocumentationError
 from ..visual_mapping import MappingRule, VisualMappingRulesetStore
-from .deps import ArtizentDep, MigrationArchitectDep, MigrationEngineerDep, PrincipalDep
+from .deps import (
+    ArtizentDep,
+    C4RedesignReaderDep,
+    MigrationArchitectDep,
+    MigrationEngineerDep,
+    PrincipalDep,
+)
 
 router = APIRouter()
 
@@ -190,6 +197,45 @@ async def get_workbook_deploy(
 ) -> dict[str, Any]:
     record = await _deploy_store(request).latest(workbook_id)
     return {"workbook_id": workbook_id, "deploy": record.as_dict() if record else None}
+
+
+# --------------------------------------------------------------------------- story S6.2.2
+
+
+@router.post(
+    "/v1/workbooks/{workbook_id}:generate-documentation",
+    tags=["compositor"],
+    summary="Generate this workbook's report documentation from the graph (§8.8/§8.11)",
+)
+async def generate_documentation(
+    request: Request,
+    principal: PrincipalDep,
+    roles: MigrationEngineerDep,
+    workbook_id: str = _WORKBOOK_ID,
+) -> dict[str, Any]:
+    try:
+        return await _compositor(request).generate_documentation(workbook_id, principal=principal)
+    except (ElementNotFoundError, CompositorError, ReportDocumentationError) as exc:
+        raise InvalidRequestError(str(exc)) from exc
+
+
+@router.get(
+    "/v1/workbooks/{workbook_id}:documentation",
+    tags=["compositor"],
+    summary="The most recently generated documentation for one workbook's own report",
+)
+async def get_documentation(
+    request: Request,
+    principal: PrincipalDep,
+    roles: C4RedesignReaderDep,
+    workbook_id: str = _WORKBOOK_ID,
+) -> dict[str, Any]:
+    documentation = await _compositor(request).read_documentation(workbook_id)
+    if documentation is None:
+        raise ElementNotFoundError(
+            f"workbook '{workbook_id}' has no generated documentation yet"
+        )
+    return documentation
 
 
 __all__ = ["router"]

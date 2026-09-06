@@ -1744,6 +1744,20 @@
           "required": false,
           "server_managed": false,
           "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "documentation_artefact_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "documentation_provenance_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
         }
       ],
       "side": "target"
@@ -2281,5 +2295,5 @@
       "side": "source"
     }
   },
-  "schema_version": 25
+  "schema_version": 26
 }

@@ -79,6 +79,13 @@ alongside its placeholder `Visual` -- see `visual_redesign.py`'s own module docs
 what "routed to the Exception Desk" honestly means today, and why the evidence it carries
 is a snapshot, not a live read. A recompose retires an open case the same way it retires
 the `Visual` it concerns, never silently orphaning one against a node that no longer exists.
+
+**A composed report can also have documentation generated for it, on request (S6.2.2).**
+`report_documentation.py`'s own module docstring covers what the generated page says and
+why; `Compositor.generate_documentation`/`.read_documentation` are thin wrappers the same
+shape as `.compose`/`.read` already are, which is why `Compositor` now also carries an
+optional `provenance_store` -- the one dependency this story needed that no earlier E6
+story did.
 """
 
 from __future__ import annotations
@@ -98,6 +105,8 @@ from .lineage import children, hydrate
 from .modeller import read_design_document
 from .pbir import emit_pbir, validate_pbir
 from .principal import Principal
+from .provenance import ProvenanceStore
+from .report_documentation import generate_report_documentation, read_report_documentation
 from .visual_mapping import VisualMappingRuleset
 from .visual_redesign import (
     find_screenshot_ref,
@@ -908,11 +917,13 @@ class Compositor:
         graph_name: str,
         writer: GraphWriter,
         artefact_store: ArtefactStore | None = None,
+        provenance_store: ProvenanceStore | None = None,
     ) -> None:
         self._pool = pool
         self._graph = graph_name
         self._writer = writer
         self._artefact_store = artefact_store
+        self._provenance_store = provenance_store
 
     @property
     def pool(self) -> asyncpg.Pool:
@@ -937,6 +948,30 @@ class Compositor:
 
     async def read(self, workbook_id: str) -> dict[str, Any] | None:
         return await read_report(self._pool, self._graph, workbook_id)
+
+    async def generate_documentation(self, workbook_id: str, *, principal: Principal) -> dict[str, Any]:
+        if self._artefact_store is None or self._provenance_store is None:
+            raise CompositorError("report documentation is not available on this deployment")
+        report = await self.read(workbook_id)
+        if report is None:
+            raise CompositorError(
+                f"workbook '{workbook_id}' has not been composed into a report yet -- "
+                f"documentation is generated from an already-composed report"
+            )
+        return await generate_report_documentation(
+            self._pool, self._graph, self._writer,
+            workbook_id=workbook_id, report=report,
+            artefact_store=self._artefact_store, provenance_store=self._provenance_store,
+            principal=principal,
+        )
+
+    async def read_documentation(self, workbook_id: str) -> dict[str, Any] | None:
+        if self._artefact_store is None:
+            return None
+        report = await self.read(workbook_id)
+        if report is None:
+            return None
+        return await read_report_documentation(self._artefact_store, report=report)
 
 
 __all__ = [

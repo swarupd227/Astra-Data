@@ -78,11 +78,17 @@ class ContractName(str, Enum):
     redesign suggestion is a real, deterministic template composed from Appendix B's own
     guidance text and the calculation's own rule id — never a model call — so there is no
     inference boundary here either. Same reasoning as ``MODELLER_FAMILY``, a second time.
+
+    **COMPOSITOR_REPORT_DOC is the same "name only" deviation, a third time (story
+    S6.2.2).** Report documentation is rendered entirely from already-composed graph
+    facts by a deterministic template — never a model call — so there is no inference
+    boundary to police here either.
     """
 
     TRANSPILER_CALC = "transpiler_calc"
     MODELLER_FAMILY = "modeller_family"
     TRANSPILER_C4_REDESIGN = "transpiler_c4_redesign"
+    COMPOSITOR_REPORT_DOC = "compositor_report_doc"
 
 
 class ContractDefinitionError(Exception):
