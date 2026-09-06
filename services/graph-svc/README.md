@@ -2024,6 +2024,53 @@ for a different concern.
 See [ADR 0050](../../docs/adr/0050-the-tolerance-charter-a-versioned-document-and-a-real-spec-role-gap.md)
 for the full reasoning.
 
+## Parity case derivation (story S7.2.1, continues E7/F7.2)
+
+`case_derivation.py`. Every `Worksheet` becomes a set of real `ParityCase` nodes --
+§10.1's own grain (dimension fields on rows/cols/marks; no `pages_shelf` has ever been
+harvested), measures (every measure well plus every calculated field the sheet
+encodes), filters and parameter values -- capped by the Tolerance Charter's own
+`params.enumerate_max_values`.
+
+**Grain and measures are resolved by name against the worksheet's own datasources, not
+`ENCODES` edges** -- confirmed directly: the real Tableau adapter has never written this
+edge (only the fixture adapter does, for its own synthetic estate), the identical gap
+`compositor.py` (S6.1.1) already found and fixed for field wells, reused here
+independently rather than importing across epics.
+
+**"Filter contexts: default, and each categorical filter's top-N values" goes beyond
+§10.1 itself** -- the spec's own text describes exactly one filter context per case,
+multiplying only over parameter combinations in its own worked example. The backlog's
+own AC asks for more: this module adds one context per categorical filter's own top
+member values, additively (not a cross-product across filters), capped by
+`MAX_FILTER_VALUES_PER_FILTER` -- a bound this module had to invent, since neither §10.1
+nor the charter declares one for this axis. The charter's own `enumerate_max_values`
+bound applies to the sheet's full candidate count (filter contexts x parameter
+combinations), prioritising the default context and default parameters first; the
+excess is recorded as `NOT_ENUMERATED` on the suite.
+
+**"The suite" is a relational record, not a graph node** -- §14's own storage table
+gives `parity_suite` a relational shape under a header stating relational tables hold
+"platform records that are not graph-shaped," unlike `ParityCase`/`ParityRun`/`Verdict`.
+`public.parity_suite` (migration v0027) is one current-coverage row per MU, recomputed
+on every derivation.
+
+**A case's own `id` stays a server-issued ULID; the AC's own "stable id" is
+`ParityCase.case_key`** -- a sha256 digest of `(sheet_ref, grain, measures, filter_ctx,
+param_values)`, the same `ArtefactRecord.id`/`.content_hash` split (S2.4.2) applied to a
+graph node, since the base `id` property is a validated ULID a hash cannot be reshaped
+into. Re-deriving against unchanged source data reproduces the same `case_key` and
+writes nothing new; a case whose `case_key` no longer appears is retired.
+
+`POST /v1/workbooks/{id}:derive-parity-cases` (`ParityEngineerDep`), `GET
+/v1/workbooks/{id}/parity-suite` (any Artizent role) -- "shown on the MU page" is the
+same disclosed proxy every E6/E7 ADR has already used; `mu_ref` alone is the real
+anchor, not `ReportDefinition`, since case derivation reads only the source side and can
+run before any report is ever composed.
+
+See [ADR 0051](../../docs/adr/0051-parity-case-derivation-a-backlog-elaboration-beyond-section-10-1.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

@@ -3,6 +3,7 @@
 from .routes import router
 from .routes_adapters import router as adapters_router
 from .routes_artefacts import router as artefacts_router
+from .routes_case_derivation import router as case_derivation_router
 from .routes_classification import router as classification_router
 from .routes_compositor import router as compositor_router
 from .routes_conformance import router as conformance_router
@@ -31,6 +32,7 @@ from .routes_trains import router as trains_router
 __all__ = [
     "adapters_router",
     "artefacts_router",
+    "case_derivation_router",
     "classification_router",
     "compositor_router",
     "conformance_router",

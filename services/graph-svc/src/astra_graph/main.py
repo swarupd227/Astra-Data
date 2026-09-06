@@ -20,6 +20,7 @@ from .adapters.conformance import PostgresConformanceStore
 from .api import (
     adapters_router,
     artefacts_router,
+    case_derivation_router,
     classification_router,
     compositor_router,
     conformance_router,
@@ -54,6 +55,7 @@ from .artefacts import PostgresArtefactStore
 from .build import PostgresBuildStore
 from .calibration import PostgresCalibrationStore
 from .cartographer import Cartographer
+from .case_derivation import CaseDerivationService, PostgresParitySuiteStore
 from .classify import ClassificationEngine
 from .compositor import Compositor
 from .config import settings
@@ -276,6 +278,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         pool, graph_name=config.graph_name, writer=writer,
         store=app.state.tolerance_charter_store, migration_units=app.state.migration_units,
     )
+    # Story S7.2.1, continuing F7.2: parity cases derived from the source side alone --
+    # real from harvest onward, well before any report is ever composed.
+    app.state.parity_suite_store = PostgresParitySuiteStore(pool, graph_name=config.graph_name)
+    app.state.case_derivation = CaseDerivationService(
+        pool, graph_name=config.graph_name, writer=writer, suite_store=app.state.parity_suite_store,
+    )
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(
         quality=quality_store,
@@ -356,6 +364,7 @@ def create_app() -> FastAPI:
     app.include_router(compositor_router)
     app.include_router(exceptions_router)
     app.include_router(tolerance_charter_router)
+    app.include_router(case_derivation_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

@@ -571,6 +571,16 @@ NODE_TYPES: tuple[NodeType, ...] = (
             _p("expected_ref", T.STRING, note="Result set from the source side."),
             _p("candidate_ref", T.STRING, note="Result set from the target side."),
             _p("state", T.STRING),
+            _p("case_key", T.STRING, required=True,
+               note="The AC's own 'stable id' (story S7.2.1) -- a sha256 digest of "
+                    "(sheet_ref, grain, measures, filter_ctx, param_values), stable "
+                    "across a re-derivation that finds the same case again. Not `id` "
+                    "itself: the base `id` property is a validated ULID (26 Crockford-"
+                    "base32 characters), which a content hash cannot be shaped into "
+                    "without inventing a fake encoding nobody asked for -- the same "
+                    "'id stays a server-issued identity; a separate property carries the "
+                    "content-derived key' split `ArtefactRecord.id`/`.content_hash` "
+                    "already established (S2.4.2)."),
         ),
     ),
     NodeType(
@@ -1214,5 +1224,22 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "the same 'a real fact, additive, on the one node a later story's proxy can "
                "attach to' shape `ReportDefinition.pbir_ref`/`.deploy_state` (S6.1.2) "
                "already set for this exact node.",
+    ),
+    SpecDeviation(
+        element="ParityCase.case_key",
+        reason="Section 4.1.1's own node table declares no such property -- `ParityCase` "
+               "as specified carries the §10 case schema (grain, measures, filter_ctx, "
+               "param_values) with no stable, content-derived identifier of its own. "
+               "Backlog story S7.2.1's own acceptance criteria requires 'a stable id' so a "
+               "re-derivation finds the same case again rather than minting a fresh one "
+               "every time -- the base `id` property cannot serve this: it is a validated "
+               "ULID (26 Crockford-base32 characters), which a sha256 digest cannot be "
+               "reshaped into without inventing an encoding nobody asked for.",
+        detail="A sha256 digest of (sheet_ref, grain, measures, filter_ctx, param_values), "
+               "computed the same `context.canonical.context_hash`/`canonical_json` way "
+               "every other content-derived key in this codebase already is -- the "
+               "identical 'id stays a server-issued identity; a separate property carries "
+               "the content-derived key' split `ArtefactRecord.id`/`.content_hash` already "
+               "established (S2.4.2), applied to a graph node instead of a stored artefact.",
     ),
 )

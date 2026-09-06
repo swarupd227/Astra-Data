@@ -1440,6 +1440,13 @@
           "required": false,
           "server_managed": false,
           "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "case_key",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
         }
       ],
       "side": "target"
@@ -2295,5 +2302,5 @@
       "side": "source"
     }
   },
-  "schema_version": 26
+  "schema_version": 27
 }
