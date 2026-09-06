@@ -51,6 +51,7 @@ _FAILURE_CLASSES = (
     "KEY_MISSING",
     "SOURCE_DRIFT",
     "UNKNOWN",
+    "VISUAL_REDESIGN",
 )
 
 _VALIDATION_STATE_NOTE = (
@@ -600,6 +601,41 @@ NODE_TYPES: tuple[NodeType, ...] = (
             _p("assignee", T.STRING),
             _p("decision", T.STRING),
             _p("pattern_ref", T.STRING, note="The pattern candidate the decision produced."),
+            _p("visual_ref", T.STRING,
+               note="Which Visual this case concerns (story S6.2.1, class "
+                    "VISUAL_REDESIGN). Absent for every other failure class -- those "
+                    "concern a CalculatedField/Measure, which `mu_ref` and `evidence_ref` "
+                    "already identify without a second reference property."),
+            _p("mapping_reason", T.TEXT,
+               note="A snapshot of Visual.redesign_reason at the moment this case opened "
+                    "(story S6.2.1) -- copied, not read live, the same 'evidence copied "
+                    "onto a record is a snapshot' discipline S1.4.3's own grammar-issue "
+                    "records already established, so a later mapping-table edit cannot "
+                    "quietly rewrite what a still-open case says it is about."),
+            _p("placeholder_location", T.JSON,
+               note="A snapshot of {page, layout, source_sheet_ref} at open time (story "
+                    "S6.2.1) -- 'the placeholder location' the AC names. No separate "
+                    "Page/Location node exists (§4.1.1 declares none); composed from "
+                    "Visual's own properties, the same three facts §8.8's own page "
+                    "layout already keeps."),
+            _p("screenshot_ref", T.STRING,
+               note="An ArtefactRecord id (kind 'visual_capture', story S2.4.2) whose "
+                    "case_id names this case's own source worksheet, if one has ever "
+                    "been uploaded for it (story S6.2.1). Absent today on every real "
+                    "estate this platform has ever composed: nothing in this codebase's "
+                    "own local/demo environment captures a Tableau screenshot "
+                    "automatically (no live Tableau connection exists to take one from) "
+                    "-- a real, disclosed gap, not a broken reference."),
+            _p("closed_by", T.STRING, note="The engineer who closed this case (story "
+               "S6.2.1). Absent while state is OPEN."),
+            _p("closed_at", T.TIMESTAMP, note="When this case was closed (story S6.2.1). "
+               "Absent while state is OPEN."),
+            _p("desktop_commit_hash", T.STRING,
+               note="The Power BI Desktop commit the AC itself names (story S6.2.1) -- "
+                    "recorded as the engineer states it, the same 'a real fact, not "
+                    "verified against a system this platform cannot reach' footing "
+                    "`ArtefactRecord.content_hash` already has for a caller-supplied "
+                    "artefact. Absent while state is OPEN."),
         ),
     ),
     # --------------------------------------------------------------------- platform
@@ -1115,5 +1151,43 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "nodes carry no edge back to their own Workbook at all (§4.1.2 declares "
                "none), so DEPENDS_ON-from-a-referenced-calculation is the only real path "
                "this platform has to either.",
+    ),
+    SpecDeviation(
+        element="ExceptionCase.class (VISUAL_REDESIGN)",
+        reason="Section 11.1's own failure taxonomy is for a parity verdict the Mender "
+               "diagnoses after a real proof attempt (FILTER_CONTEXT, NULL_HANDLING, ...); "
+               "a visual redesign flag (story S6.1.1) is a pre-proof, structural fact about "
+               "a mark type with no Power BI mapping, the identical 'different moment' gap "
+               "`generation.py`'s own UNKNOWN-class ExceptionCase already discloses for "
+               "pre-proof generation failures. Backlog story S6.2.1's own acceptance "
+               "criteria requires exactly this: 'ExceptionCases of class VISUAL_REDESIGN'.",
+        detail="Reuses the one real work-item mechanism this platform has (`ExceptionCase`) "
+               "for a second, disclosed-different kind of case rather than inventing a "
+               "parallel node type -- the same 'one real mechanism, a disclosed second use' "
+               "footing `evidence_ref` already has for `generation.py`'s own UNKNOWN case.",
+    ),
+    SpecDeviation(
+        element="ExceptionCase.visual_ref, ExceptionCase.mapping_reason, "
+                "ExceptionCase.placeholder_location, ExceptionCase.screenshot_ref, "
+                "ExceptionCase.closed_by, ExceptionCase.closed_at, "
+                "ExceptionCase.desktop_commit_hash",
+        reason="Section 4.1.1's own node table declares none of these -- `ExceptionCase` "
+               "as specified carries only what a parity-failure case needs (`mu_ref`, "
+               "`class`, `evidence_ref`, `state`, `assignee`, `decision`, `pattern_ref`). "
+               "Backlog story S6.2.1's own acceptance criteria requires a VISUAL_REDESIGN "
+               "case to carry 'the source screenshot, the mapping reason and the "
+               "placeholder location', and closing one to record 'the engineer, the "
+               "Desktop commit hash and the date' -- none of the existing properties name "
+               "any of these.",
+        detail="`visual_ref` names which Visual; `mapping_reason`/`placeholder_location` "
+               "are snapshots taken when the case opens, not live reads, so a later "
+               "recompose or mapping-table edit cannot quietly rewrite what a still-open "
+               "case says it is about. `screenshot_ref` points at an `ArtefactRecord` "
+               "(kind 'visual_capture') if one exists -- honestly absent today, since "
+               "nothing in this platform's own local/demo environment captures a Tableau "
+               "screenshot automatically. `closed_by`/`closed_at`/`desktop_commit_hash` "
+               "are the AC's own three closing facts, the identical `*_by`/`*_at` shape "
+               "`CalculatedField.redesign_decision_by`/`.redesign_decision_at` (S5.4.1) "
+               "already set for a comparable closing action.",
     ),
 )

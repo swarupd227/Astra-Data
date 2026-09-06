@@ -72,6 +72,13 @@ defect in this Compositor's own emission, never expected to fire) refuses the wh
 rather than writing something invalid; an unresolved field binding is a warning carried in
 the response instead, since today it is a known, disclosed platform gap and not a defect in
 what this story built (see `pbir.validate_pbir`'s own docstring).
+
+**A redesign-flagged visual also opens a real work item (S6.2.1).** Every placement whose
+`resolve_visual` result is flagged writes a real `ExceptionCase(class=VISUAL_REDESIGN)`
+alongside its placeholder `Visual` -- see `visual_redesign.py`'s own module docstring for
+what "routed to the Exception Desk" honestly means today, and why the evidence it carries
+is a snapshot, not a live read. A recompose retires an open case the same way it retires
+the `Visual` it concerns, never silently orphaning one against a node that no longer exists.
 """
 
 from __future__ import annotations
@@ -83,6 +90,7 @@ from typing import Any
 
 import asyncpg
 
+from .artefacts import ArtefactStore
 from .errors import ElementNotFoundError
 from .graph.queries import EDGE_INDEX_TABLE, NODE_INDEX_TABLE
 from .ids import new_ulid
@@ -91,6 +99,11 @@ from .modeller import read_design_document
 from .pbir import emit_pbir, validate_pbir
 from .principal import Principal
 from .visual_mapping import VisualMappingRuleset
+from .visual_redesign import (
+    find_screenshot_ref,
+    open_redesign_exception,
+    retire_exceptions_for_visuals,
+)
 from .writes import EdgeWrite, GraphWriter, NodeWrite
 
 logger = logging.getLogger(__name__)
@@ -649,6 +662,10 @@ async def _retire_previous_report(
     async with pool.acquire() as conn:
         report_ids, visual_ids = await _report_and_visual_ids(conn, graph_name, workbook_id)
 
+    # Before the Visuals themselves -- an open ExceptionCase must never outlive the Visual
+    # it concerns (S6.2.1's own retirement cascade, patterns.py's precedent).
+    await retire_exceptions_for_visuals(writer, pool, graph_name, visual_ids, principal=principal)
+
     for report_id in report_ids:
         await writer.retire_node(
             report_id, reason="superseded by a fresh compose of this workbook", principal=principal
@@ -670,6 +687,7 @@ async def compose_report(
     workbook_id: str,
     ruleset: VisualMappingRuleset,
     principal: Principal,
+    artefact_store: ArtefactStore | None = None,
 ) -> dict[str, Any]:
     async with pool.acquire() as conn:
         workbook = (await hydrate(conn, graph_name, "Workbook", [workbook_id])).get(workbook_id)
@@ -747,6 +765,7 @@ async def compose_report(
     edge_writes: list[EdgeWrite] = []
     visual_records: list[dict[str, Any]] = []
 
+    pending_exceptions: list[tuple[str, dict[str, Any]]] = []
     for page_id, worksheet_id, worksheet_properties, layout in placements:
         if page_id not in pages_seen:
             pages_seen.append(page_id)
@@ -779,7 +798,24 @@ async def compose_report(
         edge_writes.append(
             EdgeWrite(type="MAPS_TO", from_id=worksheet_id, to_id=visual_id, properties={})
         )
-        visual_records.append({"id": visual_id, **properties})
+        visual_records.append({"id": visual_id, "exception_case_id": None, **properties})
+
+        if resolution.redesign_flag:
+            screenshot_ref = await find_screenshot_ref(
+                artefact_store, workbook_id=workbook_id, worksheet_name=worksheet_name
+            )
+            pending_exceptions.append(
+                (
+                    visual_id,
+                    {
+                        "mapping_reason": resolution.redesign_reason or "",
+                        "placeholder_location": {
+                            "page": page_id, "layout": layout, "source_sheet_ref": worksheet_id,
+                        },
+                        "screenshot_ref": screenshot_ref,
+                    },
+                )
+            )
 
     if not visual_records:
         raise CompositorError(f"workbook '{workbook_id}' has no worksheets to compose")
@@ -814,6 +850,17 @@ async def compose_report(
     )
     for edge in edge_writes:
         await writer.write_edge(edge, principal=principal)
+
+    if pending_exceptions:
+        case_ids_by_visual: dict[str, str] = {}
+        for visual_id, exception_properties in pending_exceptions:
+            case_ids_by_visual[visual_id] = await open_redesign_exception(
+                writer, workbook_id=workbook_id, visual_id=visual_id, principal=principal,
+                **exception_properties,
+            )
+        for record in visual_records:
+            if record["id"] in case_ids_by_visual:
+                record["exception_case_id"] = case_ids_by_visual[record["id"]]
 
     return {
         "report_id": report_id,
@@ -854,10 +901,18 @@ class Compositor:
     "pre-bound object on app.state" shape ``Modeller``/``TrainPlanner``/``Cartographer``
     already each take -- a route needs no ``graph_name`` of its own to call this."""
 
-    def __init__(self, pool: asyncpg.Pool, *, graph_name: str, writer: GraphWriter) -> None:
+    def __init__(
+        self,
+        pool: asyncpg.Pool,
+        *,
+        graph_name: str,
+        writer: GraphWriter,
+        artefact_store: ArtefactStore | None = None,
+    ) -> None:
         self._pool = pool
         self._graph = graph_name
         self._writer = writer
+        self._artefact_store = artefact_store
 
     @property
     def pool(self) -> asyncpg.Pool:
@@ -877,6 +932,7 @@ class Compositor:
         return await compose_report(
             self._pool, self._graph, self._writer,
             workbook_id=workbook_id, ruleset=ruleset, principal=principal,
+            artefact_store=self._artefact_store,
         )
 
     async def read(self, workbook_id: str) -> dict[str, Any] | None:

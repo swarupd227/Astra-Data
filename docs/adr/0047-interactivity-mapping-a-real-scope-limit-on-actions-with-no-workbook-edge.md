@@ -76,12 +76,13 @@ described) — real data every action genuinely has.
 The backlog's own F6.2/S6.2.1 (unbuilt) is what will eventually make a redesign flag a real
 `ExceptionCase` of class `VISUAL_REDESIGN` routed to a real Exception Desk — neither the
 failure class nor the console screen exists yet (confirmed directly: `_FAILURE_CLASSES`
-has no `VISUAL_REDESIGN` member anywhere in code, and no console/`apps/`-level directory
-exists in this repository at all). Minting `VISUAL_REDESIGN` now, or claiming a route to
-"the Exception Desk," would reach into a later story's own explicit scope — the identical
-trap ADR 0045 already named and avoided for `redesign_flag`, and ADR 0046 for "the MU
-page" itself. Every unsupported parameter/action is instead recorded directly on
-`Visual.interactivity`, satisfying the AC's own second bullet ("recorded on the Visual
+has no `VISUAL_REDESIGN` member anywhere in code, and `services/console-web`'s own nine
+real, working surfaces have no Exception Desk, MU page, or Compositor screen among them).
+Minting `VISUAL_REDESIGN` now, or claiming a route to "the Exception Desk," would reach
+into a later story's own explicit scope — the identical trap ADR 0045 already named and
+avoided for `redesign_flag`, and ADR 0046 for "the MU page" itself. Every unsupported
+parameter/action is instead recorded directly on `Visual.interactivity`, satisfying the
+AC's own second bullet ("recorded on the Visual
 node") for both halves of the first bullet at once, until F10.3's own MU page exists to
 read it.
 

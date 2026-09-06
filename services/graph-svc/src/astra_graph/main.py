@@ -26,6 +26,7 @@ from .api import (
     context_router,
     cypher_router,
     estate_router,
+    exceptions_router,
     families_router,
     g2_router,
     gateway_router,
@@ -258,7 +259,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # A fresh graph builds against the in-memory default mapping table (version 0) until an
     # architect saves one of their own, the identical posture `conformance_store` already has.
     app.state.visual_mapping_store = PostgresVisualMappingRulesetStore(pool, graph_name=config.graph_name)
-    app.state.compositor = Compositor(pool, graph_name=config.graph_name, writer=writer)
+    app.state.compositor = Compositor(
+        pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
+    )
     # Story S6.1.2: commit and deploy a composed report through the same target adapter
     # `build_family` already uses — reused verbatim, no second commit/deploy mechanism.
     app.state.report_deploy_store = PostgresReportDeployStore(pool, graph_name=config.graph_name)
@@ -340,6 +343,7 @@ def create_app() -> FastAPI:
     app.include_router(patterns_router)
     app.include_router(gateway_router)
     app.include_router(compositor_router)
+    app.include_router(exceptions_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

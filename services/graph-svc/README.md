@@ -1885,6 +1885,52 @@ Fixing this for real needs a new `Workbook`-containing edge on the adapter side
 See [ADR 0047](../../docs/adr/0047-interactivity-mapping-a-real-scope-limit-on-actions-with-no-workbook-edge.md)
 for the full reasoning.
 
+## Redesign flags as work items (story S6.2.1, opens F6.2)
+
+`visual_redesign.py`. A redesign-flagged `Visual` (S6.1.1) now also opens a real
+`ExceptionCase(class=VISUAL_REDESIGN)` -- the same one real work-item mechanism
+`generation.py`'s own pre-proof `UNKNOWN`-class case already established (S5.3.1), reused a
+second time for a disclosed-different kind of case rather than a new node type.
+"Routed to the Exception Desk" means exactly this: a real, queryable node with
+`state="OPEN"` -- the Exception Desk itself is F8.3/S8.3.1's own unbuilt future console
+screen (§11.3: "there is no separate defect tracker"; it is a queue view over this exact
+node type). **Correction to earlier E6 ADRs**: `services/console-web` is a real, working
+console with nine live surfaces -- none of them is an Exception Desk, an MU page, or a
+Compositor screen, which is the accurate claim; "no console exists at all" (as ADR 0047
+put it) was wrong.
+
+**Evidence is a snapshot, not a live read** -- `mapping_reason`/`placeholder_location` are
+copied from the `Visual` at the moment its case opens (S1.4.3's own "evidence copied onto a
+record is a snapshot" precedent), so a later mapping-table edit can't quietly rewrite what
+an already-open work item says it is about. **No screenshot is ever automatically
+captured** -- nothing in this platform's own local/demo environment has a live Tableau
+connection to take one from; `screenshot_ref` looks for an existing `visual_capture`
+artefact matched by `case_id` naming the source worksheet, honestly absent when none has
+ever been uploaded.
+
+**A recompose retires a dependent case, it does not close it** -- the same "retiring the
+parent, react to the dependent" cascade `patterns.py` already established (S5.5.x); closing
+implies a real engineer decision a recompose never makes, so a fresh flag on the same sheet
+just opens a fresh case against the fresh `Visual`. **Closing** mirrors S5.4.1's own C4
+redesign closing shape (`*_by`/`*_at`) plus the one new fact this AC names,
+`desktop_commit_hash` -- recorded as the engineer states it, never verified against a real
+Desktop this platform cannot reach.
+
+**"Cannot enter PROVING for the affected sheets" is a real, callable, currently-uncalled
+check** -- no real Migration Unit or §3.2 state machine exists anywhere (confirmed a
+seventh time), and E7's Arbiter, the only thing that would ever call it, doesn't exist
+either. `can_enter_proving` computes a real answer today (which worksheets have an open
+`VISUAL_REDESIGN` case against their own `Visual`) at the *sheet* grain the AC asks for --
+finer than §3.2's own whole-MU `BLOCKED` state, a disclosed departure from the spec's own
+table shape rather than a forced fit into a coarser name.
+
+`GET /v1/exceptions` (filterable by `state`/`mu_ref`), `POST /v1/exceptions/{id}:close`
+(`MigrationEngineerDep`) and `GET /v1/workbooks/{id}:proving-readiness` all reuse existing
+role gates -- no new role.
+
+See [ADR 0048](../../docs/adr/0048-redesign-flags-as-real-work-items-a-second-use-of-exceptioncase.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

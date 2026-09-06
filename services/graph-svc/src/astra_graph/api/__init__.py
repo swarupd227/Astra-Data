@@ -9,6 +9,7 @@ from .routes_conformance import router as conformance_router
 from .routes_context import router as context_router
 from .routes_cypher import router as cypher_router
 from .routes_estate import router as estate_router
+from .routes_exceptions import router as exceptions_router
 from .routes_families import router as families_router
 from .routes_g2 import router as g2_router
 from .routes_gateway import router as gateway_router
@@ -35,6 +36,7 @@ __all__ = [
     "context_router",
     "cypher_router",
     "estate_router",
+    "exceptions_router",
     "families_router",
     "g2_router",
     "gateway_router",

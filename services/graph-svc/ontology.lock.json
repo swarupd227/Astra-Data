@@ -802,7 +802,8 @@
             "SORT_LIMIT",
             "KEY_MISSING",
             "SOURCE_DRIFT",
-            "UNKNOWN"
+            "UNKNOWN",
+            "VISUAL_REDESIGN"
           ],
           "name": "class",
           "required": true,
@@ -840,6 +841,55 @@
         {
           "enum": null,
           "name": "pattern_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "visual_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "mapping_reason",
+          "required": false,
+          "server_managed": false,
+          "type": "text"
+        },
+        {
+          "enum": null,
+          "name": "placeholder_location",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "screenshot_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "closed_by",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "closed_at",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
+        },
+        {
+          "enum": null,
+          "name": "desktop_commit_hash",
           "required": false,
           "server_managed": false,
           "type": "string"
@@ -2231,5 +2281,5 @@
       "side": "source"
     }
   },
-  "schema_version": 24
+  "schema_version": 25
 }

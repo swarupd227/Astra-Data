@@ -15,7 +15,7 @@ from .types import ANY_LABEL, EdgeType, NodeType, SpecDeviation
 
 #: Bumped whenever the ontology changes. The lock file records the version the committed
 #: schema was locked at; the migration guard uses it to name the migration it expects.
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 25
 
 
 class OntologyDeclarationError(Exception):
