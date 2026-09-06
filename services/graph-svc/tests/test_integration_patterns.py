@@ -1,4 +1,4 @@
-"""The Pattern Library, against real PostgreSQL + Apache AGE — story S5.5.1.
+"""The Pattern Library, against real PostgreSQL + Apache AGE — stories S5.5.1 and S5.5.2.
 
 What only the real store can answer: that a real `GENERATED_PROVED` success generalises
 into a real CANDIDATE `Pattern` node, keyed by a real AST shape; that a second, independent
@@ -6,10 +6,17 @@ proof of the same shape (a different `CalculatedField`) accumulates a *distinct*
 against the same pattern rather than creating a second one; that a real ladder failure
 records a real proof failure against an existing pattern; that promotion re-checks the AC's
 own two objective conditions against the real `pattern_observation` history rather than
-trusting a caller; and — the story's own payoff — that an ACTIVE pattern is applied to a
+trusting a caller; and — S5.5.1's own payoff — that an ACTIVE pattern is applied to a
 brand-new C3 field entirely without ever reaching the model gateway, re-evaluating that
-field's own `class`/`pattern_ref` in place. None of this is visible to the pure-function
-tests in `test_patterns.py`.
+field's own `class`/`pattern_ref` in place.
+
+S5.5.2 adds: that a real failure increments a real, disclosed `failure_count` on the
+Pattern node; that an ACTIVE pattern crossing the real §9.3 retirement threshold (either
+condition — an absolute failure count or a pass rate over a minimum sample) is moved to
+RETIRED automatically, with no approval step; that retiring one re-queues every Measure it
+produced (retired, its source field reverted to a real, pattern-unaware classification) and
+raises a real, readable `estate.pattern.retired` notice event. None of this is visible to
+the pure-function tests in `test_patterns.py`.
 """
 
 from __future__ import annotations
@@ -27,6 +34,7 @@ pytestmark = pytest.mark.integration
 asyncpg = pytest.importorskip("asyncpg")
 
 from astra_graph.config import Settings  # noqa: E402
+from astra_graph.events import EventType  # noqa: E402
 from astra_graph.gateway import RawModelResponse, StaticGateway  # noqa: E402
 from astra_graph.generation import (  # noqa: E402
     FixtureModelCaller,
@@ -46,6 +54,7 @@ from astra_graph.patterns import (  # noqa: E402
     find_matching_pattern,
     promote_pattern,
     promotion_status,
+    record_failure_and_maybe_retire,
 )
 from astra_graph.principal import PRINCIPAL_HEADER, Principal  # noqa: E402
 from astra_graph.provenance import PostgresProvenanceStore  # noqa: E402
@@ -238,6 +247,7 @@ async def estate(settings: Settings):
     try:
         yield {
             "pool": pool, "graph_name": settings.graph_name, "writer": writer,
+            "repository": repository,
             "provenance": provenance, "field": field, "field_name": f"Notional {suffix}",
             "window_fn": window_fn, "new_c3_calc": new_c3_calc,
         }
@@ -460,6 +470,164 @@ async def test_find_matching_pattern_returns_none_for_an_unrelated_shape(estate)
     unrelated_ast = _aggregate("SUM", _ref("Something Else Entirely"))
     match = await find_matching_pattern(estate["pool"], estate["graph_name"], unrelated_ast)
     assert match is None
+
+
+# ------------------------------------------------------------------- S5.5.2: retirement
+
+
+async def _seed_active_pattern(estate) -> str:
+    """One proof, promoted at threshold=1 -- the same minimal setup the bullet-2 tests
+    already use, factored out since every retirement test needs an ACTIVE pattern first."""
+    calc_id = await estate["new_c3_calc"]()
+    caller = _ScriptedCaller(dax=f"CALCULATE(SUM([{estate['field_name']}]))")
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], calc_id,
+        gateway=StaticGateway(caller), principal=PRINCIPAL,
+    )
+    await promote_pattern(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        pattern_id=outcome.pattern_id, principal=PRINCIPAL, threshold=1,
+    )
+    return outcome.pattern_id
+
+
+async def test_a_failure_against_a_candidate_increments_failure_count_but_never_retires(estate) -> None:
+    calc_id = await estate["new_c3_calc"]()
+    caller = _ScriptedCaller(dax=f"CALCULATE(SUM([{estate['field_name']}]))")
+    seeded = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], calc_id,
+        gateway=StaticGateway(caller), principal=PRINCIPAL,
+    )
+    # Never promoted -- stays CANDIDATE. Five failures, well past the absolute threshold
+    # of 3, must still never retire a pattern that was never ACTIVE (S5.5.2's own bullet 1
+    # names "a proof failure attributed to an ACTIVE pattern", not any pattern).
+    for _ in range(5):
+        await record_failure_and_maybe_retire(
+            estate["pool"], estate["graph_name"], estate["writer"],
+            pattern_id=seeded.pattern_id, calc_id=calc_id, source="GENERATED_PROVED", principal=PRINCIPAL,
+        )
+
+    async with estate["pool"].acquire() as conn:
+        patterns = await hydrate(conn, estate["graph_name"], "Pattern", [seeded.pattern_id])
+    pattern = patterns[seeded.pattern_id]
+    assert pattern["promotion_state"] == "CANDIDATE"
+    assert pattern["failure_count"] == 5
+
+
+async def test_an_active_pattern_is_retired_at_the_absolute_failure_count_threshold(estate) -> None:
+    pattern_id = await _seed_active_pattern(estate)
+    # Corrupt the template directly -- a real, checkable way for an ACTIVE pattern to
+    # start producing bad DAX (independent of *why* -- the point under test is what
+    # happens once it does), avoiding the need to actually break the proof pipeline.
+    await estate["writer"].set_node_properties(
+        pattern_id, {"target_template": "NOT_A_REAL_DAX_FUNCTION({a})"}, principal=PRINCIPAL,
+    )
+
+    async def apply_and_fail() -> None:
+        calc_id = await estate["new_c3_calc"]()
+        async with estate["pool"].acquire() as conn:
+            calc = (await hydrate(conn, estate["graph_name"], "CalculatedField", [calc_id]))[calc_id]
+        bad_pattern = PatternMatch(
+            pattern_id=pattern_id, class_="C3",
+            target_template="NOT_A_REAL_DAX_FUNCTION({a})", promotion_state="ACTIVE",
+        )
+        result = await apply_active_pattern(
+            estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"],
+            calc_id=calc_id, calc_properties=calc, pattern=bad_pattern, graph_version=1, principal=PRINCIPAL,
+        )
+        assert result is None
+
+    await apply_and_fail()
+    await apply_and_fail()
+    async with estate["pool"].acquire() as conn:
+        still_active = await hydrate(conn, estate["graph_name"], "Pattern", [pattern_id])
+    assert still_active[pattern_id]["promotion_state"] == "ACTIVE"
+    assert still_active[pattern_id]["failure_count"] == 2
+
+    await apply_and_fail()  # the third failure crosses DEFAULT_FAILURE_COUNT_THRESHOLD (3)
+
+    async with estate["pool"].acquire() as conn:
+        retired = await hydrate(conn, estate["graph_name"], "Pattern", [pattern_id])
+    pattern = retired[pattern_id]
+    assert pattern["promotion_state"] == "RETIRED"
+    assert pattern["failure_count"] == 3
+    assert "3 recorded failures" in pattern["provenance"]["retirement_reason"]
+    assert pattern["provenance"]["retired_at"]
+    # A prior promotion's own provenance is preserved, not overwritten by the retirement.
+    assert pattern["provenance"]["approved_by"] == PRINCIPAL.value
+
+
+async def test_retiring_a_pattern_via_the_pass_rate_condition_uses_overridable_thresholds(estate) -> None:
+    pattern_id = await _seed_active_pattern(estate)
+    calc_id = await estate["new_c3_calc"]()
+    # A scaled-down window (min_applications=5) rather than the real default of 30 -- the
+    # arithmetic itself is `test_patterns.py`'s own pure-function coverage; this proves the
+    # DB-backed wrapper reads real observation counts and honours the same override.
+    check = await record_failure_and_maybe_retire(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        pattern_id=pattern_id, calc_id=calc_id, source="GENERATED_PROVED", principal=PRINCIPAL,
+        failure_count_threshold=100, pass_rate_threshold=0.97, min_applications=1,
+    )
+    assert check is not None
+    assert check.should_retire is True
+    assert "pass rate" in check.reason
+
+    async with estate["pool"].acquire() as conn:
+        patterns = await hydrate(conn, estate["graph_name"], "Pattern", [pattern_id])
+    assert patterns[pattern_id]["promotion_state"] == "RETIRED"
+
+
+async def test_retiring_a_pattern_requeues_its_measures_for_regeneration(estate) -> None:
+    pattern_id = await _seed_active_pattern(estate)
+    new_calc = await estate["new_c3_calc"]()
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], new_calc,
+        gateway=_PoisonGateway(), principal=PRINCIPAL,
+    )
+    assert outcome.ok is True and outcome.pattern_id == pattern_id
+    measure_id = outcome.measure_id
+
+    await record_failure_and_maybe_retire(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        pattern_id=pattern_id, calc_id=new_calc, source="GENERATED_PROVED", principal=PRINCIPAL,
+        failure_count_threshold=1, pass_rate_threshold=0.97, min_applications=1000,
+    )
+
+    # `hydrate()` fetches by id regardless of retirement (callers are expected to have
+    # already filtered live ids from NODE_INDEX_TABLE) -- so retirement itself is checked
+    # the same authoritative way `_requeue_measures_for_retired_pattern` itself did it.
+    from astra_graph.graph.queries import NODE_INDEX_TABLE
+
+    async with estate["pool"].acquire() as conn:
+        row = await conn.fetchrow(
+            f"SELECT retired_at FROM {NODE_INDEX_TABLE} WHERE graph = $1 AND id = $2",
+            estate["graph_name"], measure_id,
+        )
+        calcs = await hydrate(conn, estate["graph_name"], "CalculatedField", [new_calc])
+    assert row is not None and row["retired_at"] is not None
+
+    calc = calcs[new_calc]
+    assert calc["class"] != "C2"  # reverted -- the pattern that made it C2 no longer applies
+    assert calc["pattern_ref"] != pattern_id
+
+
+async def test_retiring_a_pattern_raises_a_real_readable_event(estate) -> None:
+    pattern_id = await _seed_active_pattern(estate)
+    calc_id = await estate["new_c3_calc"]()
+    await record_failure_and_maybe_retire(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        pattern_id=pattern_id, calc_id=calc_id, source="GENERATED_PROVED", principal=PRINCIPAL,
+        failure_count_threshold=1,
+    )
+
+    events = await estate["repository"].read_events(subject=pattern_id)
+    retirements = [e for e in events if e.type == EventType.PATTERN_RETIRED]
+    assert len(retirements) == 1
+    event = retirements[0]
+    assert event.label == "Pattern"
+    assert event.data["pattern_id"] == pattern_id
+    assert "recorded failures" in event.data["reason"]
+    assert isinstance(event.data["requeued_measure_ids"], list)
 
 
 # ---------------------------------------------------------------------------------- the API

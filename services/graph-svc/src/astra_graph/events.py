@@ -61,6 +61,16 @@ class EventType(str, Enum):
     SOURCE_DRIFT = "estate.source.drift"
     """S1.2.4: a source workbook changed while a Migration Unit over it was in progress."""
 
+    PATTERN_RETIRED = "estate.pattern.retired"
+    """S5.5.2: an ACTIVE Pattern crossed its own failure threshold and was moved to
+    RETIRED automatically (§13.2's own MA-12, ceiling L4 — "automatic on failure
+    threshold"). A notice, the same footing SOURCE_DRIFT already has: the real mutation is
+    the Pattern's own `promotion_state` write (a normal upsert through `GraphWriter.
+    set_node_properties`), which already gets its own NODE_UPSERTED event; this is the AC's
+    own "an event is raised" — the one a Parity Dashboard-style consumer would actually
+    watch for, without needing to diff every Pattern upsert to notice a retirement among
+    them."""
+
     @property
     def element_kind(self) -> str:
         return "edge" if self in (EventType.EDGE_UPSERTED, EventType.EDGE_RETIRED) else "node"
@@ -73,7 +83,7 @@ class EventType(str, Enum):
         silently ignore anything it does not recognise — an unknown *mutation* type is
         still a defect in the record.
         """
-        return self is not EventType.SOURCE_DRIFT
+        return self not in (EventType.SOURCE_DRIFT, EventType.PATTERN_RETIRED)
 
 
 def source_for(graph_name: str) -> str:
@@ -251,6 +261,34 @@ def source_drift(
         principal=principal.value,
         run_id=principal.run_id,
         data=dict(detail),
+    )
+
+
+def pattern_retired(
+    *,
+    source: str,
+    pattern_id: str,
+    reason: str,
+    requeued_measure_ids: tuple[str, ...],
+    principal: Principal,
+) -> PlatformEvent:
+    """An ACTIVE Pattern crossed its own failure threshold (S5.5.2). Not a graph mutation:
+    it is a statement about a decision this platform just made, and the same "carry the
+    whole claim in one place" reasoning `source_drift` already gives — a consumer watching
+    for retirements should not need to separately look up which artefacts were re-queued.
+    """
+    return PlatformEvent(
+        type=EventType.PATTERN_RETIRED,
+        source=source,
+        subject=pattern_id,
+        label="Pattern",
+        principal=principal.value,
+        run_id=principal.run_id,
+        data={
+            "pattern_id": pattern_id,
+            "reason": reason,
+            "requeued_measure_ids": list(requeued_measure_ids),
+        },
     )
 
 

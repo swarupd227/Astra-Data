@@ -1500,6 +1500,13 @@
           "required": false,
           "server_managed": false,
           "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "failure_count",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
         }
       ],
       "side": "platform"
@@ -2182,5 +2189,5 @@
       "side": "source"
     }
   },
-  "schema_version": 19
+  "schema_version": 20
 }

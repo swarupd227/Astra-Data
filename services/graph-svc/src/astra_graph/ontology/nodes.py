@@ -596,6 +596,14 @@ NODE_TYPES: tuple[NodeType, ...] = (
                     "against, the identical 'computed from the raw table, never a "
                     "maintained running total' footing `calibration_observation` already "
                     "set (S5.3.3)."),
+            _p("failure_count", T.INT,
+               note="Story S5.5.2's own 'a proof failure ... increments its failure count' "
+                    "-- incremented on every recorded failure, for any promotion_state, "
+                    "the same 'proof_fail' fact spec §4.3's own worked `stats` example "
+                    "names. A point-in-time snapshot, like `pass_count`: the retirement "
+                    "threshold itself is always checked live against `pattern_observation`, "
+                    "never against this counter, so a missed increment could never cause a "
+                    "wrong retirement decision."),
         ),
     ),
     NodeType(
@@ -970,5 +978,19 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "says matching is 'guarded on types and model context'; building a real "
                "guard-evaluation engine is a future refinement this story does not "
                "attempt — matching stays exact-shape only, as it already was.",
+    ),
+    SpecDeviation(
+        element="Pattern.failure_count",
+        reason="Section 4.1.1's own node table lists Pattern with no `failure_count` "
+               "property, and backlog story S5.5.2's own acceptance criteria requires "
+               "'a proof failure attributed to an ACTIVE pattern increments its failure "
+               "count' — §4.3's own worked example already carries the identical fact "
+               "as `stats.proof_fail`, so this is the same gap `Pattern.guards` (S5.5.1) "
+               "already found in the same table, for the sibling fact.",
+        detail="A point-in-time snapshot, the identical footing `pass_count` already has "
+               "(S5.5.1): incremented for visibility on every recorded failure, but never "
+               "itself the authority a retirement decision is checked against — that "
+               "check always reads `pattern_observation` (append-only) live, so this "
+               "counter drifting could never cause a wrong retirement.",
     ),
 )

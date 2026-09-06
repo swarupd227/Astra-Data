@@ -1588,7 +1588,7 @@ scope, two increments out) — "referenced at G3" stays exactly that future refe
 See [ADR 0041](../../docs/adr/0041-c4-redesign-guidance-and-decision-a-disclosed-blocked-proxy-on-calculatedfield.md)
 for the full reasoning.
 
-## The Pattern Library (story S5.5.1)
+## The Pattern Library (stories S5.5.1 and S5.5.2)
 
 `patterns.py` — opens F5.5. A proved C3 transformation becomes a reusable, deterministic
 template automatically; enough of them, applied enough times, mean fewer model calls as the
@@ -1636,11 +1636,44 @@ and confirms the outcome still succeeds.
 `GET /v1/patterns` and `GET /v1/patterns/{id}:promotion-status` are open to any Artizent
 role; `POST /v1/patterns/{id}:promote` is the platform engineer's (`PlatformEngineerDep`,
 reused from S5.2.1/S5.3.2) — §13.2's own MA-11 action class, autonomy ceiling L2
-("Platform Engineer approves"). No automatic RETIRED demotion on a failure threshold and no
-Parity Dashboard flag — S5.5.2's own later, explicit scope; no Pattern Library console
-screen — this story's own acceptance criteria asks for the mechanism, not one.
+("Platform Engineer approves").
 
 See [ADR 0042](../../docs/adr/0042-the-pattern-library-a-real-shape-fix-generalisation-and-deterministic-promotion.md)
+for the full reasoning.
+
+### Automatic retirement (story S5.5.2)
+
+A bad ACTIVE pattern retires itself — no route, no approval — the moment a failure it
+caused crosses a real threshold; MA-12's own autonomy ceiling is L4 ("automatic on failure
+threshold"), a deliberate contrast with MA-11's own L2 promotion gate, both named in the
+same §13.2 table row-by-row.
+
+**The threshold is the spec's own number, not the backlog's paraphrase.** §9.3 reads
+"above a threshold (default 3 failures or a pass rate below 0.97 over 30 applications)" —
+a materially different condition from the backlog AC's own "2 in 100." `evaluate_retirement`
+implements the spec's dual condition (an absolute trip-wire *or* a ratio over a minimum
+sample), both thresholds overridable exactly as `calibration.build_report`'s own `floor`
+already is — this repository's own standing "spec wins on disagreement" rule, applied
+identically to how S5.1.1 already resolved its own threshold discrepancy.
+
+**`Pattern.failure_count`** (a new, additive ontology property, schema version 20) is a
+real, disclosed counter — the AC's own literal "increments its failure count" — but never
+the authority a retirement decision is checked against; that check always reads
+`public.pattern_observation` live, the identical discipline `pass_count` already set.
+
+**No real Migration Unit or ACCEPTED state exists**, so §9.3's own "every MU that used it
+is flagged ... for re-proof" is disclosed as "every Measure this pattern produced that this
+platform can still find" — the identical MU-shaped gap S5.4.1/S5.5.1 already found, a third
+time. Retiring a pattern is concrete, not a flag: every live Measure citing it is retired
+(`GraphWriter.retire_node`), and its source `CalculatedField`'s own `class`/`pattern_ref`
+are overwritten with a fresh, plain `classify.classify()` verdict — almost always C3 again,
+which is what actually makes the field eligible for a real `generate_c3_field` call next.
+
+**"An event is raised"** is a real notice sharing the outbox the way `events.source_drift`
+already does (S1.2.4) — `EventType.PATTERN_RETIRED`, carrying the reason and every
+re-queued Measure id, `mutates_graph=False` so replay skips it.
+
+See [ADR 0043](../../docs/adr/0043-pattern-retirement-is-automatic-mu-less-re-queue-is-a-plain-reclassification.md)
 for the full reasoning.
 
 ## Grammar issues

@@ -94,7 +94,7 @@ from .patterns import (
     apply_active_pattern,
     find_matching_pattern,
     generalise_from_proof,
-    record_observation,
+    record_failure_and_maybe_retire,
 )
 from .principal import Principal
 from .provenance import AgentMode, ProvenanceStore, new_record
@@ -875,11 +875,13 @@ async def generate_c3_field(
     )
     if existing_pattern is not None:
         # A shape an existing candidate/active pattern already covers just failed the
-        # normal model-call path too -- real evidence against it, so bullet 2's own "zero
-        # failures" promotion gate is a fact this platform checked, not an assumption.
-        await record_observation(
-            pool, graph_name, pattern_id=existing_pattern.pattern_id, calc_id=calc_id,
-            observed_pass=False, source="GENERATED_PROVED", created_by=principal.value,
+        # normal model-call path too -- real evidence against it, so S5.5.1's own "zero
+        # failures" promotion gate is a fact this platform checked, not an assumption; if
+        # the pattern is currently ACTIVE, this is also the failure S5.5.2's own automatic
+        # retirement threshold is checked against.
+        await record_failure_and_maybe_retire(
+            pool, graph_name, writer, pattern_id=existing_pattern.pattern_id, calc_id=calc_id,
+            source="GENERATED_PROVED", principal=principal,
         )
     last = attempts[-1] if attempts else None
     reason = (
