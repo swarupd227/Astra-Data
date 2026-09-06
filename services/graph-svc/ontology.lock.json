@@ -1987,6 +1987,13 @@
           "required": false,
           "server_managed": false,
           "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "layout",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
         }
       ],
       "side": "target"
@@ -2203,5 +2210,5 @@
       "side": "source"
     }
   },
-  "schema_version": 21
+  "schema_version": 22
 }

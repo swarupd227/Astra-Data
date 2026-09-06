@@ -21,6 +21,9 @@ dependencies = [
     "astra-adapter-sdk[target]",
     # The Model Gateway's own real Anthropic provider (story S5.3.2, §5.5).
     "anthropic>=1.0,<2",
+    # PBIR schema validation before commit (story S6.1.1, §7.1). See pbir.py's own
+    # docstring for what "the PBIR JSON schema" means in this codebase today.
+    "jsonschema>=4,<5",
 ]
 
 [project.optional-dependencies]
@@ -81,6 +84,10 @@ warn_unreachable = true
 
 [[tool.mypy.overrides]]
 module = "asyncpg.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "jsonschema.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

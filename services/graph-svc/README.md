@@ -1723,6 +1723,83 @@ carrying the local-only override), not worked around.
 See [ADR 0044](../../docs/adr/0044-the-pattern-library-screen-and-the-nginx-resolver-bug-it-found.md)
 for the full reasoning.
 
+## The Compositor: visual mapping and PBIR emission (story S6.1.1)
+
+`compositor.py` / `visual_mapping.py` / `pbir.py` -- opens E6. Each Tableau sheet becomes a
+Power BI `Visual`, field wells bound through real `MAPS_TO` edges where they exist, filters
+and sort translated as-is, dashboard containers becoming report pages with the zone's own
+geometry preserved -- and a sheet whose mark type has no mapping becomes a placeholder
+rather than blocking the rest of the report.
+
+**The mapping table is keyed on the raw Tableau mark type, not a synthetic Appendix B.2
+row.** Appendix B.2 is its own "excerpt", grouping several Show Me categories (crosstab,
+highlight table, scatter/bubble, KPI/BAN) under headings the adapter never records as a
+value -- `sheets.py`'s own `_mark_type` reads Tableau's literal, lowercased `<mark
+class="...">` (or `"automatic"` when absent). `visual_mapping.py` keys `DEFAULT_MAPPINGS` on
+that one real field; `resolve_visual` recovers Appendix B.2's finer categories from the
+*encodings* on top of the base lookup -- a colour encoding promotes clustered→stacked; a
+measure on the columns shelf (Tableau lays columns out horizontally) rather than rows
+promotes column→bar; two or more measures on rows promotes a dual-axis combo, flagged for
+review; a `"text"` mark with both shelves populated promotes table→matrix; a size encoding
+on a scatter is noted as a bubble; `"automatic"` is resolved to an effective mark from the
+shelves first (a single measure, no dimension → a KPI card) -- the identical choice
+`sheets.py`'s own comment says Tableau itself makes at render time.
+
+**The table follows `conformance_ruleset`'s own template exactly** (migration v0024,
+`public.visual_mapping_ruleset`) -- one `jsonb` column, an architect's edit always a new
+version, a fresh graph building against an in-memory default (version 0) until one is
+saved. `redesign.APPENDIX_B_GUIDANCE` and `model_gateway_policy` were both the wrong shape
+(data-but-not-versioned, and append-only eval history, respectively).
+
+**"Bound through MAPS_TO" is honestly half-real.** A calculated-field well resolves against
+real `CalculatedField→Measure` edges (the Transpiler writes them from S5.1.1 onward). A
+plain field's `Field→ModelTable` edge has never been written by any story in this codebase
+(`generation.py`'s own disclosed finding, confirmed still true) -- `_resolve_bindings`
+queries for it for real either way and reports `bound: false` with the specific reason when
+absent, never a name-matched guess. Fields are resolved to a real node id by name against
+the worksheet's own `USES_DATASOURCE → HAS_FIELD` reach, one step further than the
+Cartographer's own workaround for `ENCODES` never being written (S3.1.1, still true), which
+only ever compares shelf name strings and never needed a real id.
+
+**Every sheet gets a page.** A worksheet placed on one or more dashboards gets one `Visual`
+per placement (PBIR has no visual shared across pages); an uncontained worksheet gets its
+own single-visual page. `Visual.layout` (new, additive, schema version 22) carries the
+matching dashboard zone's own x/y/width/height, a plain read of `Dashboard.layout_json`'s
+zone tree -- absent for a standalone page (nothing to preserve) or a placeholder (§8.8's own
+layout-collision resolution is unbuilt, future scope; a one-visual-per-zone compose never
+collides).
+
+**Found live, composing a real fixture-harvested workbook**: the fixture *source* adapter
+(`astra_adapter.fake.source`) writes `Dashboard.layout_json` as `{"zones": [{"sheet":
+ref}, ...]}`, not the real Tableau adapter's own bare list of zone dicts -- crashing the
+first real compose (`AttributeError`, iterating a dict walked its own keys as zones).
+`compositor._zone_list` normalises either shape and skips a non-dict zone during the walk;
+the fixture's own entries carry no geometry regardless, so `layout: None` is the honest
+outcome either way. Bringing the fixture generator itself in line with the real adapter's
+richer shape is real, disclosed follow-up work.
+
+**PBIR validation is a real, disclosed-subset schema, not Microsoft's own published one.**
+`schemas/pbir/{report,page,visual}.schema.json`, checked with the new `jsonschema`
+dependency, cover exactly the PBIR structure this Compositor emits today -- vendoring
+Microsoft's own schema is real, disclosed future work. The whitelist and "does every field
+resolve" checks (§7.1's fuller requirement, beyond the AC's own schema-only text) are both
+real: the whitelist is a hard error, checked again at ruleset-save time so an architect
+gets the refusal immediately; an unresolved binding is a **warning**, not an error, since
+today it fires on nearly every real workbook (the universal `Field->ModelTable` gap above)
+and marking that `INVALID` would misrepresent a platform gap as a defect in this compose. A
+schema or whitelist failure refuses the whole compose before anything is written, mirroring
+`build.py`'s own "conformance runs before commit, not after".
+
+**A re-compose replaces the workbook's whole report** -- the identical starting posture the
+Modeller/Cartographer each had before their own override stories. `GET`/`POST
+/v1/compositor/visual-mappings` (any Artizent role / `MigrationArchitectDep`), `POST
+/v1/workbooks/{id}:compose` (`MigrationEngineerDep`, this story's own named persona) and
+`GET /v1/workbooks/{id}:report`. No console screen: F6.1/F6.2/F10.x name none for the
+Compositor, confirmed by direct research against the full backlog text.
+
+See [ADR 0045](../../docs/adr/0045-the-compositor-visual-mapping-as-data-a-disclosed-subset-pbir-schema.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

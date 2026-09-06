@@ -21,6 +21,7 @@ from .api import (
     adapters_router,
     artefacts_router,
     classification_router,
+    compositor_router,
     conformance_router,
     context_router,
     cypher_router,
@@ -52,6 +53,7 @@ from .build import PostgresBuildStore
 from .calibration import PostgresCalibrationStore
 from .cartographer import Cartographer
 from .classify import ClassificationEngine
+from .compositor import Compositor
 from .config import settings
 from .conformance_rules import PostgresConformanceRulesetStore
 from .context import ContextAssembler
@@ -90,6 +92,7 @@ from .scope import PostgresScopeStore
 from .target_setup import build_target_adapter
 from .trains import TrainPlanner
 from .versions import HistoricalGraphReader
+from .visual_mapping import PostgresVisualMappingRulesetStore
 from .writes import GraphWriter
 
 logger = logging.getLogger(__name__)
@@ -249,6 +252,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         pool, graph_name=config.graph_name, writer=writer, provenance_store=app.state.provenance_store,
         gateway=app.state.gateway, calibration=app.state.calibration,
     )
+    # Story S6.1.1: the Compositor, E6's first piece -- each Tableau sheet mapped to a
+    # Power BI visual, bound through MAPS_TO, PBIR-validated before anything is written.
+    # A fresh graph builds against the in-memory default mapping table (version 0) until an
+    # architect saves one of their own, the identical posture `conformance_store` already has.
+    app.state.visual_mapping_store = PostgresVisualMappingRulesetStore(pool, graph_name=config.graph_name)
+    app.state.compositor = Compositor(pool, graph_name=config.graph_name, writer=writer)
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(
         quality=quality_store,
@@ -326,6 +335,7 @@ def create_app() -> FastAPI:
     app.include_router(generation_router)
     app.include_router(patterns_router)
     app.include_router(gateway_router)
+    app.include_router(compositor_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

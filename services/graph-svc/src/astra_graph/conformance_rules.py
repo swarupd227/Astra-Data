@@ -72,7 +72,6 @@ import json
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any, Protocol
 
 import asyncpg
@@ -322,7 +321,7 @@ RULE_METADATA: dict[str, dict[str, Any]] = {
 
 
 def check_conformance(
-    document: Mapping[str, Any], ruleset: "ConformanceRuleset"
+    document: Mapping[str, Any], ruleset: ConformanceRuleset
 ) -> list[Violation]:
     """Every enabled rule in ``ruleset``, run against the frozen design document."""
     violations: list[Violation] = []

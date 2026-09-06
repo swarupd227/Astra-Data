@@ -511,6 +511,13 @@ NODE_TYPES: tuple[NodeType, ...] = (
             _p("encodings", T.JSON),
             _p("redesign_flag", T.BOOL),
             _p("redesign_reason", T.STRING),
+            _p("layout", T.JSON,
+               note="x/y/width/height (story S6.1.1's own 'layout preserved at the "
+                    "container level') — the geometry of the dashboard zone this visual's "
+                    "source sheet occupied, read straight off Dashboard.layout_json's own "
+                    "zone tree. Absent on a standalone sheet with no containing dashboard: "
+                    "its own page has just the one visual, filling it, so there is no "
+                    "container geometry to preserve."),
         ),
     ),
     NodeType(
@@ -1024,5 +1031,23 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "node (`GraphWriter.retire_node`) so `find_matching_pattern`'s own "
                "'one live pattern per shape' invariant never sees two candidates for one "
                "AST shape at once.",
+    ),
+    SpecDeviation(
+        element="Visual.layout",
+        reason="Section 4.1.1's own node table gives Visual no property carrying position "
+               "or size, and declares no Page or Container node at all -- yet backlog "
+               "story S6.1.1's own acceptance criteria requires 'dashboard containers "
+               "become report pages with layout preserved at the container level'. Section "
+               "8.8 names the source of that layout directly ('lays out dashboards from "
+               "the Tableau zone tree into PBIR page layouts'), and Dashboard.layout_json "
+               "(already declared, S2.3.2) is exactly that zone tree -- this property is "
+               "where one visual's own share of it lands.",
+        detail="x/y/width/height, copied from the zone in Dashboard.layout_json whose own "
+               "name matches this visual's source sheet -- a plain read, not a second "
+               "layout engine. Absent on a visual with no containing dashboard (a "
+               "standalone sheet gets its own single-visual page, which needs no preserved "
+               "geometry) and on a placeholder visual for an unmapped mark type, where "
+               "section 8.8's own 'small model proposing a grid' collision resolution is "
+               "future, unbuilt scope this story does not attempt.",
     ),
 )

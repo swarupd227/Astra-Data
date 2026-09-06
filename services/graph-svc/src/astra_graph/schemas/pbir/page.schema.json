@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astra-data.example/schemas/pbir/page.schema.json",
+  "title": "Astra Data disclosed-subset PBIR page schema",
+  "description": "See pbir.py's own module docstring: a disclosed subset, not Microsoft's own published PBIR schema. Covers the pages/<page>/page.json shape this Compositor emits (story S6.1.1).",
+  "type": "object",
+  "required": ["$schema", "name", "displayName", "visuals"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": { "type": "string", "minLength": 1 },
+    "displayName": { "type": "string", "minLength": 1 },
+    "visuals": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}
