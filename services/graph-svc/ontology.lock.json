@@ -1507,6 +1507,20 @@
           "required": false,
           "server_managed": false,
           "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "version",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "supersedes_id",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
         }
       ],
       "side": "platform"
@@ -2189,5 +2203,5 @@
       "side": "source"
     }
   },
-  "schema_version": 20
+  "schema_version": 21
 }

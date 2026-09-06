@@ -76,6 +76,25 @@ real" posture every other identity fact in this console already has); approving 
 while any question is still open. Every decision action is hidden, not merely disabled, for
 anyone without the client data owner role.
 
+A ninth surface, `/patterns`, is the **Pattern Library** (S5.5.1–S5.5.3) — a queue-plus-list
+screen for what the platform has learned. The left pane holds "Candidates awaiting
+promotion", sorted by how close each is to earning its own promotion (`distinct_passing_calcs`
+descending, then fewest `applications`), above "All patterns, by class and state" (`GET
+/v1/patterns`); selecting a row opens a detail panel on the right with every fact the AC
+asks for — class, state, applications, pass/fail, first seen, provenance origin — plus,
+since S5.5.3, its version and (when edited) what it superseded. Promote, retire with a
+reason, and edit guards are the Platform Engineer's alone (§13.2's MA-11/MA-12) — hidden,
+not disabled, for anyone else, the same convention Admin and Model Proposal already use;
+retiring reuses the shared `ReasonDialog`, editing guards opens a purpose-built
+`EditGuardsDialog` (guards plus a reason, modelled on the same dialog). Editing guards
+writes a brand-new `Pattern` version rather than mutating the one shown — the row for the
+version being edited disappears from the live list the instant its replacement lands, and
+the new version starts its own observation ledger from zero, since guards are descriptive
+text that changes nothing about matching or rendering, but a version's own proof history
+should never be inherited from a form its predecessor may not have re-earned. Export is a
+client-side JSON download of exactly what the screen has already loaded — no server route
+exists for it, since the screen already holds everything an export needs.
+
 ## Running it
 
 ```bash
@@ -278,3 +297,16 @@ Two stages: Node builds and type-checks, nginx serves the bundle. The runtime im
 Node, no package manager and no source. nginx runs unprivileged, sets a CSP that permits no
 external origin, caches hashed assets hard and `index.html` not at all, and proxies `/v1`
 and `/graphql` to graph-svc.
+
+nginx's own proxy resolves `graph-svc` per request rather than once at worker start (so a
+recreated container's new address is picked up without a restart), which requires naming a
+DNS server via a `resolver` directive — there is no single correct one across deployments,
+so it is a third envsubst'd template token, `$DNS_RESOLVER`, alongside `$GRAPH_SVC_UPSTREAM`/
+`$GRAPH_SVC_HOST`. The image's own default (`168.63.129.16`) is Azure Container Apps' own
+internal resolver, matching where this platform is actually deployed (S5.3.2); local Docker
+Compose overrides it to Docker's own embedded resolver (`127.0.0.11`) in `docker-compose.yml`.
+**Story S5.5.3 found this the hard way**: every `/v1/*` call through a local `console-web`
+container had silently 502'd since S5.3.2 introduced the Azure-only default, undetected
+because no story before it had ever loaded a console screen through this exact proxy path in
+a browser rather than curling `graph-svc`'s own exposed port directly. If a fresh local stack
+ever 502s on every API call again, check this resolver before anything else.

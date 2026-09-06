@@ -30,10 +30,14 @@ RUN rm /etc/nginx/conf.d/default.conf
 # A template, not a static file: the base image's own entrypoint envsubst's
 # /etc/nginx/templates/*.template into /etc/nginx/conf.d/ at container start, so
 # $GRAPH_SVC_UPSTREAM (default below, matching the compose service name locally) can be
-# overridden per deployment without a rebuild.
+# overridden per deployment without a rebuild. $DNS_RESOLVER's own default is this
+# platform's own deployed Azure Container Apps environment (story S5.3.2); local Docker
+# Compose overrides it (see docker-compose.yml's own console-web service) to Docker's own
+# embedded resolver, since Azure's is unreachable and meaningless outside Azure.
 COPY nginx.conf /etc/nginx/templates/console.conf.template
 ENV GRAPH_SVC_UPSTREAM=http://graph-svc:8080
 ENV GRAPH_SVC_HOST=graph-svc
+ENV DNS_RESOLVER=168.63.129.16
 COPY --from=build /build/dist /usr/share/nginx/html
 
 # The image runs unprivileged. nginx:alpine ships an `nginx` user; the directories it

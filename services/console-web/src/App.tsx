@@ -19,6 +19,7 @@ import { ModelProposal } from './g2/ModelProposal';
 import { createApi, type Identity } from './lib/api';
 import { LineageView } from './lineage/LineageView';
 import { ModelDetail } from './modeller/ModelDetail';
+import { PatternLibrary } from './patterns/PatternLibrary';
 import { ProgrammeBoard } from './programme/ProgrammeBoard';
 import { ParseQualityQueue } from './quality/ParseQualityQueue';
 import { WaveBoard } from './trains/WaveBoard';
@@ -29,10 +30,14 @@ import { WaveBoard } from './trains/WaveBoard';
  * and — since S4.3.2 — a single Admin sub-screen for the conformance ruleset (§2.4 lists
  * "Admin" among the Migration Architect's own surfaces; §15.3.7 names five Admin screens,
  * none of them this one, so this story adds its own rather than waiting on a screen no
- * other backlog story claims). The full Programme Board is S10.2.1's, the Foundry
- * Workbench's fuller family queue is nobody's yet, and the other five Admin screens
- * (Platform Health, Pattern Library, Model Gateway & TokenOps, Data Handling, Tenant &
- * Access) belong to E11/E12. */
+ * other backlog story claims). The Pattern Library (S5.5.3) is its own top-level surface,
+ * not an Admin sub-screen — §15.3.7 lists it under Admin, but this story's own acceptance
+ * criteria asks for a screen with no dependency on the other four Admin screens (Platform
+ * Health, Model Gateway & TokenOps, Data Handling, Tenant & Access), none of which exist
+ * yet, so it stands on its own rather than waiting on an Admin shell nobody has built. The
+ * full Programme Board is S10.2.1's, the Foundry Workbench's fuller family queue is
+ * nobody's yet, and Platform Health/Model Gateway & TokenOps/Data Handling/Tenant & Access
+ * still belong to E11/E12. */
 export const SURFACES = [
   { key: 'estate', label: 'Estate Explorer' },
   { key: 'lineage', label: 'Lineage View' },
@@ -42,6 +47,7 @@ export const SURFACES = [
   { key: 'models', label: 'Model Detail' },
   { key: 'proposal', label: 'Model Proposal' },
   { key: 'admin', label: 'Admin' },
+  { key: 'patterns', label: 'Pattern Library' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -171,6 +177,7 @@ export function App({
       {surface === 'models' && <ModelDetail api={api} identity={identity} />}
       {surface === 'proposal' && <ModelProposal api={api} identity={identity} />}
       {surface === 'admin' && <Admin api={api} identity={identity} />}
+      {surface === 'patterns' && <PatternLibrary api={api} identity={identity} />}
     </div>
   );
 }

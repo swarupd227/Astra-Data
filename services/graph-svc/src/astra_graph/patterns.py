@@ -1,4 +1,4 @@
-"""The Pattern Library — specification §4.3/§9.3, stories S5.5.1 and S5.5.2.
+"""The Pattern Library — specification §4.3/§9.3, stories S5.5.1, S5.5.2 and S5.5.3.
 
     "As a platform engineer, I want a proved C3 transformation to become a candidate
     pattern automatically, so that the platform gets faster and more deterministic as the
@@ -114,7 +114,7 @@ from .lineage import children, hydrate
 from .principal import Principal
 from .provenance import AgentMode, ProvenanceStore, new_record
 from .rules import dax_sanity_check
-from .writes import EdgeWrite, GraphWriter, NodeWrite
+from .writes import MIN_RETIREMENT_REASON_LENGTH, EdgeWrite, GraphWriter, NodeWrite
 
 PATTERN_OBSERVATION_TABLE = "public.pattern_observation"
 
@@ -142,6 +142,11 @@ def _now() -> str:
 
 class PatternPromotionError(Exception):
     """A promotion was requested that the recorded evidence does not support."""
+
+
+class PatternRetirementError(Exception):
+    """A manual retirement or a guards edit (story S5.5.3) was requested against a
+    pattern that does not exist, is already RETIRED, or without a real enough reason."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -482,21 +487,163 @@ async def record_failure_and_maybe_retire(
     if not check.should_retire:
         return check
 
+    await _perform_retirement(
+        pool, graph_name, writer, pattern_id=pattern_id, pattern_properties=pattern,
+        reason=check.reason, principal=principal,
+    )
+    return check
+
+
+async def _perform_retirement(
+    pool: asyncpg.Pool,
+    graph_name: str,
+    writer: GraphWriter,
+    *,
+    pattern_id: str,
+    pattern_properties: Mapping[str, Any],
+    reason: str,
+    principal: Principal,
+) -> tuple[str, ...]:
+    """Shared by both automatic retirement (S5.5.2, above) and a Platform Engineer's own
+    manual retirement (S5.5.3, `retire_pattern` below): re-queue every artefact the
+    pattern produced, write `promotion_state=RETIRED` with the reason and who recorded
+    it, and raise the real notice. Returns the re-queued Measure ids."""
     requeued = await _requeue_measures_for_retired_pattern(
         pool, graph_name, writer, pattern_id=pattern_id, principal=principal,
     )
-    provenance = dict(pattern.get("provenance") or {})
-    provenance.update(retired_at=_now(), retirement_reason=check.reason)
+    provenance = dict(pattern_properties.get("provenance") or {})
+    provenance.update(retired_at=_now(), retirement_reason=reason, retired_by=principal.value)
     await writer.set_node_properties(
         pattern_id, {"promotion_state": "RETIRED", "provenance": provenance}, principal=principal,
     )
     await writer.append_event(
         pattern_retired(
-            source=writer.event_source, pattern_id=pattern_id, reason=check.reason,
+            source=writer.event_source, pattern_id=pattern_id, reason=reason,
             requeued_measure_ids=requeued, principal=principal,
         )
     )
-    return check
+    return requeued
+
+
+async def retire_pattern(
+    pool: asyncpg.Pool,
+    graph_name: str,
+    writer: GraphWriter,
+    *,
+    pattern_id: str,
+    reason: str,
+    principal: Principal,
+) -> dict[str, Any]:
+    """A Platform Engineer's own manual retirement (story S5.5.3's own "retire with
+    reason") — unlike S5.5.2's automatic mechanism (ACTIVE-only, an objective threshold),
+    a human may retire any live, non-RETIRED pattern (CANDIDATE included: a candidate
+    that is obviously bad needs no further evidence before it stops accumulating any).
+    Shares the identical execution (`_perform_retirement`) the automatic path uses, so a
+    manual and an automatic retirement look identical to everything downstream (the
+    re-queue, the event) — only who decided, and why, differ."""
+    cleaned = reason.strip()
+    if len(cleaned) < MIN_RETIREMENT_REASON_LENGTH:
+        raise PatternRetirementError(
+            f"a retirement needs a reason of at least {MIN_RETIREMENT_REASON_LENGTH} "
+            f"characters; it is the record of why a pattern stopped being trusted"
+        )
+
+    async with pool.acquire() as conn:
+        pattern = (await hydrate(conn, graph_name, "Pattern", [pattern_id])).get(pattern_id)
+    if pattern is None:
+        raise PatternRetirementError(f"no Pattern with id '{pattern_id}'")
+    if pattern.get("promotion_state") == "RETIRED":
+        raise PatternRetirementError(f"Pattern '{pattern_id}' is already RETIRED")
+
+    await _perform_retirement(
+        pool, graph_name, writer, pattern_id=pattern_id, pattern_properties=pattern,
+        reason=cleaned, principal=principal,
+    )
+    row = await pattern_row(pool, graph_name, pattern_id)
+    assert row is not None  # just retired above; still hydratable by id
+    return row
+
+
+async def edit_guards(
+    pool: asyncpg.Pool,
+    graph_name: str,
+    writer: GraphWriter,
+    *,
+    pattern_id: str,
+    guards: list[str],
+    reason: str,
+    principal: Principal,
+) -> dict[str, Any]:
+    """The Pattern Library screen's own "edit guards (creates a new version)" (story
+    S5.5.3). Guards are descriptive text (§9.3, S5.5.1's own module docstring), never
+    machine-evaluated, so editing them changes nothing about matching or rendering —
+    there is no reason a real, already-earned ACTIVE trust should be thrown away for a
+    wording change, and this does not reset `promotion_state`. What it does not carry
+    forward is the observation ledger: `pattern_observation` stays keyed to the OLD
+    pattern's own id, so the new version starts its own history from zero — the honest
+    reading of "a new version" for an append-only, per-identity observation log, not a
+    silent merge that would let one version's own proof stand in for another's.
+
+    Mirrors `SemanticModel`'s own per-version lifecycle (S4.3.3): a new node under a
+    fresh id, the old one's own node retired (`GraphWriter.retire_node`) so
+    `find_matching_pattern`'s own "one live pattern per shape" invariant never sees two
+    candidates for one AST shape at once, and the old node's own properties are never
+    touched — whatever it said stays exactly what it said.
+    """
+    cleaned = reason.strip()
+    if len(cleaned) < MIN_RETIREMENT_REASON_LENGTH:
+        raise PatternRetirementError(
+            f"editing a pattern's guards needs a reason of at least "
+            f"{MIN_RETIREMENT_REASON_LENGTH} characters; it is the record of why this "
+            f"version replaced the last one"
+        )
+
+    async with pool.acquire() as conn:
+        old = (await hydrate(conn, graph_name, "Pattern", [pattern_id])).get(pattern_id)
+    if old is None:
+        raise PatternRetirementError(f"no Pattern with id '{pattern_id}'")
+    if old.get("promotion_state") == "RETIRED":
+        raise PatternRetirementError(
+            f"Pattern '{pattern_id}' is RETIRED; edit its replacement instead"
+        )
+
+    new_id = new_ulid()
+    new_provenance = {
+        **dict(old.get("provenance") or {}),
+        "edited_from": pattern_id,
+        "edit_reason": cleaned,
+        "edited_by": principal.value,
+        "edited_at": _now(),
+    }
+    await writer.write_nodes(
+        [
+            NodeWrite(
+                type="Pattern",
+                id=new_id,
+                properties={
+                    "name": str(old.get("name")),
+                    "class": old.get("class"),
+                    "source_signature": old.get("source_signature"),
+                    "target_template": old.get("target_template"),
+                    "guards": list(guards),
+                    "provenance": new_provenance,
+                    "promotion_state": old.get("promotion_state"),
+                    "pass_count": int(old.get("pass_count") or 0),
+                    "failure_count": int(old.get("failure_count") or 0),
+                    "version": int(old.get("version") or 1) + 1,
+                    "supersedes_id": pattern_id,
+                },
+            )
+        ],
+        principal=principal,
+    )
+    await writer.retire_node(
+        pattern_id, reason=f"superseded by {new_id} (guards edited)", principal=principal,
+    )
+
+    row = await pattern_row(pool, graph_name, new_id)
+    assert row is not None  # just written above
+    return row
 
 
 async def generalise_from_proof(
@@ -550,6 +697,7 @@ async def generalise_from_proof(
                     "provenance": {"origin": "PROMOTED_FROM_LLM", "first_seen": calc_id},
                     "promotion_state": "CANDIDATE",
                     "pass_count": 1,
+                    "version": 1,
                 },
             )
         ],
@@ -643,7 +791,7 @@ async def promote_pattern(
 
     provenance = dict(pattern.get("provenance") or {})
     provenance.update(promoted_at=_now(), approved_by=principal.value)
-    updated = await writer.set_node_properties(
+    await writer.set_node_properties(
         pattern_id,
         {
             "promotion_state": "ACTIVE",
@@ -652,7 +800,9 @@ async def promote_pattern(
         },
         principal=principal,
     )
-    return dict(updated["properties"])
+    row = await pattern_row(pool, graph_name, pattern_id)
+    assert row is not None  # just written above
+    return row
 
 
 async def apply_active_pattern(
@@ -754,6 +904,65 @@ async def apply_active_pattern(
     return measure_id
 
 
+def _pattern_row(
+    pattern_id: str, properties: Mapping[str, Any], *, pass_total: int, distinct_passing: int, failure_total: int
+) -> dict[str, Any]:
+    """One Pattern, in the shape both `list_patterns` (every row) and a mutation route's
+    own return value (one row, story S5.5.3 -- so the console can merge a promote/retire/
+    edit-guards response straight into the same list state it already rendered, instead
+    of getting back a differently-shaped raw node dict) agree on.
+
+    `applications`/`pass_total`/`distinct_passing_calcs`/`failure_count` are always
+    computed live from `pattern_observation`, never the node's own `pass_count`/
+    `failure_count` snapshots — the identical "computed from the raw table on read"
+    footing `calibration.report` already has.
+    """
+    return {
+        "id": pattern_id,
+        "name": properties.get("name"),
+        "class": properties.get("class"),
+        "promotion_state": properties.get("promotion_state"),
+        "target_template": properties.get("target_template"),
+        "guards": list(properties.get("guards") or []),
+        # Story S5.5.3's own "applications, pass/fail" -- total observation rows, and the
+        # raw pass/fail split, distinct from `distinct_passing_calcs` (how many different
+        # calculations proved it, the number promotion eligibility counts).
+        "applications": pass_total + failure_total,
+        "pass_total": pass_total,
+        "distinct_passing_calcs": distinct_passing,
+        "failure_count": failure_total,
+        # `provenance` (not just the node's own point-in-time `pass_count`/
+        # `failure_count`) is what actually carries a RETIRED pattern's own
+        # `retired_at`/`retirement_reason` (story S5.5.2), and now a guards-edit's own
+        # `edited_from`/`edit_reason` (story S5.5.3) -- worth the extra field on every
+        # row so both are visible without a second lookup.
+        "provenance": dict(properties.get("provenance") or {}),
+        "version": int(properties.get("version") or 1),
+        "supersedes_id": properties.get("supersedes_id"),
+    }
+
+
+async def pattern_row(pool: asyncpg.Pool, graph_name: str, pattern_id: str) -> dict[str, Any] | None:
+    """One pattern's own row, in the identical shape `list_patterns` gives every row --
+    what `promote_pattern`/`retire_pattern`/`edit_guards` return, story S5.5.3."""
+    async with pool.acquire() as conn:
+        properties = (await hydrate(conn, graph_name, "Pattern", [pattern_id])).get(pattern_id)
+        if properties is None:
+            return None
+        obs_rows = await conn.fetch(
+            f"""SELECT calc_id, observed_pass FROM {PATTERN_OBSERVATION_TABLE}
+             WHERE graph = $1 AND pattern_id = $2""",
+            graph_name, pattern_id,
+        )
+    passing_calcs = {row["calc_id"] for row in obs_rows if row["observed_pass"]}
+    pass_total = sum(1 for row in obs_rows if row["observed_pass"])
+    failure_total = sum(1 for row in obs_rows if not row["observed_pass"])
+    return _pattern_row(
+        pattern_id, properties,
+        pass_total=pass_total, distinct_passing=len(passing_calcs), failure_total=failure_total,
+    )
+
+
 async def list_patterns(pool: asyncpg.Pool, graph_name: str) -> list[dict[str, Any]]:
     """Every live Pattern, with its pass/failure counts computed live from the real
     observation history — not the node's own `pass_count` snapshot — the identical
@@ -778,30 +987,23 @@ async def list_patterns(pool: asyncpg.Pool, graph_name: str) -> list[dict[str, A
         )
 
     passing: dict[str, set[str]] = {}
+    pass_totals: dict[str, int] = {}
     failing: dict[str, int] = {}
     for row in obs_rows:
         pid = row["pattern_id"]
         if row["observed_pass"]:
             passing.setdefault(pid, set()).add(row["calc_id"])
+            pass_totals[pid] = pass_totals.get(pid, 0) + 1
         else:
             failing[pid] = failing.get(pid, 0) + 1
 
     return [
-        {
-            "id": pattern_id,
-            "name": props.get("name"),
-            "class": props.get("class"),
-            "promotion_state": props.get("promotion_state"),
-            "target_template": props.get("target_template"),
-            "guards": list(props.get("guards") or []),
-            "distinct_passing_calcs": len(passing.get(pattern_id, ())),
-            "failure_count": failing.get(pattern_id, 0),
-            # `provenance` (not just the node's own point-in-time `pass_count`/
-            # `failure_count`) is what actually carries a RETIRED pattern's own
-            # `retired_at`/`retirement_reason` (story S5.5.2) -- worth the extra field on
-            # every row so a retirement is visible without a second lookup.
-            "provenance": dict(props.get("provenance") or {}),
-        }
+        _pattern_row(
+            pattern_id, props,
+            pass_total=pass_totals.get(pattern_id, 0),
+            distinct_passing=len(passing.get(pattern_id, ())),
+            failure_total=failing.get(pattern_id, 0),
+        )
         for pattern_id, props in patterns.items()
     ]
 
@@ -815,16 +1017,20 @@ __all__ = [
     "PROMOTION_THRESHOLD_DEFAULT",
     "PatternMatch",
     "PatternPromotionError",
+    "PatternRetirementError",
     "PromotionStatus",
     "RetirementCheck",
     "apply_active_pattern",
+    "edit_guards",
     "evaluate_retirement",
     "find_matching_pattern",
     "generalise_from_proof",
     "list_patterns",
+    "pattern_row",
     "promote_pattern",
     "promotion_status",
     "record_failure_and_maybe_retire",
     "record_observation",
     "render_target",
+    "retire_pattern",
 ]

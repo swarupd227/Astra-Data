@@ -1,4 +1,5 @@
-"""The Pattern Library, against real PostgreSQL + Apache AGE — stories S5.5.1 and S5.5.2.
+"""The Pattern Library, against real PostgreSQL + Apache AGE — stories S5.5.1, S5.5.2 and
+S5.5.3.
 
 What only the real store can answer: that a real `GENERATED_PROVED` success generalises
 into a real CANDIDATE `Pattern` node, keyed by a real AST shape; that a second, independent
@@ -50,11 +51,14 @@ from astra_graph.ontology import EDGE_LABELS, NODE_LABELS  # noqa: E402
 from astra_graph.patterns import (  # noqa: E402
     PatternMatch,
     PatternPromotionError,
+    PatternRetirementError,
     apply_active_pattern,
+    edit_guards,
     find_matching_pattern,
     promote_pattern,
     promotion_status,
     record_failure_and_maybe_retire,
+    retire_pattern,
 )
 from astra_graph.principal import PRINCIPAL_HEADER, Principal  # noqa: E402
 from astra_graph.provenance import PostgresProvenanceStore  # noqa: E402
@@ -377,7 +381,7 @@ async def test_promote_pattern_succeeds_once_the_threshold_is_met_with_zero_fail
     assert updated["promotion_state"] == "ACTIVE"
     assert updated["provenance"]["approved_by"] == PLATFORM_ENGINEER.value
     assert updated["provenance"]["promoted_at"]
-    assert updated["pass_count"] == 1
+    assert updated["distinct_passing_calcs"] == 1
 
 
 async def test_promote_pattern_raises_for_an_already_active_pattern(estate) -> None:
@@ -630,6 +634,210 @@ async def test_retiring_a_pattern_raises_a_real_readable_event(estate) -> None:
     assert isinstance(event.data["requeued_measure_ids"], list)
 
 
+# ---------------------------------------------------------------- S5.5.3: manual retirement
+
+
+async def test_retire_pattern_manually_retires_a_never_promoted_candidate(estate) -> None:
+    calc_id = await estate["new_c3_calc"]()
+    caller = _ScriptedCaller(dax=f"CALCULATE(SUM([{estate['field_name']}]))")
+    seeded = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], calc_id,
+        gateway=StaticGateway(caller), principal=PRINCIPAL,
+    )
+    updated = await retire_pattern(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        pattern_id=seeded.pattern_id, reason="this candidate's own shape is clearly a mistake",
+        principal=PLATFORM_ENGINEER,
+    )
+    assert updated["promotion_state"] == "RETIRED"
+    assert updated["provenance"]["retirement_reason"] == "this candidate's own shape is clearly a mistake"
+    assert updated["provenance"]["retired_by"] == PLATFORM_ENGINEER.value
+
+    events = await estate["repository"].read_events(subject=seeded.pattern_id)
+    assert any(e.type == EventType.PATTERN_RETIRED for e in events)
+
+
+async def test_retire_pattern_requires_a_real_reason(estate) -> None:
+    calc_id = await estate["new_c3_calc"]()
+    caller = _ScriptedCaller(dax=f"CALCULATE(SUM([{estate['field_name']}]))")
+    seeded = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], calc_id,
+        gateway=StaticGateway(caller), principal=PRINCIPAL,
+    )
+    with pytest.raises(PatternRetirementError, match="reason"):
+        await retire_pattern(
+            estate["pool"], estate["graph_name"], estate["writer"],
+            pattern_id=seeded.pattern_id, reason="short", principal=PLATFORM_ENGINEER,
+        )
+
+
+async def test_retire_pattern_refuses_an_already_retired_pattern(estate) -> None:
+    calc_id = await estate["new_c3_calc"]()
+    caller = _ScriptedCaller(dax=f"CALCULATE(SUM([{estate['field_name']}]))")
+    seeded = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], calc_id,
+        gateway=StaticGateway(caller), principal=PRINCIPAL,
+    )
+    await retire_pattern(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        pattern_id=seeded.pattern_id, reason="a real, specific rationale here",
+        principal=PLATFORM_ENGINEER,
+    )
+    with pytest.raises(PatternRetirementError, match="already RETIRED"):
+        await retire_pattern(
+            estate["pool"], estate["graph_name"], estate["writer"],
+            pattern_id=seeded.pattern_id, reason="a second, also real rationale",
+            principal=PLATFORM_ENGINEER,
+        )
+
+
+async def test_retire_pattern_refuses_an_unknown_pattern(estate) -> None:
+    with pytest.raises(PatternRetirementError, match="no Pattern"):
+        await retire_pattern(
+            estate["pool"], estate["graph_name"], estate["writer"],
+            pattern_id="not-a-real-id", reason="a real, specific rationale here",
+            principal=PLATFORM_ENGINEER,
+        )
+
+
+async def test_retire_pattern_manually_also_requeues_measures(estate) -> None:
+    pattern_id = await _seed_active_pattern(estate)
+    new_calc = await estate["new_c3_calc"]()
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], new_calc,
+        gateway=_PoisonGateway(), principal=PRINCIPAL,
+    )
+    assert outcome.ok is True and outcome.pattern_id == pattern_id
+
+    from astra_graph.graph.queries import NODE_INDEX_TABLE
+
+    await retire_pattern(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        pattern_id=pattern_id, reason="governance decision -- retiring this one manually",
+        principal=PLATFORM_ENGINEER,
+    )
+    async with estate["pool"].acquire() as conn:
+        row = await conn.fetchrow(
+            f"SELECT retired_at FROM {NODE_INDEX_TABLE} WHERE graph = $1 AND id = $2",
+            estate["graph_name"], outcome.measure_id,
+        )
+        calcs = await hydrate(conn, estate["graph_name"], "CalculatedField", [new_calc])
+    assert row is not None and row["retired_at"] is not None
+    assert calcs[new_calc]["class"] != "C2"
+
+
+# ---------------------------------------------------------------------- S5.5.3: edit guards
+
+
+async def test_edit_guards_creates_a_new_version_and_retires_the_old_node(estate) -> None:
+    pattern_id = await _seed_active_pattern(estate)
+    async with estate["pool"].acquire() as conn:
+        old = (await hydrate(conn, estate["graph_name"], "Pattern", [pattern_id]))[pattern_id]
+    assert int(old.get("version") or 1) == 1
+
+    new = await edit_guards(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        pattern_id=pattern_id, guards=["a is a real, positive amount"],
+        reason="the inferred guard was too vague for reviewers", principal=PLATFORM_ENGINEER,
+    )
+    assert new["id"] != pattern_id
+    assert new["version"] == 2
+    assert new["supersedes_id"] == pattern_id
+    assert new["guards"] == ["a is a real, positive amount"]
+    assert new["promotion_state"] == "ACTIVE"  # inherited -- guards don't change behaviour
+    assert new["target_template"] == old["target_template"]
+    assert new["provenance"]["edited_from"] == pattern_id
+    assert new["provenance"]["edit_reason"] == "the inferred guard was too vague for reviewers"
+    assert new["provenance"]["approved_by"] == PRINCIPAL.value  # carried forward from promotion
+
+    from astra_graph.graph.queries import NODE_INDEX_TABLE
+
+    async with estate["pool"].acquire() as conn:
+        row = await conn.fetchrow(
+            f"SELECT retired_at FROM {NODE_INDEX_TABLE} WHERE graph = $1 AND id = $2",
+            estate["graph_name"], pattern_id,
+        )
+        new_hydrated = (await hydrate(conn, estate["graph_name"], "Pattern", [new["id"]]))[new["id"]]
+    assert row is not None and row["retired_at"] is not None
+    # `source_signature` is a real ontology property, checked against the raw hydrated
+    # node -- `pattern_row`'s own return shape (what the console list renders) does not
+    # carry it, since matching is an internal detail the screen has no use for.
+    assert new_hydrated["source_signature"] == old["source_signature"]
+
+
+async def test_edit_guards_new_version_is_the_one_matched_going_forward(estate) -> None:
+    pattern_id = await _seed_active_pattern(estate)
+    new = await edit_guards(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        pattern_id=pattern_id, guards=["a stricter guard"],
+        reason="tightening this pattern's own documented precondition", principal=PLATFORM_ENGINEER,
+    )
+    shape_ast = _window(
+        estate["window_fn"], "table_calc_simple", _aggregate("SUM", _ref(estate["field_name"])),
+    )
+    match = await find_matching_pattern(estate["pool"], estate["graph_name"], shape_ast)
+    assert match is not None
+    assert match.pattern_id == new["id"]  # the retired old version is never matched again
+    assert match.target_template == new["target_template"]
+
+
+async def test_edit_guards_starts_a_fresh_observation_ledger(estate) -> None:
+    pattern_id = await _seed_active_pattern(estate)  # already has 1 real proof pass
+    new = await edit_guards(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        pattern_id=pattern_id, guards=[], reason="removing a guard that no longer applies",
+        principal=PLATFORM_ENGINEER,
+    )
+    status = await promotion_status(estate["pool"], estate["graph_name"], new["id"], threshold=5)
+    # A fresh version starts its own append-only ledger -- the old version's own evidence
+    # stays with the old (now-retired) id, honestly, rather than being silently inherited.
+    assert status.distinct_passing_calcs == 0
+
+
+async def test_edit_guards_requires_a_real_reason(estate) -> None:
+    pattern_id = await _seed_active_pattern(estate)
+    with pytest.raises(PatternRetirementError, match="reason"):
+        await edit_guards(
+            estate["pool"], estate["graph_name"], estate["writer"],
+            pattern_id=pattern_id, guards=["x"], reason="short", principal=PLATFORM_ENGINEER,
+        )
+
+
+async def test_edit_guards_refuses_an_already_retired_pattern(estate) -> None:
+    pattern_id = await _seed_active_pattern(estate)
+    await retire_pattern(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        pattern_id=pattern_id, reason="retiring before anyone tries to edit it",
+        principal=PLATFORM_ENGINEER,
+    )
+    with pytest.raises(PatternRetirementError, match="RETIRED"):
+        await edit_guards(
+            estate["pool"], estate["graph_name"], estate["writer"],
+            pattern_id=pattern_id, guards=["x"], reason="a real, specific rationale here",
+            principal=PLATFORM_ENGINEER,
+        )
+
+
+# --------------------------------------------------------------- S5.5.3: list_patterns fields
+
+
+async def test_list_patterns_reports_applications_pass_total_and_version(estate) -> None:
+    calc_id = await estate["new_c3_calc"]()
+    caller = _ScriptedCaller(dax=f"CALCULATE(SUM([{estate['field_name']}]))")
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], calc_id,
+        gateway=StaticGateway(caller), principal=PRINCIPAL,
+    )
+    from astra_graph.patterns import list_patterns
+
+    patterns = await list_patterns(estate["pool"], estate["graph_name"])
+    row = next(p for p in patterns if p["id"] == outcome.pattern_id)
+    assert row["applications"] == 1
+    assert row["pass_total"] == 1
+    assert row["version"] == 1
+    assert row["supersedes_id"] is None
+
+
 # ---------------------------------------------------------------------------------- the API
 
 
@@ -730,3 +938,123 @@ async def test_promotion_status_over_http_is_open_to_any_artizent_role(http_clie
     body = response.json()
     assert body["distinct_passing_calcs"] == 1
     assert body["eligible"] is False
+
+
+# --------------------------------------------------------- S5.5.3: retire/edit-guards over HTTP
+
+
+async def test_retire_over_http_requires_the_platform_engineer_role(http_client, estate) -> None:
+    calc_id = await estate["new_c3_calc"]()
+    caller = _ScriptedCaller(dax=f"CALCULATE(SUM([{estate['field_name']}]))")
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], calc_id,
+        gateway=StaticGateway(caller), principal=PRINCIPAL,
+    )
+    response = await http_client.post(
+        f"/v1/patterns/{outcome.pattern_id}:retire",
+        headers=_headers("parity_engineer", PLATFORM_ENGINEER),
+        json={"reason": "a real, specific rationale here"},
+    )
+    assert response.status_code == 403
+
+
+async def test_retire_over_http_with_the_platform_engineer_role_succeeds(http_client, estate) -> None:
+    calc_id = await estate["new_c3_calc"]()
+    caller = _ScriptedCaller(dax=f"CALCULATE(SUM([{estate['field_name']}]))")
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], calc_id,
+        gateway=StaticGateway(caller), principal=PRINCIPAL,
+    )
+    response = await http_client.post(
+        f"/v1/patterns/{outcome.pattern_id}:retire",
+        headers=_headers("platform_engineer", PLATFORM_ENGINEER),
+        json={"reason": "a real, specific governance rationale"},
+    )
+    assert response.status_code == 200
+    assert response.json()["promotion_state"] == "RETIRED"
+
+
+async def test_retire_over_http_rejects_an_empty_reason_as_a_422(http_client, estate) -> None:
+    calc_id = await estate["new_c3_calc"]()
+    caller = _ScriptedCaller(dax=f"CALCULATE(SUM([{estate['field_name']}]))")
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], calc_id,
+        gateway=StaticGateway(caller), principal=PRINCIPAL,
+    )
+    response = await http_client.post(
+        f"/v1/patterns/{outcome.pattern_id}:retire",
+        headers=_headers("platform_engineer", PLATFORM_ENGINEER), json={"reason": ""},
+    )
+    assert response.status_code == 422  # pydantic's own min_length=1, before the domain check
+
+
+async def test_retire_over_http_rejects_a_too_short_reason_as_a_400(http_client, estate) -> None:
+    calc_id = await estate["new_c3_calc"]()
+    caller = _ScriptedCaller(dax=f"CALCULATE(SUM([{estate['field_name']}]))")
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], calc_id,
+        gateway=StaticGateway(caller), principal=PRINCIPAL,
+    )
+    response = await http_client.post(
+        f"/v1/patterns/{outcome.pattern_id}:retire",
+        headers=_headers("platform_engineer", PLATFORM_ENGINEER), json={"reason": "short"},
+    )
+    assert response.status_code == 400
+
+
+async def test_edit_guards_over_http_requires_the_platform_engineer_role(http_client, estate) -> None:
+    calc_id = await estate["new_c3_calc"]()
+    caller = _ScriptedCaller(dax=f"CALCULATE(SUM([{estate['field_name']}]))")
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], calc_id,
+        gateway=StaticGateway(caller), principal=PRINCIPAL,
+    )
+    response = await http_client.post(
+        f"/v1/patterns/{outcome.pattern_id}:edit-guards",
+        headers=_headers("parity_engineer", PLATFORM_ENGINEER),
+        json={"guards": ["a new guard"], "reason": "a real, specific rationale here"},
+    )
+    assert response.status_code == 403
+
+
+async def test_edit_guards_over_http_with_the_platform_engineer_role_creates_a_new_version(
+    http_client, estate
+) -> None:
+    calc_id = await estate["new_c3_calc"]()
+    caller = _ScriptedCaller(dax=f"CALCULATE(SUM([{estate['field_name']}]))")
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], calc_id,
+        gateway=StaticGateway(caller), principal=PRINCIPAL,
+    )
+    response = await http_client.post(
+        f"/v1/patterns/{outcome.pattern_id}:edit-guards",
+        headers=_headers("platform_engineer", PLATFORM_ENGINEER),
+        json={"guards": ["a new, clearer guard"], "reason": "clarifying this guard's own wording"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] != outcome.pattern_id
+    assert body["version"] == 2
+    assert body["guards"] == ["a new, clearer guard"]
+
+    listing = await http_client.get(
+        "/v1/patterns", headers=_headers("programme_manager", PLATFORM_ENGINEER)
+    )
+    ids = {p["id"] for p in listing.json()["patterns"]}
+    assert body["id"] in ids
+    assert outcome.pattern_id not in ids  # the superseded version no longer lists as live
+
+
+async def test_edit_guards_over_http_rejects_a_too_short_reason_as_a_400(http_client, estate) -> None:
+    calc_id = await estate["new_c3_calc"]()
+    caller = _ScriptedCaller(dax=f"CALCULATE(SUM([{estate['field_name']}]))")
+    outcome = await generate_c3_field(
+        estate["pool"], estate["graph_name"], estate["writer"], estate["provenance"], calc_id,
+        gateway=StaticGateway(caller), principal=PRINCIPAL,
+    )
+    response = await http_client.post(
+        f"/v1/patterns/{outcome.pattern_id}:edit-guards",
+        headers=_headers("platform_engineer", PLATFORM_ENGINEER),
+        json={"guards": [], "reason": "short"},
+    )
+    assert response.status_code == 400

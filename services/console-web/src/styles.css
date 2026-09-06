@@ -647,6 +647,14 @@ table.estate td {
 .admin-workspace .pane { flex: 1; max-width: 900px; }
 
 .admin-params { display: flex; flex-direction: column; gap: 6px; }
+
+/* Pattern Library (S5.5.3): a list pane wider than the generic grid's own share, plus a
+   narrower detail pane for the selected pattern's guards/template/provenance and actions —
+   the same "override the generic three-column grid" convention Admin already set, applied
+   to a list-plus-detail shape instead of Admin's own single wide pane. */
+.pattern-library-workspace { display: flex; gap: 12px; }
+.pattern-library-workspace .pane:first-child { flex: 2; min-width: 0; }
+.pattern-library-workspace .pane:last-child { flex: 1; min-width: 280px; max-width: 420px; }
 .admin-param-field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 
 .family-count-figures {

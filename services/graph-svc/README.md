@@ -1588,7 +1588,7 @@ scope, two increments out) — "referenced at G3" stays exactly that future refe
 See [ADR 0041](../../docs/adr/0041-c4-redesign-guidance-and-decision-a-disclosed-blocked-proxy-on-calculatedfield.md)
 for the full reasoning.
 
-## The Pattern Library (stories S5.5.1 and S5.5.2)
+## The Pattern Library (stories S5.5.1, S5.5.2 and S5.5.3)
 
 `patterns.py` — opens F5.5. A proved C3 transformation becomes a reusable, deterministic
 template automatically; enough of them, applied enough times, mean fewer model calls as the
@@ -1674,6 +1674,53 @@ already does (S1.2.4) — `EventType.PATTERN_RETIRED`, carrying the reason and e
 re-queued Measure id, `mutates_graph=False` so replay skips it.
 
 See [ADR 0043](../../docs/adr/0043-pattern-retirement-is-automatic-mu-less-re-queue-is-a-plain-reclassification.md)
+for the full reasoning.
+
+### The Pattern Library screen, manual retirement and versioned guards (story S5.5.3)
+
+F5.5's closing story, and the first console screen this codebase has built since early F1.4:
+"see what the platform has learned and govern it." Two of the AC's own four actions
+(promote, export) already existed or needed no new route; two did not.
+
+**Manual retirement is a human path onto the identical machinery S5.5.2 already built.**
+`retire_pattern` (any live, non-RETIRED pattern — CANDIDATE included, unlike S5.5.2's own
+ACTIVE-only automatic mechanism) shares a `_perform_retirement` helper extracted from
+S5.5.2's own automatic path, so a Platform Engineer's own decision and a threshold's
+automatic one produce byte-identical downstream effects (the re-queue, the state write, the
+event) — differing only in who decided and why, now also recorded (`retired_by`) on both
+paths.
+
+**Editing guards creates a new `Pattern` version — the old node retired, never mutated** —
+the identical "an edit is a new version" discipline `SemanticModel` already set (S4.3.3),
+applied to a graph node. Two new, additive properties (`Pattern.version`/`.supersedes_id`,
+schema version 21) name the chain. Guards are documented as purely descriptive, never
+evaluated — so the new version inherits `promotion_state`/`class`/`source_signature`/
+`target_template` unchanged, rather than throwing away already-earned ACTIVE trust for a
+wording change. What it does *not* inherit is `pattern_observation`: the new version starts
+its own append-only ledger from zero under its own id, since a version's whole point is a
+per-identity proof history — silently merging one version's own real evidence into another's
+would misrepresent what the new wording has actually earned.
+
+**`promote_pattern`/`retire_pattern`/`edit_guards` now all return the same row shape
+`list_patterns` gives every row** (`pattern_row`, factored out of `list_patterns`'s own
+per-row projection) — the console merges a mutation's own response straight into the list
+it already rendered, rather than reconciling a second, differently-shaped type. A real,
+disclosed interface change from S5.5.1's own shape (`pass_count` → `distinct_passing_calcs`),
+caught by the full suite and fixed in the one pre-existing assertion it affected.
+
+`POST /v1/patterns/{id}:retire` and `POST /v1/patterns/{id}:edit-guards` are both the
+platform engineer's (`PlatformEngineerDep`); "export" needed no new route — the console
+screen already holds the full, current list, so a client-side JSON download of what is
+already rendered satisfies the AC.
+
+**A real, pre-existing infrastructure bug, found by this story's own first real browser
+load of a console screen through its own nginx proxy**: see console-web's own README, under
+"Container" — every `/v1/*` call through a local Docker `console-web` container had
+silently 502'd since S5.3.2, on a DNS resolver hardcoded to an Azure-only value. Fixed at
+the root (a third envsubst template token, Azure's own default preserved, Docker Compose
+carrying the local-only override), not worked around.
+
+See [ADR 0044](../../docs/adr/0044-the-pattern-library-screen-and-the-nginx-resolver-bug-it-found.md)
 for the full reasoning.
 
 ## Grammar issues

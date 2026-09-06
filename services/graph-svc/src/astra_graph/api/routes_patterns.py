@@ -1,13 +1,17 @@
-"""The Pattern Library's own API — story S5.5.1.
+"""The Pattern Library's own API — stories S5.5.1, S5.5.2 and S5.5.3.
 
     "Promotion CANDIDATE -> ACTIVE requires N distinct proof passes (default 5), zero
     failures, and a Platform Engineer approval (MA-11, L2)."
 
+    "Actions: promote, retire with reason, edit guards (creates a new version), export."
+
 Reading the library (what exists, and whether a candidate is eligible) is open to any
 Artizent role, the same posture every other Programme Board-adjacent read in this API
-already has; promoting a candidate is the platform engineer's (`PlatformEngineerDep`) —
-§13.2's own MA-11 action class, ceiling L2 ("approve-first"), the same role S5.2.1's
-apply-rules route and S5.3.2's eval-run route already drive.
+already has; every governing action — promoting, retiring, editing guards — is the
+platform engineer's (`PlatformEngineerDep`), the persona S5.5.3's own acceptance criteria
+names for "governing" the library, the same role S5.2.1's apply-rules route and S5.3.2's
+eval-run route already drive. "Export" needs no route of its own: the console screen
+downloads the same `GET /v1/patterns` response it already rendered.
 """
 
 from __future__ import annotations
@@ -15,15 +19,19 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Path, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..errors import InvalidRequestError
 from ..generation import GenerationEngine
 from ..patterns import (
     PROMOTION_THRESHOLD_DEFAULT,
     PatternPromotionError,
+    PatternRetirementError,
+    edit_guards,
     list_patterns,
     promote_pattern,
     promotion_status,
+    retire_pattern,
 )
 from .deps import ArtizentDep, PlatformEngineerDep, PrincipalDep
 
@@ -93,6 +101,63 @@ async def promote_pattern_route(
             pattern_id=pattern_id, principal=principal, threshold=threshold,
         )
     except PatternPromotionError as exc:
+        raise InvalidRequestError(str(exc)) from exc
+
+
+class RetirePatternRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=4000)
+
+
+@router.post(
+    "/v1/patterns/{pattern_id}:retire",
+    tags=["patterns"],
+    summary="Retire a pattern manually, with a reason (§13.2's own MA-12, the human path)",
+)
+async def retire_pattern_route(
+    body: RetirePatternRequest,
+    request: Request,
+    principal: PrincipalDep,
+    roles: PlatformEngineerDep,
+    pattern_id: str = _PATTERN_ID,
+) -> dict[str, Any]:
+    engine = _engine(request)
+    try:
+        return await retire_pattern(
+            engine.pool, engine.graph_name, engine.writer,
+            pattern_id=pattern_id, reason=body.reason, principal=principal,
+        )
+    except PatternRetirementError as exc:
+        raise InvalidRequestError(str(exc)) from exc
+
+
+class EditGuardsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    guards: list[str] = Field(default_factory=list, max_length=50)
+    reason: str = Field(min_length=1, max_length=4000)
+
+
+@router.post(
+    "/v1/patterns/{pattern_id}:edit-guards",
+    tags=["patterns"],
+    summary="Edit a pattern's guards -- creates a new version, the old one retired (§4.3)",
+)
+async def edit_guards_route(
+    body: EditGuardsRequest,
+    request: Request,
+    principal: PrincipalDep,
+    roles: PlatformEngineerDep,
+    pattern_id: str = _PATTERN_ID,
+) -> dict[str, Any]:
+    engine = _engine(request)
+    try:
+        return await edit_guards(
+            engine.pool, engine.graph_name, engine.writer,
+            pattern_id=pattern_id, guards=body.guards, reason=body.reason, principal=principal,
+        )
+    except PatternRetirementError as exc:
         raise InvalidRequestError(str(exc)) from exc
 
 

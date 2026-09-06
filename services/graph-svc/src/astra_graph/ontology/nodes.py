@@ -604,6 +604,21 @@ NODE_TYPES: tuple[NodeType, ...] = (
                     "threshold itself is always checked live against `pattern_observation`, "
                     "never against this counter, so a missed increment could never cause a "
                     "wrong retirement decision."),
+            _p("version", T.INT,
+               note="Story S5.5.3's own 'edit guards (creates a new version)' -- absent "
+                    "means 1, the same 'additive, no backfill' reading every optional "
+                    "counter in this codebase already gets. Editing never mutates a "
+                    "Pattern in place: it writes a new node with `version` incremented "
+                    "and `supersedes_id` naming this one, then retires this one -- the "
+                    "identical 'an edit is a new version, the old row is never touched' "
+                    "discipline `SemanticModel`'s own per-version lifecycle (S4.3.3) "
+                    "already set for a graph node specifically."),
+            _p("supersedes_id", T.STRING,
+               note="The Pattern this version replaced (story S5.5.3) -- absent on a "
+                    "pattern that has never been edited. The identical field name "
+                    "`ProvenanceRecord.supersedes_id` already uses for the same "
+                    "'this new record replaces that one' relationship, applied here to "
+                    "a graph node instead of a provenance row."),
         ),
     ),
     NodeType(
@@ -992,5 +1007,22 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "itself the authority a retirement decision is checked against — that "
                "check always reads `pattern_observation` (append-only) live, so this "
                "counter drifting could never cause a wrong retirement.",
+    ),
+    SpecDeviation(
+        element="Pattern.version, Pattern.supersedes_id",
+        reason="Section 4.1.1's own node table declares neither property, and backlog "
+               "story S5.5.3's own acceptance criteria requires a Pattern Library screen "
+               "action to 'edit guards (creates a new version)' — the ontology never "
+               "needed a version concept on Pattern until a story asked to edit one "
+               "without silently rewriting its own history.",
+        detail="The identical 'an edit is a new version, the old row stays exactly what "
+               "it said' discipline `SemanticModel`'s own per-version lifecycle (S4.3.3) "
+               "already set for a graph node, and the identical field name "
+               "`ProvenanceRecord.supersedes_id` already uses for a provenance row's own "
+               "'this replaces that' relationship — reused here rather than inventing a "
+               "second name for the same idea. Editing retires the prior version's own "
+               "node (`GraphWriter.retire_node`) so `find_matching_pattern`'s own "
+               "'one live pattern per shape' invariant never sees two candidates for one "
+               "AST shape at once.",
     ),
 )

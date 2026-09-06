@@ -69,6 +69,15 @@ services:
         VITE_ASTRA_ENV: local
     ports:
       - "${ASTRA_CONSOLE_PORT:-5173}:8080"
+    environment:
+      # The image's own default resolver (168.63.129.16) is Azure Container Apps' own
+      # internal DNS server (story S5.3.2's deployment) -- unreachable and meaningless
+      # here, and left every /v1/* call through this proxy 502ing silently until story
+      # S5.5.3's own first real browser test of a console screen actually noticed.
+      # Docker Compose's own embedded resolver, so nginx can re-resolve `graph-svc` per
+      # request (a recreated container gets a new address) the same way the Azure
+      # deployment already relies on being able to for its own ingress endpoint.
+      DNS_RESOLVER: "127.0.0.11"
     depends_on:
       - graph-svc
     profiles: ["service"]

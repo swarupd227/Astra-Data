@@ -30,6 +30,10 @@ import type {
   ModelProposal,
   ModelVersion,
   MovedClassification,
+  PatternPromotionStatus,
+  PatternProvenance,
+  PatternRecord,
+  PatternsResponse,
   ProgrammeRecord,
   ProgrammesResponse,
   PromoteResult,
@@ -711,6 +715,35 @@ export function conformanceRuleset(overrides: Partial<ConformanceRuleset> = {}):
   };
 }
 
+export function patternRecord(overrides: Partial<PatternRecord> = {}): PatternRecord {
+  const provenance: PatternProvenance = {
+    origin: 'PROMOTED_FROM_LLM',
+    first_seen: 'calc_running_total',
+    ...overrides.provenance,
+  };
+  return {
+    id: 'pat_running_sum',
+    name: 'pattern_RUNNING_SUM(SUM(a))',
+    class: 'C3',
+    promotion_state: 'CANDIDATE',
+    target_template: 'CALCULATE(SUM({a}))',
+    guards: ['a is real'],
+    applications: 2,
+    pass_total: 2,
+    distinct_passing_calcs: 2,
+    failure_count: 0,
+    version: 1,
+    supersedes_id: null,
+    ...overrides,
+    provenance,
+  };
+}
+
+export function patternsResponse(overrides: Partial<PatternsResponse> = {}): PatternsResponse {
+  const patterns = overrides.patterns ?? [patternRecord()];
+  return { patterns, count: patterns.length, ...overrides };
+}
+
 export function g2Question(overrides: Partial<G2Question> = {}): G2Question {
   return {
     id: 'q_one',
@@ -782,6 +815,7 @@ export function fakeApi(
   versions: Record<string, ModelVersion[]> = {},
   initialClassMix: ClassMix = classMix(),
   initialRuleCoverage: RuleCoverage = ruleCoverage(),
+  initialPatterns: PatternsResponse = patternsResponse(),
 ): FakeApi {
   const calls: FakeApi['calls'] = { estate: [], workbook: [], lineage: [], quality: 0 };
   const recorded: FakeApi['recorded'] = [];
@@ -843,6 +877,17 @@ export function fakeApi(
   let rulesetState: ConformanceRuleset = { ...initialRuleset, rules: initialRuleset.rules.map((r) => ({ ...r })) };
   let classMixState: ClassMix = { ...initialClassMix, counts: { ...initialClassMix.counts }, percentages: { ...initialClassMix.percentages }, targets: { ...initialClassMix.targets } };
   let ruleCoverageState: RuleCoverage = { ...initialRuleCoverage, by_family: { ...initialRuleCoverage.by_family } };
+  const patternRows: PatternRecord[] = initialPatterns.patterns.map((p) => ({
+    ...p,
+    guards: [...p.guards],
+    provenance: { ...p.provenance },
+  }));
+  let patternVersionCounter = patternRows.length;
+  const findPattern = (patternId: string): PatternRecord => {
+    const pattern = patternRows.find((p) => p.id === patternId);
+    if (!pattern) throw new ApiError(404, 'not_found', `no Pattern '${patternId}'`);
+    return pattern;
+  };
   const findQuestion = (questionId: string): G2Question => {
     for (const list of questionRows.values()) {
       const found = list.find((q) => q.id === questionId);
@@ -1398,6 +1443,92 @@ export function fakeApi(
       };
       recorded.push({ kind: 'APPLY_RULES', id: '', reason: '' });
       return result;
+    },
+    async patterns(): Promise<PatternsResponse> {
+      const rows = patternRows.map((p) => ({ ...p, guards: [...p.guards], provenance: { ...p.provenance } }));
+      return { patterns: rows, count: rows.length };
+    },
+    async patternPromotionStatus(patternId: string): Promise<PatternPromotionStatus> {
+      const pattern = findPattern(patternId);
+      const threshold = 5;
+      const eligible = pattern.promotion_state === 'CANDIDATE'
+        && pattern.distinct_passing_calcs >= threshold
+        && pattern.failure_count === 0;
+      return {
+        pattern_id: patternId,
+        promotion_state: pattern.promotion_state,
+        distinct_passing_calcs: pattern.distinct_passing_calcs,
+        has_failure: pattern.failure_count > 0,
+        threshold,
+        eligible,
+        reason: eligible ? 'eligible' : 'not eligible in this fixture',
+      };
+    },
+    async promotePattern(patternId: string): Promise<PatternRecord> {
+      maybeFail();
+      const pattern = findPattern(patternId);
+      if (pattern.promotion_state !== 'CANDIDATE') {
+        throw new ApiError(400, 'invalid_request', `Pattern '${patternId}' is not eligible for promotion: already ${pattern.promotion_state}`);
+      }
+      pattern.promotion_state = 'ACTIVE';
+      pattern.provenance = { ...pattern.provenance, promoted_at: new Date().toISOString(), approved_by: 'user:p.eng@artizent.example' };
+      recorded.push({ kind: 'PROMOTE_PATTERN', id: patternId, reason: '' });
+      return { ...pattern, guards: [...pattern.guards], provenance: { ...pattern.provenance } };
+    },
+    async retirePattern(patternId: string, reason: string): Promise<PatternRecord> {
+      maybeFail();
+      const pattern = findPattern(patternId);
+      const cleaned = reason.trim();
+      if (cleaned.length < 8) {
+        throw new ApiError(400, 'invalid_request', 'a retirement needs a reason of at least 8 characters');
+      }
+      if (pattern.promotion_state === 'RETIRED') {
+        throw new ApiError(400, 'invalid_request', `Pattern '${patternId}' is already RETIRED`);
+      }
+      pattern.promotion_state = 'RETIRED';
+      pattern.provenance = {
+        ...pattern.provenance,
+        retired_at: new Date().toISOString(),
+        retirement_reason: cleaned,
+        retired_by: 'user:p.eng@artizent.example',
+      };
+      recorded.push({ kind: 'RETIRE_PATTERN', id: patternId, reason: cleaned });
+      return { ...pattern, guards: [...pattern.guards], provenance: { ...pattern.provenance } };
+    },
+    async editPatternGuards(patternId: string, guards: string[], reason: string): Promise<PatternRecord> {
+      maybeFail();
+      const old = findPattern(patternId);
+      const cleaned = reason.trim();
+      if (cleaned.length < 8) {
+        throw new ApiError(400, 'invalid_request', "editing a pattern's guards needs a reason of at least 8 characters");
+      }
+      if (old.promotion_state === 'RETIRED') {
+        throw new ApiError(400, 'invalid_request', `Pattern '${patternId}' is RETIRED; edit its replacement instead`);
+      }
+      patternVersionCounter += 1;
+      const created: PatternRecord = {
+        ...old,
+        id: `pat_v${patternVersionCounter}`,
+        guards: [...guards],
+        applications: 0,
+        pass_total: 0,
+        distinct_passing_calcs: 0,
+        failure_count: 0,
+        version: old.version + 1,
+        supersedes_id: patternId,
+        provenance: {
+          ...old.provenance,
+          edited_from: patternId,
+          edit_reason: cleaned,
+          edited_by: 'user:p.eng@artizent.example',
+          edited_at: new Date().toISOString(),
+        },
+      };
+      const index = patternRows.findIndex((p) => p.id === patternId);
+      patternRows.splice(index, 1); // the superseded version no longer lists as live
+      patternRows.push(created);
+      recorded.push({ kind: 'EDIT_PATTERN_GUARDS', id: patternId, reason: cleaned });
+      return { ...created, guards: [...created.guards], provenance: { ...created.provenance } };
     },
     async getVersions(familyId: string): Promise<VersionsResponse> {
       const rows = versionRows.get(familyId) ?? [];

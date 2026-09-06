@@ -624,6 +624,55 @@ export interface ApplyRulesResult {
   applied: AppliedRule[];
 }
 
+// -------------------------------------------------------------- Pattern Library (S5.5.1-3)
+
+export interface PatternProvenance {
+  origin?: string;
+  first_seen?: string;
+  promoted_at?: string;
+  approved_by?: string;
+  retired_at?: string;
+  retirement_reason?: string;
+  retired_by?: string;
+  edited_from?: string;
+  edit_reason?: string;
+  edited_by?: string;
+  edited_at?: string;
+}
+
+export type PromotionState = 'CANDIDATE' | 'ACTIVE' | 'RETIRED';
+
+export interface PatternRecord {
+  id: string;
+  name: string;
+  class: string;
+  promotion_state: PromotionState;
+  target_template: string;
+  guards: string[];
+  applications: number;
+  pass_total: number;
+  distinct_passing_calcs: number;
+  failure_count: number;
+  provenance: PatternProvenance;
+  version: number;
+  supersedes_id: string | null;
+}
+
+export interface PatternsResponse {
+  patterns: PatternRecord[];
+  count: number;
+}
+
+export interface PatternPromotionStatus {
+  pattern_id: string;
+  promotion_state: PromotionState;
+  distinct_passing_calcs: number;
+  has_failure: boolean;
+  threshold: number;
+  eligible: boolean;
+  reason: string;
+}
+
 export interface TrainMember {
   id: string;
   name: string;
@@ -920,6 +969,16 @@ export interface Api {
   ruleCatalog(identity: Identity): Promise<RuleCatalog>;
   ruleCoverage(identity: Identity): Promise<RuleCoverage>;
   applyRules(identity: Identity): Promise<ApplyRulesResult>;
+  patterns(identity: Identity): Promise<PatternsResponse>;
+  patternPromotionStatus(patternId: string, identity: Identity): Promise<PatternPromotionStatus>;
+  promotePattern(patternId: string, identity: Identity): Promise<PatternRecord>;
+  retirePattern(patternId: string, reason: string, identity: Identity): Promise<PatternRecord>;
+  editPatternGuards(
+    patternId: string,
+    guards: string[],
+    reason: string,
+    identity: Identity,
+  ): Promise<PatternRecord>;
 }
 
 export function createApi(base = ''): Api {
@@ -1150,6 +1209,25 @@ export function createApi(base = ''): Api {
     },
     async applyRules(identity) {
       return (await post('/v1/calculations:apply-rules', {}, identity)) as ApplyRulesResult;
+    },
+    async patterns(identity) {
+      return (await get('/v1/patterns', identity)) as PatternsResponse;
+    },
+    async patternPromotionStatus(patternId, identity) {
+      return (await get(`/v1/patterns/${patternId}:promotion-status`, identity)) as PatternPromotionStatus;
+    },
+    async promotePattern(patternId, identity) {
+      return (await post(`/v1/patterns/${patternId}:promote`, {}, identity)) as PatternRecord;
+    },
+    async retirePattern(patternId, reason, identity) {
+      return (await post(`/v1/patterns/${patternId}:retire`, { reason }, identity)) as PatternRecord;
+    },
+    async editPatternGuards(patternId, guards, reason, identity) {
+      return (await post(
+        `/v1/patterns/${patternId}:edit-guards`,
+        { guards, reason },
+        identity,
+      )) as PatternRecord;
     },
     async lineage(query, identity) {
       const params = new URLSearchParams();
