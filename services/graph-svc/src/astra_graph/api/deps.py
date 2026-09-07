@@ -286,6 +286,25 @@ def require_tolerance_charter_reader(roles: RoleSetDep) -> RoleSet:
 
 ToleranceCharterReaderDep = Annotated[RoleSet, Depends(require_tolerance_charter_reader)]
 
+
+def require_parity_dashboard_reader(roles: RoleSetDep) -> RoleSet:
+    """Gate the Parity Dashboard and per-run view on "any Artizent role, or the report
+    owner specifically" (story S7.4.2's own persona: "As a report owner... so that I
+    can see whether my report is right without reading a diff") — the identical shape
+    `require_c4_redesign_reader` already set for the same client role. Deliberately
+    narrower than opening the endpoint to every client role, the same reasoning
+    `require_c4_redesign_reader`/`require_tolerance_charter_reader` each already give
+    for their own reader gate."""
+    if not (roles.is_artizent() or Role.CLIENT_REPORT_OWNER in roles.roles):
+        raise ForbiddenError(
+            f"the Parity Dashboard is open to Artizent roles and the report owner; "
+            f"declare one in {ROLES_HEADER}"
+        )
+    return roles
+
+
+ParityDashboardReaderDep = Annotated[RoleSet, Depends(require_parity_dashboard_reader)]
+
 DOMAIN_SCOPE_HEADER = "X-Astra-Domain-Scope"
 
 

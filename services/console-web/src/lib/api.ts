@@ -977,6 +977,109 @@ export function estateQueryString(query: EstateQuery): string {
   return rendered ? `?${rendered}` : '';
 }
 
+// --------------------------------------------------------------------- Parity Dashboard
+
+/** One failing cell (§10.3), enriched with the case it belongs to and that case's own
+ * filter context (`FailingCell` itself carries no filter context — story S7.4.2). */
+export interface FailingCellRow {
+  case_id: string;
+  grain_key: unknown[];
+  measure: string;
+  kind: string;
+  expected: unknown;
+  candidate: unknown;
+  delta: number | null;
+  reason: string;
+  filter_ctx: Record<string, unknown>;
+}
+
+export interface SheetParityStats {
+  sheet_ref: string;
+  sheet_name: string;
+  cases_run: number;
+  pass: number;
+  fail: number;
+  inconclusive: number;
+  waived_count: number;
+  /** `null` when no case on this sheet has ever had a first verdict — never 0/0. */
+  first_pass_rate: number | null;
+  failing_cells: FailingCellRow[];
+}
+
+export interface ParityRunTrendEntry {
+  run_id: string;
+  started: string | null;
+  finished: string | null;
+  charter_version: string;
+  cases: number;
+  pass: number;
+  fail: number;
+  inconclusive: number;
+  pass_rate: number | null;
+}
+
+export interface MenderPassesInfo {
+  /** Always `false` today — E8 (the Mender) is unbuilt; see `detail`. */
+  available: boolean;
+  detail: string;
+}
+
+export interface ParityDashboardResponse {
+  workbook_id: string;
+  charter_version: string;
+  passes_the_charter: boolean;
+  latest_run_id: string;
+  sheets: SheetParityStats[];
+  trend: {
+    runs: ParityRunTrendEntry[];
+    mender_passes: MenderPassesInfo;
+  };
+}
+
+export interface VerdictRow {
+  id: string;
+  case_ref: string;
+  result: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
+  failing_cells: Array<{
+    grain_key: unknown[];
+    measure: string;
+    kind: string;
+    expected: unknown;
+    candidate: unknown;
+    delta: number | null;
+    reason: string;
+  }>;
+  evidence_ref: string | null;
+}
+
+export interface ParityRunResponse {
+  run_id: string;
+  workbook_id: string;
+  suite_ref: string;
+  charter_version: string;
+  started: string | null;
+  finished: string | null;
+  verdicts: VerdictRow[];
+}
+
+export interface RunParityResult {
+  workbook_id: string;
+  run_id: string;
+  charter_version: string;
+  cases_diffed: number;
+  pass: number;
+  fail: number;
+  inconclusive: number;
+  proved_by_report: string | null;
+  results: Array<{
+    case_id: string;
+    verdict_id: string;
+    result: string;
+    failing_cell_count: number;
+    evidence_ref: string;
+  }>;
+}
+
 export interface Api {
   estate(query: EstateQuery, identity: Identity): Promise<EstateResponse>;
   workbook(id: string, identity: Identity): Promise<WorkbookDetail>;
@@ -1111,6 +1214,9 @@ export interface Api {
     reason: string,
     identity: Identity,
   ): Promise<PatternRecord>;
+  parityDashboard(workbookId: string, identity: Identity): Promise<ParityDashboardResponse>;
+  parityRun(workbookId: string, identity: Identity): Promise<ParityRunResponse>;
+  runParity(workbookId: string, identity: Identity): Promise<RunParityResult>;
 }
 
 export function createApi(base = ''): Api {
@@ -1394,6 +1500,15 @@ export function createApi(base = ''): Api {
       const rendered = params.toString();
       return (await get(`/v1/lineage${rendered ? `?${rendered}` : ''}`, identity)) as
         LineageResponse;
+    },
+    async parityDashboard(workbookId, identity) {
+      return (await get(`/v1/workbooks/${workbookId}/parity-dashboard`, identity)) as ParityDashboardResponse;
+    },
+    async parityRun(workbookId, identity) {
+      return (await get(`/v1/workbooks/${workbookId}/parity-run`, identity)) as ParityRunResponse;
+    },
+    async runParity(workbookId, identity) {
+      return (await post(`/v1/workbooks/${workbookId}:run-parity`, {}, identity)) as RunParityResult;
     },
   };
 }

@@ -2256,6 +2256,55 @@ same "reads only the source side" precedent S7.2.1 already set for `ParityCase.m
 See [ADR 0055](../../docs/adr/0055-the-section-10-3-diff-a-symmetric-pure-core-and-a-suite-ref-anchored-run.md)
 for the full reasoning.
 
+## The Parity Dashboard (story S7.4.2, closes F7.4)
+
+`parity_dashboard.py`: `aggregate_dashboard` (pure) + `parity_dashboard` (graph-coupled),
+the identical "pure core, graph-coupled shell" split `diff.py`/`verdicts.py` already
+drew. Read-only -- every `ParityRun`/`Verdict`/`ParityCase` it reads was already written
+by S7.4.1; this story writes nothing new, and needed zero ontology or migration change.
+
+**This is the backlog's own report-owner, plain-language ask, not §15.3.5's own fuller
+"Parity Dashboard (parity engineer default)" row** (a KPI strip, a heat grid of MUs ×
+sheets, a failure-class histogram, a pattern-retirements feed) -- confirmed by direct
+research to be a real, separate, later screen this story does not build. Built exactly
+what the AC asks for: per-sheet cases run/pass/fail/inconclusive/first-pass rate/waived
+count, a failing-cells table with expected/candidate/delta/filter context, a per-MU pass
+rate trend across runs, and a single pass/fail statement naming the charter version.
+
+**First-pass rate is elaborated from §16.6's own MU-grain definition to per sheet**: each
+case's own first-ever `Verdict` (across every run, in time order) is checked for PASS;
+a sheet's own rate is (cases whose first verdict was PASS) ÷ (cases with any verdict).
+Proven with a real two-run integration test: a case that fails under a strict charter
+and then passes under a looser one shows `pass=1` under the *current* count but keeps
+`first_pass_rate=0.0` -- the metric remembers the first outcome, not the latest one.
+
+**Waived count is a real, live `GateDecision(decision="WAIVED", subject_ref=<case id>)`
+query, honestly zero today** -- no `ParityCase.waived` property exists; no story has
+ever written one, since case waivers are F8.3's own later Exception Desk scope. The same
+"build the real mechanism, disclose it is unpopulated today" posture `MAPS_TO` has
+already had applied to it six times over.
+
+**"Mender passes" is disclosed absent, not estimated** -- E8 (the Mender) is fully
+spec'd (§8.10) but entirely unbuilt; the trend always states `{"available": false,
+"detail": "..."}` rather than showing a misleading zero.
+
+**`GET /v1/workbooks/{id}/parity-run` is widened from `ArtizentDep` to the same gate as
+the new dashboard route**, rather than duplicated behind a second endpoint --
+`ParityDashboardReaderDep` (`is_artizent() or client_report_owner`), the identical
+"Artizent role, or the client role this screen is actually for" template
+`require_c4_redesign_reader`/`require_tolerance_charter_reader` already set. New route:
+`GET /v1/workbooks/{id}/parity-dashboard` (same gate). Proven live over HTTP: a
+`client_data_owner` (a real client role, deliberately not the report owner) is refused
+403 on both routes, while `client_report_owner` gets 200 on both.
+
+The console's own Parity Dashboard screen (`services/console-web/src/parity/
+ParityDashboard.tsx`) is its own top-level surface, reading both routes and offering
+re-run (`POST .../:run-parity`), hidden-with-explanation for anyone but the Parity
+Engineer -- the identical convention the Tolerance Charter's own Save button set.
+
+See [ADR 0056](../../docs/adr/0056-the-parity-dashboard-a-report-owner-view-and-a-widened-per-run-gate.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

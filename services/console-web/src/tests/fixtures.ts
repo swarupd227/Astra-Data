@@ -20,6 +20,7 @@ import type {
   DesignDocument,
   EstateQuery,
   EstateResponse,
+  FailingCellRow,
   FamiliesResponse,
   FamilyRecord,
   FamilyTransition,
@@ -30,6 +31,9 @@ import type {
   ModelProposal,
   ModelVersion,
   MovedClassification,
+  ParityDashboardResponse,
+  ParityRunResponse,
+  ParityRunTrendEntry,
   PatternPromotionStatus,
   PatternProvenance,
   PatternRecord,
@@ -43,6 +47,8 @@ import type {
   RuleCatalog,
   RuleCatalogEntry,
   RuleCoverage,
+  RunParityResult,
+  SheetParityStats,
   SimulateResult,
   ToleranceCharter,
   ToleranceCharterFieldMetadata,
@@ -53,6 +59,7 @@ import type {
   TrainProjection,
   TrainProjectionsResponse,
   TrainsResponse,
+  VerdictRow,
   VersionsResponse,
   Workbook,
   WorkbookDetail,
@@ -854,6 +861,116 @@ export function modelProposal(overrides: Partial<ModelProposal> = {}): ModelProp
   };
 }
 
+export function failingCellRow(overrides: Partial<FailingCellRow> = {}): FailingCellRow {
+  return {
+    case_id: 'case_1',
+    grain_key: ['EMEA'],
+    measure: 'Margin',
+    kind: 'numeric',
+    expected: 100.0,
+    candidate: 101.2,
+    delta: 1.2,
+    reason: 'numeric epsilon exceeded',
+    filter_ctx: { kind: 'default', filters: [] },
+    ...overrides,
+  };
+}
+
+export function sheetParityStats(overrides: Partial<SheetParityStats> = {}): SheetParityStats {
+  return {
+    sheet_ref: 'sheet_1',
+    sheet_name: 'Bar sheet',
+    cases_run: 4,
+    pass: 3,
+    fail: 1,
+    inconclusive: 0,
+    waived_count: 0,
+    first_pass_rate: 0.75,
+    failing_cells: [failingCellRow()],
+    ...overrides,
+  };
+}
+
+export function parityRunTrendEntry(overrides: Partial<ParityRunTrendEntry> = {}): ParityRunTrendEntry {
+  return {
+    run_id: 'run_1',
+    started: '2027-06-01T09:00:00.000Z',
+    finished: '2027-06-01T09:00:02.000Z',
+    charter_version: '1',
+    cases: 4,
+    pass: 3,
+    fail: 1,
+    inconclusive: 0,
+    pass_rate: 0.75,
+    ...overrides,
+  };
+}
+
+export function parityDashboardResponse(
+  overrides: Partial<ParityDashboardResponse> = {},
+): ParityDashboardResponse {
+  return {
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    charter_version: '1',
+    passes_the_charter: false,
+    latest_run_id: 'run_1',
+    sheets: overrides.sheets ?? [sheetParityStats()],
+    trend: overrides.trend ?? {
+      runs: [parityRunTrendEntry()],
+      mender_passes: {
+        available: false,
+        detail: "the Mender is E8's own unbuilt scope; no Mender pass has ever been recorded",
+      },
+    },
+    ...overrides,
+  };
+}
+
+export function verdictRow(overrides: Partial<VerdictRow> = {}): VerdictRow {
+  return {
+    id: 'v_1',
+    case_ref: 'case_1',
+    result: 'FAIL',
+    failing_cells: [
+      { grain_key: ['EMEA'], measure: 'Margin', kind: 'numeric', expected: 100.0, candidate: 101.2, delta: 1.2, reason: 'numeric epsilon exceeded' },
+    ],
+    evidence_ref: 'af_1',
+    ...overrides,
+  };
+}
+
+export function parityRunResponse(overrides: Partial<ParityRunResponse> = {}): ParityRunResponse {
+  const verdicts = overrides.verdicts ?? [
+    verdictRow(),
+    verdictRow({ id: 'v_2', case_ref: 'case_2', result: 'PASS', failing_cells: [] }),
+  ];
+  return {
+    run_id: 'run_1',
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    suite_ref: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    charter_version: '1',
+    started: '2027-06-01T09:00:00.000Z',
+    finished: '2027-06-01T09:00:02.000Z',
+    verdicts,
+    ...overrides,
+  };
+}
+
+export function runParityResult(overrides: Partial<RunParityResult> = {}): RunParityResult {
+  return {
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    run_id: 'run_2',
+    charter_version: '1',
+    cases_diffed: 4,
+    pass: 4,
+    fail: 0,
+    inconclusive: 0,
+    proved_by_report: null,
+    results: [],
+    ...overrides,
+  };
+}
+
 export const RAISED_ISSUE: ConstructIssue = {
   id: 'gi_01M1',
   state: 'OPEN',
@@ -891,11 +1008,15 @@ export function fakeApi(
   initialRuleCoverage: RuleCoverage = ruleCoverage(),
   initialPatterns: PatternsResponse = patternsResponse(),
   initialCharter: ToleranceCharterVersion = toleranceCharterVersion(),
+  initialParityDashboard: ParityDashboardResponse | null = parityDashboardResponse(),
+  initialParityRun: ParityRunResponse | null = parityRunResponse(),
 ): FakeApi {
   const calls: FakeApi['calls'] = { estate: [], workbook: [], lineage: [], quality: 0 };
   const recorded: FakeApi['recorded'] = [];
   let queued: ApiError | null = null;
   let charterState: ToleranceCharterVersion = { ...initialCharter, charter: { ...initialCharter.charter } };
+  const parityDashboardState: ParityDashboardResponse | null = initialParityDashboard;
+  const parityRunState: ParityRunResponse | null = initialParityRun;
   let g1Approved = false;
   const programmeRows = programmes.programmes.map((row) => ({ ...row }));
   const trainRows = trains.trains.map((train) => ({
@@ -1740,6 +1861,33 @@ export function fakeApi(
         published_workspace: 'prod',
         deployment_id: `dep_${Math.random().toString(36).slice(2, 8)}`,
       };
+    },
+    async parityDashboard(workbookId: string, _identity: Identity): Promise<ParityDashboardResponse> {
+      if (!parityDashboardState) {
+        throw new ApiError(404, 'not_found', `no ParityRun exists yet for workbook '${workbookId}'`);
+      }
+      return {
+        ...parityDashboardState,
+        sheets: parityDashboardState.sheets.map((sheet) => ({ ...sheet, failing_cells: [...sheet.failing_cells] })),
+        trend: {
+          runs: parityDashboardState.trend.runs.map((run) => ({ ...run })),
+          mender_passes: { ...parityDashboardState.trend.mender_passes },
+        },
+      };
+    },
+    async parityRun(workbookId: string, _identity: Identity): Promise<ParityRunResponse> {
+      if (!parityRunState) {
+        throw new ApiError(404, 'not_found', `no ParityRun exists yet for workbook '${workbookId}'`);
+      }
+      return {
+        ...parityRunState,
+        verdicts: parityRunState.verdicts.map((verdict) => ({ ...verdict, failing_cells: [...verdict.failing_cells] })),
+      };
+    },
+    async runParity(workbookId: string, _identity: Identity): Promise<RunParityResult> {
+      maybeFail();
+      recorded.push({ kind: 'RUN_PARITY', id: workbookId, reason: '' });
+      return runParityResult({ workbook_id: workbookId });
     },
   };
 }

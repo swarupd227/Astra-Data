@@ -38,6 +38,9 @@ alone.
 honestly skipped otherwise, the identical gap `simulate_charter` (S7.1.1) already
 disclosed for the same edge, since case derivation and execution can both run before
 any report is ever composed (S7.2.1's own "reads only the source side" precedent).
+
+`VerdictsService.dashboard` (story S7.4.2) is this module's own thin binding onto
+`parity_dashboard.py`'s own read-only aggregation — see that module's own docstring.
 """
 
 from __future__ import annotations
@@ -61,6 +64,7 @@ from .case_execution import (
 from .diff import DiffResult, diff_result_sets
 from .graph.queries import EDGE_INDEX_TABLE, NODE_INDEX_TABLE
 from .lineage import hydrate
+from .parity_dashboard import parity_dashboard
 from .principal import Principal
 from .tolerance_charter import ToleranceCharter
 from .writes import EdgeWrite, GraphWriter, NodeWrite
@@ -376,6 +380,10 @@ class VerdictsService:
 
     async def latest(self, workbook_id: str) -> dict[str, Any] | None:
         return await latest_parity_run(self._pool, self._graph, workbook_id=workbook_id)
+
+    async def dashboard(self, workbook_id: str) -> dict[str, Any] | None:
+        """Story S7.4.2's own Parity Dashboard -- see `parity_dashboard.py`."""
+        return await parity_dashboard(self._pool, self._graph, workbook_id=workbook_id)
 
 
 __all__ = [

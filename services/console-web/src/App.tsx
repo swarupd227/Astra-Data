@@ -20,6 +20,7 @@ import { ModelProposal } from './g2/ModelProposal';
 import { createApi, type Identity } from './lib/api';
 import { LineageView } from './lineage/LineageView';
 import { ModelDetail } from './modeller/ModelDetail';
+import { ParityDashboard } from './parity/ParityDashboard';
 import { PatternLibrary } from './patterns/PatternLibrary';
 import { ProgrammeBoard } from './programme/ProgrammeBoard';
 import { ParseQualityQueue } from './quality/ParseQualityQueue';
@@ -42,7 +43,9 @@ import { WaveBoard } from './trains/WaveBoard';
  * The Tolerance Charter editor (S7.1.1, opening E7) is its own top-level surface for the
  * identical reason the Pattern Library already is: §2.4 names "Parity Dashboard, Charter
  * editor" as the Parity Engineer's own surfaces, and neither is a natural sub-screen of
- * Admin (the Migration Architect's own single-purpose surface). */
+ * Admin (the Migration Architect's own single-purpose surface). The Parity Dashboard
+ * (S7.4.2) is that same named surface, finally built — its own top-level entry for the
+ * identical reason, not an Admin sub-screen. */
 export const SURFACES = [
   { key: 'estate', label: 'Estate Explorer' },
   { key: 'lineage', label: 'Lineage View' },
@@ -54,6 +57,7 @@ export const SURFACES = [
   { key: 'admin', label: 'Admin' },
   { key: 'patterns', label: 'Pattern Library' },
   { key: 'charter', label: 'Tolerance Charter' },
+  { key: 'parity', label: 'Parity Dashboard' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -190,6 +194,7 @@ export function App({
       {surface === 'admin' && <Admin api={api} identity={identity} />}
       {surface === 'patterns' && <PatternLibrary api={api} identity={identity} />}
       {surface === 'charter' && <ToleranceCharter api={api} identity={identity} />}
+      {surface === 'parity' && <ParityDashboard api={api} identity={identity} />}
     </div>
   );
 }
