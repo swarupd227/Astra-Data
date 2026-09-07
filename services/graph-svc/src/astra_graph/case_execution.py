@@ -156,6 +156,8 @@ import asyncpg
 import pyarrow as pa
 import pyarrow.parquet as pq
 from astra_adapter import (
+    Column,
+    ColumnRole,
     ExecutionCharter,
     ExecutionOutcome,
     ExecutionStrategy,
@@ -307,6 +309,54 @@ def result_set_to_parquet(result: ResultSet) -> bytes:
     buffer = io.BytesIO()
     pq.write_table(table, buffer)
     return buffer.getvalue()
+
+
+def _pyarrow_kind_name(pa_type: pa.DataType) -> str:
+    """A short, lattice-classifiable type name from a Parquet column's own pyarrow
+    dtype -- not the source adapter's original type string, which the Parquet round
+    trip never preserves (story S7.4.1). `diff.py`'s own type lattice classifies this
+    the identical, alias-tolerant way it classifies a fresh, never-serialised
+    `ResultSet`'s own `Column.type`."""
+    if pa.types.is_integer(pa_type):
+        return "integer"
+    if pa.types.is_floating(pa_type) or pa.types.is_decimal(pa_type):
+        return "double"
+    if pa.types.is_date(pa_type) or pa.types.is_timestamp(pa_type):
+        return "date"
+    return "string"
+
+
+def result_set_from_parquet(
+    content: bytes,
+    *,
+    case_id: str,
+    grain: tuple[str, ...],
+    measures: tuple[str, ...],
+    strategy: ExecutionStrategy,
+    adapter_name: str = "",
+    adapter_version: str = "",
+    interface_version: str = "",
+) -> ResultSet:
+    """The AC's own storage format, read back (story S7.4.1) -- the symmetric pair to
+    `result_set_to_parquet`. Column *role* comes from the owning `ParityCase`'s own
+    `grain`/`measures` name lists, since Parquet carries no such concept; column *type*
+    comes from `_pyarrow_kind_name` rather than the original adapter-declared type
+    string, which the round trip never preserves either."""
+    table = pq.read_table(io.BytesIO(content))
+    columns = tuple(
+        Column(
+            name,
+            ColumnRole.MEASURE if name in measures else ColumnRole.DIMENSION,
+            _pyarrow_kind_name(table.schema.field(name).type),
+        )
+        for name in table.column_names
+    )
+    rows = tuple(tuple(row[name] for name in table.column_names) for row in table.to_pylist())
+    return ResultSet(
+        case_id=case_id, columns=columns, rows=rows, strategy=strategy,
+        interface_version=interface_version, adapter_name=adapter_name, adapter_version=adapter_version,
+        outcome=ExecutionOutcome.OK,
+    )
 
 
 # ------------------------------------------------------------------------------- graph reads
@@ -788,6 +838,7 @@ __all__ = [
     "execute_cases_for_workbook",
     "inconclusive_rate",
     "record_execution_observation",
+    "result_set_from_parquet",
     "result_set_to_parquet",
     "to_sdk_filters",
     "to_sdk_parameters",

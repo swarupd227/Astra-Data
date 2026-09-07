@@ -47,6 +47,7 @@ from .api import (
     schedules_router,
     tolerance_charter_router,
     trains_router,
+    verdicts_router,
 )
 from .api.graphql import build_router as build_graphql_router
 from .api.routes_families import ClusteringStatus
@@ -100,6 +101,7 @@ from .scope import PostgresScopeStore
 from .target_setup import build_target_adapter
 from .tolerance_charter import PostgresToleranceCharterStore, ToleranceCharterService
 from .trains import TrainPlanner
+from .verdicts import VerdictsService
 from .versions import HistoricalGraphReader
 from .visual_mapping import PostgresVisualMappingRulesetStore
 from .writes import GraphWriter
@@ -302,6 +304,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
         source_adapter=app.state.source_adapter, target_adapter=app.state.target_adapter,
     )
+    # Story S7.4.1, closing F7.4: the real §10.3 diff, over the ResultSets S7.3.1 already
+    # stored.
+    app.state.verdicts = VerdictsService(
+        pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
+    )
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(
         quality=quality_store,
@@ -384,6 +391,7 @@ def create_app() -> FastAPI:
     app.include_router(tolerance_charter_router)
     app.include_router(case_derivation_router)
     app.include_router(case_execution_router)
+    app.include_router(verdicts_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

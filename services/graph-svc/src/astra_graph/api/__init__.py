@@ -29,6 +29,7 @@ from .routes_rules import router as rules_router
 from .routes_schedules import router as schedules_router
 from .routes_tolerance_charter import router as tolerance_charter_router
 from .routes_trains import router as trains_router
+from .routes_verdicts import router as verdicts_router
 
 __all__ = [
     "adapters_router",
@@ -60,4 +61,5 @@ __all__ = [
     "schedules_router",
     "tolerance_charter_router",
     "trains_router",
+    "verdicts_router",
 ]

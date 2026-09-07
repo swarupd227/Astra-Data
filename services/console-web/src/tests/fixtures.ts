@@ -725,7 +725,7 @@ export const DEFAULT_CHARTER: ToleranceCharter = {
   dates: { grain_alignment: 'TRUNCATE_TO_SOURCE_GRAIN', timezone: 'UTC', fiscal_year_start: 1 },
   strings: { trim: true, case_sensitive: false, collation: 'en-US' },
   ordering: { sort_sensitive: false, top_n_tie_break: 'SOURCE_ORDER' },
-  rows: { missing_key: 'FAIL', extra_key: 'FAIL', row_count_tolerance: 0 },
+  rows: { missing_key: 'FAIL', extra_key: 'FAIL', row_count_tolerance: 0, max_failing_cells: 50 },
   sampling: { full_compare_max_rows: 200_000, sample_rows: 50_000, stratify_by: 'grain' },
   params: { enumerate_max_values: 12, enumerate_strategy: 'DEFAULT_PLUS_OBSERVED' },
   waiver: { allowed_classes: ['C4'], requires: ['engineer', 'client_owner'], justification_min_chars: 120 },
@@ -761,6 +761,7 @@ export const CHARTER_FIELD_METADATA_FIXTURE: ToleranceCharterFieldMetadata = {
     missing_key: 'Verdict when a source key is absent on the target.',
     extra_key: 'Verdict when a target key is absent on the source.',
     row_count_tolerance: 'How many rows the two sides may differ by and still pass.',
+    max_failing_cells: "How many failing cells a FAIL verdict's evidence bundle keeps, first N.",
   },
   sampling: {
     full_compare_max_rows: 'Below this row count, every row is compared.',

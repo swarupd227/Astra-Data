@@ -92,6 +92,11 @@ class RowRuleRequest(BaseModel):
     missing_key: str = Field(pattern="^(PASS|FAIL)$")
     extra_key: str = Field(pattern="^(PASS|FAIL)$")
     row_count_tolerance: int = Field(ge=0)
+    max_failing_cells: int = Field(default=50, ge=0)
+    """§10.3's own "first N failing cells, default 50" (story S7.4.1). Optional, not
+    required: an older console payload saved before this field existed should not be
+    refused outright -- it defaults to the same 50 `RowRule`'s own dataclass default
+    already uses, rather than 422ing a save that never knew this field could exist."""
 
 
 class SamplingRuleRequest(BaseModel):

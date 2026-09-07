@@ -2198,6 +2198,64 @@ a dedicated regression test against the real `lifespan()` was considered and dec
 See [ADR 0054](../../docs/adr/0054-inconclusive-as-a-first-class-outcome-a-broadened-retry-and-a-live-rate.md)
 for the full reasoning.
 
+## The §10.3 diff and verdict (story S7.4.1, closes F7.4)
+
+`diff.py` (pure) + `verdicts.py` (graph-coupled). Every already-executed live
+`ParityCase` gets a real diff: both sides' stored Parquet artefacts are read back
+(`case_execution.result_set_from_parquet`, the symmetric read-back pair to
+`result_set_to_parquet`), normalised, keyed by grain, compared, and written as a real
+`Verdict` per case plus one `ParityRun` per call -- **both node types, and the
+`PROVED_BY` edge, were already fully declared in the ontology since its very first
+§4.1.1 declaration and never once written by any story before this one**, so this story
+needed zero ontology or migration change.
+
+**The algorithm itself is a pure function** -- `diff_result_sets(expected, candidate,
+charter, column_target_map=...)` takes two already-loaded `ResultSet`s and returns a
+plain `DiffResult`; nothing in `diff.py` awaits anything. That is what lets the AC's own
+200-case fixture set (`tests/diff_fixtures.py`, `tests/test_diff_fixtures.py`) run at
+unit-test speed with no database, and needed no new CI wiring -- the existing "Unit
+tests" step already runs every one of the 200 cases on every change, the identical way
+`tests/test_rules.py` already runs every rule's own golden corpus.
+
+**The type lattice is exactly §10.3's own three chains** (`integer ⊂ decimal ⊂ double`,
+`date ⊂ datetime`, `everything ⊂ string`), with a disclosed alias list per family and a
+safe `"string"` fallback for anything unrecognised. **`compare_date` and `RowRule.
+max_failing_cells` extend `tolerance_charter.py` directly** rather than duplicating
+cell-comparison logic -- `compare_cell` now dispatches a fourth kind, and
+`simulate_charter` (S7.1.1) picks up date-kind failing cells for free. **Date
+normalisation for grain *keys* is a disclosed, symmetric simplification** of
+`compare_date`'s own real, asymmetric "truncate the candidate to the source's own
+grain" cell rule -- there is no fixed source/candidate pairing yet at key-build time,
+so both sides are truncated to date-only whenever either carries a `datetime`.
+
+**The row-count-and-totals check is evidence, not a third verdict condition** -- §10.3's
+own "Verdict" bullet names exactly two conditions and calls the row/totals check "a
+cheap early signal"; implemented literally, always computed and always in the evidence
+bundle, never independently flipping an otherwise-PASS verdict to FAIL.
+
+**Column mapping via MAPS_TO** reads a real `target_column` edge property, the identical
+query `compositor._maps_to` already established -- honestly empty in every real
+deployment today, falling back to a field's own source name. **The evidence bundle's
+own "candidate DAX" is recomputed**, not persisted separately -- S7.3.1/S7.3.2 never
+stored the query text beyond one execution response, so it is rebuilt fresh via the
+identical, deterministic `build_dax_query`; **the executed strategy itself is read back
+from `public.execution_observation`** (S7.3.2's own real, persisted history), so that
+part of the evidence is always the true historical fact, never a recompute.
+
+**`ParityRun.suite_ref` is the workbook id directly, and `latest_parity_run` reads by
+it** -- not via `PROVED_BY`/`ReportDefinition`. Found live during this story's own
+integration testing: an earlier draft followed `simulate_charter`'s own report-anchored
+lookup and wrongly 404'd for any workbook derived, executed and diffed but never
+composed into a report; fixed to scan live `ParityRun`s by `suite_ref` directly, the
+same "reads only the source side" precedent S7.2.1 already set for `ParityCase.mu_ref`.
+`PROVED_BY` is still written whenever a real `ReportDefinition` exists.
+
+`POST /v1/workbooks/{id}:run-parity` (`ParityEngineerDep`), `GET
+/v1/workbooks/{id}/parity-run` (any Artizent role).
+
+See [ADR 0055](../../docs/adr/0055-the-section-10-3-diff-a-symmetric-pure-core-and-a-suite-ref-anchored-run.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

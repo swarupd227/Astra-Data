@@ -21,15 +21,21 @@ just field names) — the spec's own illustration is a real, defensible starting
 a guess: `abs_epsilon: 0.005, rel_epsilon: 1e-6, rounding: HALF_EVEN, currency_scale: 2`,
 and so on for every block.
 
-**This story does not build the Proof Engine's own diff (§10.3) or case execution
-(§10.1/§10.2).** Those are F7.2/F7.3's own later, explicit scope (confirmed directly:
-`packages/adapter-sdk/src/astra_adapter/proof.py`'s own words, "The Proof Engine is E7
-and does not exist"; no `arbiter.py`/`parity.py` module exists anywhere in this codebase).
-What this story owns is narrower and real: the charter's own schema, its versioned
-storage, the pure cell-level comparison rules each charter block actually means (numeric
-epsilon/rounding, the null matrix, string trim/case) — which double as both the console's
-own "inline explanation of each rule's effect" and the real logic `simulate` runs — and
-the G1/re-charter governance workflow around it.
+**S7.1.1 itself did not build the Proof Engine's own diff (§10.3) or case execution
+(§10.1/§10.2)** — those were F7.2/F7.3's own later, explicit scope at the time
+(confirmed directly: `packages/adapter-sdk/src/astra_adapter/proof.py`'s own words,
+"The Proof Engine is E7 and does not exist"; no `arbiter.py`/`parity.py` module existed
+anywhere in this codebase). What S7.1.1 owned was narrower and real: the charter's own
+schema, its versioned storage, the pure cell-level comparison rules each charter block
+actually means (numeric epsilon/rounding, the null matrix, string trim/case) — which
+double as both the console's own "inline explanation of each rule's effect" and the
+real logic `simulate` runs — and the G1/re-charter governance workflow around it.
+**Story S7.4.1 (F7.4) is what finally closes that boundary**: `compare_date` (added
+here, alongside its three siblings) and `RowRule.max_failing_cells` (§10.3's own "first
+N failing cells, default 50") complete this module's own cell-comparator set; the
+actual §10.3 algorithm itself — normalisation, keying by grain, key-set comparison, the
+row-count/totals check, verdict assembly, the evidence bundle — lives in the new
+`diff.py`, built on top of these comparators rather than duplicating them.
 
 **A versioned, admin-editable document — the same `conformance_rules.py`/
 `visual_mapping.py` template a third time.** `public.tolerance_charter_version` (migration
@@ -75,14 +81,15 @@ function over real, live data, correct today even though nothing populates it ye
 existed either.
 
 **"Simulate re-diffs the last run... without executing" is a real, pure recompute over
-whatever evidence a prior `Verdict.failing_cells` sample actually holds — honestly absent
-today, since no `Verdict` has ever been written either.** `simulate_charter` looks for the
-MU's most recent `ParityRun` (`ReportDefinition --PROVED_BY--> ParityRun`) and, when one
-exists, re-applies `compare_numeric`/`compare_null`/`compare_string` to each sampled cell
-under the edited charter and returns fresh per-cell verdicts — computed only, nothing
-written, matching "without executing." When none exists (every real workbook in this
-platform today), it says so plainly rather than fabricating a result. The comparator
-functions are real and fully tested now via hand-built fixture cells, so nothing about
+whatever evidence a prior `Verdict.failing_cells` sample actually holds.** `simulate_
+charter` looks for the MU's most recent `ParityRun` (`ReportDefinition --PROVED_BY-->
+ParityRun`) and, when one exists, re-applies `compare_cell` (numeric/string/date,
+dispatched by each cell's own stored `kind`) to each sampled cell under the edited
+charter and returns fresh per-cell verdicts — computed only, nothing written, matching
+"without executing." When none exists, it says so plainly rather than fabricating a
+result — real for any workbook that predates story S7.4.1's own `diff.py` (E7's actual
+diff engine), or that `diff.py` has simply never run against yet. The comparator
+functions are real and fully tested via hand-built fixture cells, so nothing about
 `simulate`'s own logic is left to guess at once real evidence exists to feed it.
 
 **Waiver rules are a charter *policy* this story declares, not the waiver-recording
@@ -97,7 +104,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Protocol
 
 import asyncpg
@@ -193,11 +200,17 @@ class RowRule:
     missing_key: str = "FAIL"
     extra_key: str = "FAIL"
     row_count_tolerance: int = 0
+    max_failing_cells: int = 50
+    """§10.3's own AC, story S7.4.1: "the first N failing cells (default 50)" in the
+    evidence bundle. Homed here, not a new charter block, since it is the same kind of
+    row/cell-evidence-scope fact `missing_key`/`extra_key`/`row_count_tolerance` already
+    are -- neither §4.4 nor §10.3 names a tenth block for it."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "missing_key": self.missing_key, "extra_key": self.extra_key,
             "row_count_tolerance": self.row_count_tolerance,
+            "max_failing_cells": self.max_failing_cells,
         }
 
 
@@ -321,6 +334,7 @@ CHARTER_FIELD_METADATA: dict[str, dict[str, str]] = {
         "missing_key": "Verdict when a grain key present on the source side is absent on the target.",
         "extra_key": "Verdict when a grain key present on the target side is absent on the source.",
         "row_count_tolerance": "How many rows the two sides' row counts may differ by and still pass.",
+        "max_failing_cells": "How many failing cells a FAIL verdict's evidence bundle keeps, first N.",
     },
     "sampling": {
         "full_compare_max_rows": "Below this row count, every row is compared.",
@@ -487,13 +501,44 @@ def compare_string(expected: Any, candidate: Any, rule: StringRule) -> CellCompa
     return CellComparison("FAIL", f"{e!r} != {c!r}")
 
 
+def _coerce_date(value: Any) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, date):  # datetime is-a date; caught here too
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def compare_date(expected: Any, candidate: Any, rule: DateRule) -> CellComparison:
+    """§10.3: "dates truncated to the source grain" then "pass on normalised equality"
+    (story S7.4.1). ``TRUNCATE_TO_SOURCE_GRAIN`` reduces the *candidate* to whatever
+    grain the *source* (``expected``) value itself carries: a plain-date source
+    truncates a datetime candidate down to its own date; a source that already carries
+    a time component is compared at full precision, so a date-only candidate correctly
+    fails as a genuine grain mismatch rather than being silently widened to match."""
+    e, c = _coerce_date(expected), _coerce_date(candidate)
+    if e is None or c is None:
+        return CellComparison("FAIL", "a date comparison needs a parseable value on both sides")
+    if rule.grain_alignment == "TRUNCATE_TO_SOURCE_GRAIN" and not isinstance(e, datetime) and isinstance(c, datetime):
+        c = c.date()
+    if e == c:
+        return CellComparison("PASS", "equal after truncation to the source grain")
+    return CellComparison("FAIL", f"{e} != {c}")
+
+
 def compare_cell(
     kind: str, expected: Any, candidate: Any, charter: ToleranceCharter
 ) -> CellComparison:
     """One cell, one charter, one verdict — the real logic backing both the console's own
-    inline explanation and `simulate`'s own recompute. ``kind`` is ``"numeric"``,
-    ``"string"`` or ``"null"``-eligible (any kind is first checked against the null
-    matrix, since a null can appear in a numeric or string cell alike)."""
+    inline explanation and `simulate`'s own recompute, and (story S7.4.1) `diff.py`'s own
+    real §10.3 cell comparison. ``kind`` is ``"numeric"``, ``"string"`` or ``"date"``
+    (any kind is first checked against the null matrix, since a null can appear in any
+    of the three alike)."""
     null_verdict = compare_null(expected, candidate, charter.nulls)
     if null_verdict is not None:
         return null_verdict
@@ -501,6 +546,8 @@ def compare_cell(
         return compare_numeric(expected, candidate, charter.numeric)
     if kind == "string":
         return compare_string(expected, candidate, charter.strings)
+    if kind == "date":
+        return compare_date(expected, candidate, charter.dates)
     return CellComparison("FAIL", f"unrecognised cell kind {kind!r}")
 
 
@@ -699,8 +746,9 @@ async def simulate_charter(
     pool: asyncpg.Pool, graph_name: str, *, workbook_id: str, charter: ToleranceCharter
 ) -> dict[str, Any]:
     """Re-diff the workbook's last run under the edited charter, without executing
-    anything. Honestly reports "no prior run" for every real workbook today — no story
-    has ever written a `ParityRun`/`Verdict` (E7 is otherwise entirely unbuilt)."""
+    anything. Reports "no prior run" for a workbook that has never been diffed (or, for
+    any workbook, before story S7.4.1 -- `diff.py` -- first wrote a real `ParityRun`/
+    `Verdict`); a workbook a real run has actually covered gets a real recompute."""
     async with pool.acquire() as conn:
         report_rows = await conn.fetch(
             f"""SELECT id FROM {NODE_INDEX_TABLE}

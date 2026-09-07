@@ -592,6 +592,7 @@ export interface RowRule {
   missing_key: 'PASS' | 'FAIL';
   extra_key: 'PASS' | 'FAIL';
   row_count_tolerance: number;
+  max_failing_cells: number;
 }
 
 export interface SamplingRule {
