@@ -16,9 +16,16 @@ import shutil
 from pathlib import Path
 
 import pytest
-from astra_adapter import TargetAdapterError, TmdlBundle
-from astra_adapter.target_fake import FixtureTargetAdapter
 from dulwich.repo import Repo
+
+from astra_adapter import (
+    ExecutionOutcome,
+    ExecutionStrategy,
+    ParityCase,
+    TargetAdapterError,
+    TmdlBundle,
+)
+from astra_adapter.target_fake import FixtureTargetAdapter
 
 
 def _adapter(tmp_path: Path) -> FixtureTargetAdapter:
@@ -173,3 +180,54 @@ async def test_an_underlying_git_failure_is_wrapped_as_a_target_adapter_error(tm
 
     with pytest.raises(TargetAdapterError):
         await adapter.commit(_bundle(**{"model.tmdl": "x"}), item_path="X.SemanticModel", message="m")
+
+
+# ------------------------------------------------------------------------------- evaluate
+
+
+def _case(**overrides: object) -> ParityCase:
+    defaults = {"id": "case_1", "workbook_luid": "wb-1", "grain": ("Desk",), "measures": ("Margin",)}
+    return ParityCase(**{**defaults, **overrides})
+
+
+async def test_evaluate_returns_a_real_result_set_typed_by_grain_and_measures(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    result = await adapter.evaluate(
+        query_text="EVALUATE SUMMARIZECOLUMNS('Table'[Desk], \"Margin\", [Margin])",
+        case=_case(), workspace="dev",
+    )
+    assert result.outcome is ExecutionOutcome.OK
+    assert result.strategy is ExecutionStrategy.XMLA_DAX
+    assert result.grain == ("Desk",)
+    assert result.measures == ("Margin",)
+    assert len(result.rows) > 0
+    assert result.detail["dax_query"].startswith("EVALUATE")
+
+
+async def test_evaluate_is_deterministic_for_the_same_query_text(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    query = "EVALUATE SUMMARIZECOLUMNS('Table'[Desk], \"Margin\", [Margin])"
+    first = await adapter.evaluate(query_text=query, case=_case(), workspace="dev")
+    second = await adapter.evaluate(query_text=query, case=_case(), workspace="dev")
+    assert first.rows == second.rows
+
+
+async def test_evaluate_produces_different_rows_for_a_different_query(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    first = await adapter.evaluate(
+        query_text="EVALUATE SUMMARIZECOLUMNS('Table'[Desk], \"Margin\", [Margin])",
+        case=_case(), workspace="dev",
+    )
+    second = await adapter.evaluate(
+        query_text="EVALUATE SUMMARIZECOLUMNS('Table'[Desk], \"Margin\", [Margin]) "
+        "-- a different filter changes the query text",
+        case=_case(), workspace="dev",
+    )
+    assert first.rows != second.rows
+
+
+async def test_evaluate_discloses_that_it_is_synthetic_fixture_data(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    result = await adapter.evaluate(query_text="EVALUATE {1}", case=_case(), workspace="dev")
+    assert "synthetic" in result.detail["note"]
+    assert result.adapter_name == "fixture-target"

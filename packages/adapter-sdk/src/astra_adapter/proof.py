@@ -70,6 +70,11 @@ class ExecutionStrategy(str, Enum):
     EXTRACT_READ = "EXTRACT_READ"
     VIEW_DATA = "VIEW_DATA"
     LIVE_REPLAY = "LIVE_REPLAY"
+    XMLA_DAX = "XMLA_DAX"
+    """The target side's own one strategy (§10.2, story S7.3.1): a DAX ``EVALUATE`` query
+    over XMLA against the deployed model. Added here, not a separate enum, because §10.2
+    itself says both sides "return a ResultSet" — the identical shape, `strategy` included,
+    is what lets a future diff (F7.4) treat expected and candidate symmetrically."""
 
 
 @dataclass(frozen=True, slots=True)

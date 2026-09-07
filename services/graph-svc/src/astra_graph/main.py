@@ -21,6 +21,7 @@ from .api import (
     adapters_router,
     artefacts_router,
     case_derivation_router,
+    case_execution_router,
     classification_router,
     compositor_router,
     conformance_router,
@@ -56,6 +57,7 @@ from .build import PostgresBuildStore
 from .calibration import PostgresCalibrationStore
 from .cartographer import Cartographer
 from .case_derivation import CaseDerivationService, PostgresParitySuiteStore
+from .case_execution import CaseExecutionService
 from .classify import ClassificationEngine
 from .compositor import Compositor
 from .config import settings
@@ -84,6 +86,7 @@ from .harvest_setup import (
     build_directory_resolver,
     build_harvester,
     build_migration_unit_registry,
+    build_source_adapter,
 )
 from .lineage import LineageReader
 from .logging_setup import configure_logging
@@ -284,6 +287,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.case_derivation = CaseDerivationService(
         pool, graph_name=config.graph_name, writer=writer, suite_store=app.state.parity_suite_store,
     )
+    # Story S7.3.1, opening F7.3: both sides of each case executed and stored. The same
+    # source adapter the Harvester uses (built fresh here -- the fixture/RemoteAdapter is
+    # cheap and stateless to construct a second time) and the target adapter already
+    # wired above for report deploy.
+    app.state.source_adapter = build_source_adapter(config)
+    app.state.case_execution = CaseExecutionService(
+        pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
+        source_adapter=app.state.source_adapter, target_adapter=app.state.target_adapter,
+    )
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(
         quality=quality_store,
@@ -365,6 +377,7 @@ def create_app() -> FastAPI:
     app.include_router(exceptions_router)
     app.include_router(tolerance_charter_router)
     app.include_router(case_derivation_router)
+    app.include_router(case_execution_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

@@ -24,6 +24,12 @@ dependencies = [
     # PBIR schema validation before commit (story S6.1.1, §7.1). See pbir.py's own
     # docstring for what "the PBIR JSON schema" means in this codebase today.
     "jsonschema>=4,<5",
+    # Both ResultSets stored as Parquet (story S7.3.1, §10.2). pyarrow alone, not pandas:
+    # it is the reference Parquet implementation everything else (including pandas)
+    # delegates to, and `pyarrow.parquet.write_table` needs nothing else to turn a
+    # ResultSet's own columns/rows into bytes -- a second dependency this codebase does
+    # not otherwise need.
+    "pyarrow>=17,<19",
 ]
 
 [project.optional-dependencies]
@@ -88,6 +94,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "jsonschema.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pyarrow.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

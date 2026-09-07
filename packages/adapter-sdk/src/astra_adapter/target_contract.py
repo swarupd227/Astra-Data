@@ -20,6 +20,15 @@ story ships is platform-authored, so an in-process ``Protocol`` is the honest sh
 An out-of-process boundary for a third-party target adapter is real future scope this story
 does not build, the same "declare the shape, a later story drives it" precedent §6/§7's own
 split from S2.1.1 already set.
+
+**``evaluate`` (story S7.3.1, interface 1.1) is the candidate side of §10.2's dual
+execution — a DAX ``EVALUATE`` over XMLA against the deployed model.** It takes an
+already-built query string, not a case to build one from: the platform decides *what*
+DAX to run (case_execution.py, which alone has the graph access a query needs — field
+names, and whatever real ``Field -> ModelTable`` binding exists), and the adapter only
+ever knows *how* to reach the target system and run it — the identical split
+``TmdlBundle`` already draws for TMDL emission ("TMDL emission is deliberately not a
+method here").
 """
 
 from __future__ import annotations
@@ -28,10 +37,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from .proof import ParityCase, ResultSet
+
 #: Version of *this interface*, not of any adapter implementing it — the same discipline
-#: ``INTERFACE_VERSION`` (contract.py) applies to the source side. Bumped only when the
-#: contract's shape changes.
-TARGET_INTERFACE_VERSION = "1.0"
+#: ``INTERFACE_VERSION`` (contract.py) applies to the source side. Bumped for story
+#: S7.3.1's own addition of ``evaluate`` — an additive change, every prior method
+#: unchanged.
+TARGET_INTERFACE_VERSION = "1.1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +140,14 @@ class TargetAdapter(Protocol):
     ) -> SmokeQueryResult:
         """Row count, and one measure's value, read back from the deployed model (§7.1:
         "deploy to dev workspace and read back")."""
+        ...
+
+    async def evaluate(self, *, query_text: str, case: ParityCase, workspace: str) -> ResultSet:
+        """Run ``query_text`` (a DAX ``EVALUATE``) over XMLA against the model in
+        ``workspace`` and return the candidate-side result (§10.2, story S7.3.1). ``case``
+        is carried alongside the query for identification (``ResultSet.case_id``) and
+        capability checks, not for the adapter to build a query from -- see this module's
+        own docstring."""
         ...
 
 

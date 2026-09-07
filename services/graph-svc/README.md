@@ -2097,6 +2097,56 @@ derived and manual alike.
 See [ADR 0052](../../docs/adr/0052-manual-parity-cases-a-named-future-screen-and-a-real-mechanism-today.md)
 for the full reasoning.
 
+## Dual execution (story S7.3.1, opens F7.3)
+
+`case_execution.py`. Every live `ParityCase` for a workbook is run on both sides,
+concurrently: the source adapter's own `execute_case` (whatever strategy it chooses),
+and a real DAX `EVALUATE` query against XMLA on the target, via the new
+`TargetAdapter.evaluate(*, query_text, case, workspace)`. Both sides return the
+identical `astra_adapter.ResultSet` type -- §10.2's own words ("Both return a
+ResultSet"), not a design choice -- so a future diff (F7.4) can treat expected and
+candidate symmetrically.
+
+**The query text is built here, not by the adapter** -- `build_dax_query` produces
+§10.2's own worked-example shape (`EVALUATE SUMMARIZECOLUMNS`, `TREATAS`/`FILTER` for
+filter and parameter values, named measure expressions, `ORDER BY`), from a case's own
+real grain/measures/filters/parameters. Column references are table-qualified via a real
+`Field -> ModelTable` `MAPS_TO` lookup when one exists -- the identical, already-disclosed
+gap this codebase has found repeatedly (`compositor.py`'s own field-well binding), so
+honestly empty in every real deployment today, falling back to a field's own name as its
+own table. The query text is always stored (`ResultSet.detail["dax_query"]`), qualified
+or not.
+
+**Both `ResultSet`s are stored as Parquet** (`result_set_to_parquet`, pyarrow directly,
+no pandas) in the artefact store -- `ArtefactStore.store`'s own sha256 content hash is
+already the AC's own "content hash," no new logic needed. "Retention per charter" is a
+real, disclosed gap this story does not close: neither §10 nor the Tolerance Charter has
+a retention concept at all, so artefacts are stored and never pruned, the identical
+posture `retention.py` already established for a different kind of retention.
+
+**Concurrency is two independent, persistent pools** -- a Fabric workspace's own XMLA
+bound (default 8) and a Tableau site's own adapter bound (default 4), held on
+`CaseExecutionService` for its own lifetime so two MUs executing at once against the
+same workspace share a real bound, not a fresh one each time. Each side of a case's dual
+execution acquires only the semaphore relevant to it; the two calls already run
+concurrently via `asyncio.gather`.
+
+**A failure on either side is recorded `INCONCLUSIVE`, once, honestly** -- not a crash,
+and not the retry-with-a-longer-budget loop S7.3.2 (F7.3's own second and last story)
+owns next. No diff, no verdict: §10.3-§10.6 are F7.4's own later scope.
+
+**`ParityCase.state` is left untouched** -- it already carries S7.2.1/S7.2.2's own
+origin tag (`DERIVED`/`MANUAL`); execution populates `expected_ref`/`candidate_ref`
+instead, both already declared by §4.1.1 and unused until this story, so **no ontology
+or migration change was needed**.
+
+`POST /v1/workbooks/{id}:execute-parity-cases?workspace=dev` (`ParityEngineerDep`). No
+new read route -- `expected_ref`/`candidate_ref` land on the same `ParityCase` nodes
+`GET .../parity-cases` already lists.
+
+See [ADR 0053](../../docs/adr/0053-dual-execution-a-symmetric-resultset-and-two-persistent-concurrency-pools.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

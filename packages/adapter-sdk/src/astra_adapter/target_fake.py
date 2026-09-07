@@ -25,6 +25,19 @@ would be a worse kind of gap than naming the one that is real). ``deploy`` mater
 committed tree into a local directory — the same end state Fabric Git integration
 produces, a workspace synced to a branch — and ``smoke_query`` checks the file actually
 landed there rather than running a live DAX query nothing here can evaluate.
+
+**``evaluate`` (story S7.3.1) is a third disclosed stand-in, but a more useful one than
+``smoke_query``'s honest-empty answer.** No live analysis-services engine exists locally
+to run the given DAX text against — the identical real gap ``smoke_query`` already
+discloses. But unlike a smoke check (where fabricating a row count would be actively
+misleading about whether a deploy worked), a parity case's own candidate side exists to
+be *compared*, and F7.4's own diff needs two comparable, deterministic result sets to
+exercise the comparison against — the identical reasoning ``fake.py``'s own
+``execute_case`` already applies on the source side. So ``evaluate`` returns real,
+deterministic synthetic rows (never a clock, never randomness — the same "three runs of
+one case agree" requirement §6.3 checks on the source side applies here too), derived
+from the case and the query text, clearly disclosed as fixture data via ``adapter_name``/
+``detail`` rather than passed off as a real query result.
 """
 
 from __future__ import annotations
@@ -38,6 +51,7 @@ from dulwich import porcelain
 from dulwich.object_store import iter_tree_contents
 from dulwich.repo import Repo
 
+from .proof import Column, ColumnRole, ExecutionOutcome, ExecutionStrategy, ParityCase, ResultSet
 from .target_contract import (
     TARGET_INTERFACE_VERSION,
     CommitResult,
@@ -187,6 +201,47 @@ class FixtureTargetAdapter:
                 "no live Fabric analysis-services engine is configured to run a real row "
                 "count or measure query — see FixtureTargetAdapter's own docstring"
             ),
+        )
+
+    # -------------------------------------------------------------------------- evaluate
+
+    async def evaluate(self, *, query_text: str, case: ParityCase, workspace: str) -> ResultSet:
+        return self._evaluate_sync(query_text, case, workspace)
+
+    def _evaluate_sync(self, query_text: str, case: ParityCase, workspace: str) -> ResultSet:
+        """Deterministic synthetic rows, never a live analysis-services engine — see this
+        module's own docstring. The seed is the query text itself (not the case id alone),
+        so a case whose filters or parameters changed genuinely produces a different
+        candidate, the same way a real re-query would."""
+        grain = case.grain or ("Desk",)
+        measures = case.measures or ("Amount",)
+        columns = (
+            *(Column(name, ColumnRole.DIMENSION, "string") for name in grain),
+            *(Column(name, ColumnRole.MEASURE, "double") for name in measures),
+        )
+        seed = int(hashlib.sha256(query_text.encode("utf-8")).hexdigest()[:8], 16)
+        rows: list[tuple[object, ...]] = []
+        for index in range(3):
+            dims = tuple(f"{name}-{(seed + index) % 7}" for name in grain)
+            vals = tuple(float((seed * (index + 1) * (position + 1)) % 997) for position in range(len(measures)))
+            rows.append((*dims, *vals))
+        return ResultSet(
+            case_id=case.id,
+            columns=columns,
+            rows=tuple(rows),
+            strategy=ExecutionStrategy.XMLA_DAX,
+            interface_version=TARGET_INTERFACE_VERSION,
+            adapter_name="fixture-target",
+            adapter_version="0.1.0",
+            outcome=ExecutionOutcome.OK,
+            detail={
+                "dax_query": query_text,
+                "workspace": workspace,
+                "note": (
+                    "synthetic fixture data -- no live Fabric analysis-services engine is "
+                    "configured to run this query; see FixtureTargetAdapter's own docstring"
+                ),
+            },
         )
 
 
