@@ -1,4 +1,5 @@
-"""The §10.3 diff algorithm -- story S7.4.1, closing F7.4.
+"""The §10.3 diff algorithm -- story S7.4.1, closing F7.4 -- and §10.4 sampling, story
+S7.5.1, opening F7.5.
 
     "As a parity engineer, I want the diff algorithm from §10.3 implemented exactly and
     tested against a fixture set, so that every verdict is explainable in terms of the
@@ -14,6 +15,16 @@
       on every change
     - Evidence bundle per run: charter version, both queries, both result hashes, key
       differences, failing cells, timings"
+
+    S7.5.1: "As a parity engineer, I want large result sets compared by stratified
+    sample with the totals always compared in full, so that proof completes on the
+    biggest workbooks without losing the numbers that matter.
+
+    Acceptance criteria:
+    - Full compare up to full_compare_max_rows; above that, stratified by grain with
+      the top-N rows by each measure's absolute value always included; sample size and
+      seed recorded
+    - A sampled PASS is labelled SAMPLED on the verdict and on the G3 card"
 
 §10.3 itself, verbatim: *"Both result sets are normalised under the charter before
 comparison: column names mapped through MAPS_TO edges; types coerced to a common
@@ -85,10 +96,78 @@ the charter, not a module constant** -- see `tolerance_charter.py`'s own docstri
 why. Failing cells are sorted by `(grain_key, measure)` before truncation, so "first N"
 is deterministic and reproducible across runs of the identical two result sets, not an
 accident of row order.
+
+## §10.4 Sampling (story S7.5.1, opening F7.5)
+
+§10.4 itself, verbatim: *"Result sets up to full_compare_max_rows are compared in full.
+Larger sets are compared on a stratified sample keyed by the grain (every distinct value
+of the first grain dimension is represented) plus the top-N rows by each measure's
+absolute value, so that the rows that matter most to a reader are always in the sample.
+Sampling is recorded on the ParityCase and shown on the Parity Dashboard; a sampled PASS
+is labelled as such."*
+
+**Only the cell-comparison stage is ever sampled.** Key-set comparison (`missing_keys`/
+`extra_keys`) is a cheap set operation over every key on both sides, and the row-count-
+and-totals check already reads `expected.rows`/`candidate.rows` directly -- neither is
+touched by sampling, which is exactly the AC's own "So that" clause: *"so that proof
+completes on the biggest workbooks without losing the numbers that matter."* Only the
+`for key in shared_keys: ...` cell loop trades every key for a representative subset when
+`len(shared_keys) > charter.sampling.full_compare_max_rows`.
+
+**Stratification defaults to the first grain dimension, per §10.4's own parenthetical,
+but `SamplingRule.stratify_by` is real and consumed when it names a different grain
+column.** The spec's own literal description names no configurable dimension; the
+charter's own `stratify_by` field (default `"grain"`) has been declared and inert since
+S7.1.1. Read here as: `"grain"` (the sentinel default) means exactly what §10.4 describes
+-- the first grain dimension -- and any other value is looked up among the case's own
+grain columns, stratifying by that column instead when found (falling back to the first
+dimension when it names none of them). This is what finally makes `stratify_by` a real,
+consumed field rather than a ninth permanently-inert charter block.
+
+**"The top-N rows by each measure's absolute value" needs a number the spec does not
+give -- `TOP_N_ROWS_PER_MEASURE = 20`, invented and disclosed**, the same "spec names the
+existence of a bound but not its value" gap `DEFAULT_RETRY_TIMEOUT_MULTIPLIER`/
+`MAX_FILTER_VALUES_PER_FILTER` already had. "Absolute value" is read per key as
+`max(|expected|, |candidate|)` across whichever side actually has a numeric value, since
+either side could carry the more extreme number and a real discrepancy is exactly what a
+reader most wants caught. These rows are never subject to truncation by `sample_rows` --
+"always included" is read literally, so a sample can exceed `sample_rows` when the
+required set (one key per stratum, plus every measure's own top-N) is itself larger.
+
+**The seed is generated, not fixed, and always recorded** -- `diff_result_sets` accepts
+an optional `sampling_seed`; production callers (`verdicts.py`) never pass one, so a
+fresh seed is drawn per run via `random.SystemRandom`, and whichever seed was actually
+used is always returned on `DiffResult.sampling.seed`, satisfying the AC's own "sample
+size and seed recorded" literally. Tests pass an explicit seed for a reproducible sample.
+
+**"INCONCLUSIVE if... the sample could not be stratified" never fires under this
+algorithm, disclosed rather than contrived** -- stratification only needs a non-empty
+grain, and `diff_result_sets` already refuses (its own separate, pre-existing
+INCONCLUSIVE) whenever the expected side has none, before sampling is ever reached; there
+is no remaining way for this implementation's own stratification step to fail once that
+guard has passed. The identical "a spec-named cause is declared but this codebase's own
+design never produces it" disclosure `InconclusiveReason.SAMPLING_SHORTFALL` already
+carries (S7.3.2/ADR 0054) for the adapter-level equivalent.
+
+**Sampling is recorded on the `ParityCase` (§10.4's own literal instruction) *and* on
+the `Verdict`** -- `verdicts.py` writes `DiffResult.sampling` onto both: the case
+(`sampled`/`sample_size`/`sampling_seed`/`sampling_strategy`, matching §10.4's own words
+and, separately, §14's own storage-table naming of `sampled` at the case level) and a
+plain `Verdict.sampled` boolean, since the backlog's own AC asks for the label "on the
+verdict" specifically -- the Parity Dashboard (S7.4.2) already reads `Verdict`s directly,
+and would need a second query back to `ParityCase` to show the label otherwise. Neither
+property is named in §4.1.1's own ontology table for either node type; both are declared
+`SpecDeviation`s. **"On the G3 card" cannot be built by this story** -- confirmed by
+direct research: G3 itself is F9.1/S9.1.1's own later, entirely unbuilt scope (no G3 card
+exists anywhere in this codebase today); `Verdict.sampled` is the real fact that card
+will read from once it exists, the same "write the real fact now, the screen arrives
+later" posture this codebase has already taken for `ExceptionCase.screenshot_ref` and
+several other forward references.
 """
 
 from __future__ import annotations
 
+import random
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -104,6 +183,10 @@ _NUMERIC_TYPE_NAMES = frozenset(
     {"integer", "int", "bigint", "smallint", "tinyint", "decimal", "numeric", "double", "float", "real"}
 )
 _DATE_TYPE_NAMES = frozenset({"date", "datetime", "timestamp", "time"})
+
+#: §10.4's own "top-N rows by each measure's absolute value", a number the spec never
+#: gives -- see this module's own docstring.
+TOP_N_ROWS_PER_MEASURE = 20
 
 
 def classify_type(type_name: str) -> str:
@@ -193,6 +276,34 @@ class TotalCheck:
 
 
 @dataclass(frozen=True, slots=True)
+class SamplingInfo:
+    """§10.4's own evidence: how a sample was drawn, present exactly when the cell
+    comparison ran on a sample rather than every shared key."""
+
+    sample_size: int
+    """The number of keys actually cell-compared -- may exceed `SamplingRule.sample_rows`
+    when the required set (one key per stratum, plus every measure's own top-N) is
+    itself larger; see this module's own docstring on why "always included" wins."""
+
+    total_keys: int
+    """How many shared keys there were to sample from."""
+
+    seed: int
+    """Whatever seed drove the random fill -- always recorded, never only generated."""
+
+    strategy: str
+    stratified_by: str
+    """Which grain column was actually stratified on -- the resolved column name, not
+    necessarily `SamplingRule.stratify_by`'s own raw value (see this module's docstring)."""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "sample_size": self.sample_size, "total_keys": self.total_keys, "seed": self.seed,
+            "strategy": self.strategy, "stratified_by": self.stratified_by,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class DiffResult:
     """§10.3's own verdict, plus everything the AC's own evidence bundle needs."""
 
@@ -208,10 +319,16 @@ class DiffResult:
     ``len(failing_cells)``, so evidence never silently understates how much failed."""
 
     compared_keys: int = 0
+    """How many keys the cell comparison actually ran over -- the sample size once
+    `sampling` is set, the full shared-key count otherwise."""
+
     expected_row_count: int = 0
     candidate_row_count: int = 0
     row_count_within_tolerance: bool = True
     totals: tuple[TotalCheck, ...] = ()
+    sampling: SamplingInfo | None = None
+    """§10.4 -- present exactly when the cell comparison ran on a sample. `None` means a
+    full compare, the same as before this story existed."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -225,6 +342,7 @@ class DiffResult:
             "candidate_row_count": self.candidate_row_count,
             "row_count_within_tolerance": self.row_count_within_tolerance,
             "totals": [t.as_dict() for t in self.totals],
+            "sampling": self.sampling.as_dict() if self.sampling else None,
         }
 
 
@@ -268,12 +386,79 @@ def _grand_total(rows: Sequence[tuple[Any, ...]], index: int) -> float | None:
     return total if saw_value else None
 
 
+def _resolve_stratify_column(stratify_by: str, grain: Sequence[str]) -> str:
+    """§10.4's own default (the sentinel `"grain"`, or any name this case's own grain
+    does not carry) resolves to the first grain dimension; any other real grain column
+    name stratifies on that column instead -- see this module's own docstring."""
+    if stratify_by != "grain" and stratify_by in grain:
+        return stratify_by
+    return grain[0]
+
+
+def _select_sample(
+    shared_keys: Sequence[tuple[Any, ...]],
+    *,
+    grain: Sequence[str],
+    measures: Sequence[str],
+    expected_by_key: Mapping[tuple[Any, ...], tuple[Any, ...]],
+    candidate_by_key: Mapping[tuple[Any, ...], tuple[Any, ...]],
+    measure_expected_index: Mapping[str, int],
+    measure_candidate_index: Mapping[str, int],
+    kind_by_name: Mapping[str, str | None],
+    charter: ToleranceCharter,
+    seed: int,
+) -> tuple[frozenset[tuple[Any, ...]], SamplingInfo]:
+    """§10.4: a stratified sample keyed by the grain (every distinct value of the
+    stratifying dimension represented) plus every measure's own top-N rows by absolute
+    value, filled out to `sample_rows` with a uniform random draw over what remains --
+    see this module's own docstring for the full design."""
+    stratify_column = _resolve_stratify_column(charter.sampling.stratify_by, grain)
+    stratify_index = list(grain).index(stratify_column)
+
+    strata: dict[Hashable, list[tuple[Any, ...]]] = {}
+    for key in shared_keys:
+        strata.setdefault(key[stratify_index], []).append(key)
+
+    # Every distinct value of the stratifying dimension is represented -- §10.4's own
+    # literal words -- via one representative key per stratum (deterministic: the
+    # smallest key by repr, not whichever happened to iterate first).
+    required: set[tuple[Any, ...]] = {min(group, key=repr) for group in strata.values()}
+
+    for measure in measures:
+        if (kind_by_name.get(measure) or "string") != "numeric":
+            continue  # "absolute value" only means something for a numeric measure
+        e_index = measure_expected_index.get(measure)
+        c_index = measure_candidate_index.get(measure)
+        ranked: list[tuple[float, tuple[Any, ...]]] = []
+        for key in shared_keys:
+            e_value = expected_by_key[key][e_index] if e_index is not None else None
+            c_value = candidate_by_key[key][c_index] if c_index is not None else None
+            magnitudes = [abs(float(v)) for v in (e_value, c_value) if isinstance(v, int | float)]
+            if magnitudes:
+                ranked.append((max(magnitudes), key))
+        ranked.sort(key=lambda pair: pair[0], reverse=True)
+        required.update(key for _, key in ranked[:TOP_N_ROWS_PER_MEASURE])
+
+    remaining_budget = max(charter.sampling.sample_rows - len(required), 0)
+    fillable = [key for key in shared_keys if key not in required]
+    rng = random.Random(seed)
+    rng.shuffle(fillable)
+    sample = required | set(fillable[:remaining_budget])
+
+    info = SamplingInfo(
+        sample_size=len(sample), total_keys=len(shared_keys), seed=seed,
+        strategy="stratified_by_grain_plus_top_n_by_measure", stratified_by=stratify_column,
+    )
+    return frozenset(sample), info
+
+
 def diff_result_sets(
     expected: ResultSet,
     candidate: ResultSet,
     charter: ToleranceCharter,
     *,
     column_target_map: Mapping[str, str] | None = None,
+    sampling_seed: int | None = None,
 ) -> DiffResult:
     """§10.3, implemented exactly -- see this module's own docstring for the disclosed
     reading of the row-count/totals bullet and the key-normalisation simplification."""
@@ -333,8 +518,22 @@ def diff_result_sets(
         if column_target_map.get(name, name) in candidate_index_by_name
     }
 
+    # §10.4: only the cell comparison ever samples -- key-set comparison above and the
+    # row-count/totals check below both always run on the full data (this module's own
+    # docstring).
+    sampling_info: SamplingInfo | None = None
+    compare_keys: frozenset[tuple[Any, ...]] | set[tuple[Any, ...]] = shared_keys
+    if len(shared_keys) > charter.sampling.full_compare_max_rows:
+        seed = sampling_seed if sampling_seed is not None else random.SystemRandom().getrandbits(63)
+        compare_keys, sampling_info = _select_sample(
+            list(shared_keys), grain=grain, measures=measures,
+            expected_by_key=expected_by_key, candidate_by_key=candidate_by_key,
+            measure_expected_index=measure_expected_index, measure_candidate_index=measure_candidate_index,
+            kind_by_name=kind_by_name, charter=charter, seed=seed,
+        )
+
     failing_cells: list[FailingCell] = []
-    for key in shared_keys:
+    for key in compare_keys:
         expected_row = expected_by_key[key]
         candidate_row = candidate_by_key[key]
         for measure in measures:
@@ -388,15 +587,18 @@ def diff_result_sets(
 
     return DiffResult(
         result=result, reason=reason, missing_keys=missing_keys, extra_keys=extra_keys,
-        failing_cells=kept_cells, failing_cell_count=failing_cell_count, compared_keys=len(shared_keys),
+        failing_cells=kept_cells, failing_cell_count=failing_cell_count, compared_keys=len(compare_keys),
         expected_row_count=expected_rows, candidate_row_count=candidate_rows,
         row_count_within_tolerance=row_count_within_tolerance, totals=tuple(totals),
+        sampling=sampling_info,
     )
 
 
 __all__ = [
+    "TOP_N_ROWS_PER_MEASURE",
     "DiffResult",
     "FailingCell",
+    "SamplingInfo",
     "TotalCheck",
     "classify_type",
     "diff_result_sets",

@@ -41,6 +41,16 @@ any report is ever composed (S7.2.1's own "reads only the source side" precedent
 
 `VerdictsService.dashboard` (story S7.4.2) is this module's own thin binding onto
 `parity_dashboard.py`'s own read-only aggregation — see that module's own docstring.
+
+**§10.4 sampling (story S7.5.1) is recorded here, right after `diff_result_sets`
+returns.** When `DiffResult.sampling` is set, `ParityCase.sampled`/`.sample_size`/
+`.sampling_seed`/`.sampling_strategy` are written via `writer.set_node_properties` —
+§10.4's own literal "sampling is recorded on the ParityCase" — and every diff writes all
+four regardless of whether this run sampled, so a case's own record always reflects its
+*most recent* run's own truth rather than a stale `True` from an earlier, larger
+comparison. `Verdict.sampled` is written alongside it on the same call that already
+writes `result`/`failing_cells` — see `diff.py`'s own docstring for why both properties
+exist rather than only one.
 """
 
 from __future__ import annotations
@@ -281,19 +291,36 @@ async def run_parity_for_workbook(
             media_type=EVIDENCE_MEDIA_TYPE, created_by=principal.value,
         )
 
+        sampled = diff_result.sampling is not None
         verdict_properties = {
             "case_ref": case_id, "result": diff_result.result,
             "failing_cells": [cell.as_dict() for cell in diff_result.failing_cells],
-            "evidence_ref": evidence_artefact.id,
+            "evidence_ref": evidence_artefact.id, "sampled": sampled,
         }
         created = await writer.write_nodes(
             [NodeWrite(type="Verdict", properties=verdict_properties)], principal=principal,
         )
         verdict_id = str(created[0]["properties"]["id"])
         verdict_ids.append(verdict_id)
+
+        # §10.4's own literal "sampling is recorded on the ParityCase" — written every
+        # diff (not only once), so a case's own record always reflects its most recent
+        # run, never a stale True carried over from an earlier, larger comparison.
+        await writer.set_node_properties(
+            case_id,
+            {
+                "sampled": sampled,
+                "sample_size": diff_result.sampling.sample_size if diff_result.sampling else None,
+                "sampling_seed": diff_result.sampling.seed if diff_result.sampling else None,
+                "sampling_strategy": diff_result.sampling.strategy if diff_result.sampling else None,
+            },
+            principal=principal,
+        )
+
         results.append({
             "case_id": case_id, "verdict_id": verdict_id, "result": diff_result.result,
             "failing_cell_count": diff_result.failing_cell_count, "evidence_ref": evidence_artefact.id,
+            "sampled": sampled,
         })
 
     finished_at = datetime.now(UTC)

@@ -581,6 +581,15 @@ NODE_TYPES: tuple[NodeType, ...] = (
                     "'id stays a server-issued identity; a separate property carries the "
                     "content-derived key' split `ArtefactRecord.id`/`.content_hash` "
                     "already established (S2.4.2)."),
+            _p("sampled", T.BOOL, note="§10.4 (story S7.5.1): whether the most recent "
+                    "diff's own cell comparison ran on a stratified sample rather than "
+                    "every shared key. Always written on every diff, not only once."),
+            _p("sample_size", T.INT, note="§10.4's own 'sample size... recorded' -- the "
+                    "number of keys actually compared, absent when `sampled` is false."),
+            _p("sampling_seed", T.INT, note="§10.4's own 'seed... recorded' -- whichever "
+                    "seed drove the random fill of the most recent sample."),
+            _p("sampling_strategy", T.STRING, note="Which grain column the most recent "
+                    "sample was stratified by."),
         ),
     ),
     NodeType(
@@ -605,6 +614,9 @@ NODE_TYPES: tuple[NodeType, ...] = (
             _p("result", T.ENUM, required=True, enum=("PASS", "FAIL", "INCONCLUSIVE")),
             _p("failing_cells", T.JSON, note="Bounded sample; the full bundle is an artefact."),
             _p("evidence_ref", T.STRING),
+            _p("sampled", T.BOOL, note="§10.4 (story S7.5.1): whether this verdict's own "
+                    "cell comparison ran on a stratified sample. A sampled PASS is "
+                    "labelled SAMPLED wherever this verdict is shown."),
         ),
     ),
     NodeType(
@@ -1241,5 +1253,37 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "identical 'id stays a server-issued identity; a separate property carries "
                "the content-derived key' split `ArtefactRecord.id`/`.content_hash` already "
                "established (S2.4.2), applied to a graph node instead of a stored artefact.",
+    ),
+    SpecDeviation(
+        element="ParityCase.sampled, ParityCase.sample_size, ParityCase.sampling_seed, "
+                "ParityCase.sampling_strategy",
+        reason="Section 4.1.1's own node table declares no such properties -- `ParityCase` "
+               "as specified carries the §10 case schema with no record of how its most "
+               "recent diff compared it. §10.4 itself says plainly 'sampling is recorded "
+               "on the ParityCase' and 'sample size and seed recorded', and backlog story "
+               "S7.5.1's own acceptance criteria requires the same. §14's own relational "
+               "storage-table sketch (a separate section from this one) already names a "
+               "single `sampled` field at the case level, confirming the property belongs "
+               "here even though §4.1.1's own graph table has never listed it.",
+        detail="Four plain properties, written on every diff (not only once): `sampled` "
+               "is the §14-named fact directly; `sample_size`/`sampling_seed`/"
+               "`sampling_strategy` are the AC's own 'sample size and seed recorded' plus "
+               "which grain column was actually stratified on, needed to make a sampled "
+               "run's own evidence reproducible rather than merely asserted.",
+    ),
+    SpecDeviation(
+        element="Verdict.sampled",
+        reason="Section 4.1.1's own node table lists Verdict as `case_ref, result "
+               "(PASS|FAIL|INCONCLUSIVE), failing_cells, evidence_ref` -- no sampling "
+               "flag. §10.4 names the fact at the ParityCase level only ('sampling is "
+               "recorded on the ParityCase'); backlog story S7.5.1's own acceptance "
+               "criteria asks for the label specifically 'on the verdict' as well ('a "
+               "sampled PASS is labelled SAMPLED on the verdict and on the G3 card').",
+        detail="A plain boolean, denormalised from the same diff that already writes "
+               "`ParityCase.sampled` -- the Parity Dashboard (S7.4.2) already reads "
+               "`Verdict`s directly for its per-run cases table; requiring a second read "
+               "back to each verdict's own `ParityCase` just to show the label would cost "
+               "a real query for no real benefit, since `ParityCase.sampled` remains the "
+               "single source of truth this property is denormalised from.",
     ),
 )

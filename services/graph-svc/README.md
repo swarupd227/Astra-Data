@@ -2305,6 +2305,51 @@ Engineer -- the identical convention the Tolerance Charter's own Save button set
 See [ADR 0056](../../docs/adr/0056-the-parity-dashboard-a-report-owner-view-and-a-widened-per-run-gate.md)
 for the full reasoning.
 
+## §10.4 Sampling (story S7.5.1, opens F7.5)
+
+`SamplingRule` (`full_compare_max_rows`, `sample_rows`, `stratify_by`) has existed since
+S7.1.1, declared and entirely inert until now. `diff_result_sets` samples the cell
+comparison alone once `len(shared_keys) > full_compare_max_rows` -- key-set comparison
+and the row-count/totals check both stay on the full data, exactly the AC's own "so
+that proof completes... without losing the numbers that matter."
+
+**Stratification defaults to the first grain dimension, §10.4's own literal words** --
+"every distinct value of the first grain dimension is represented" -- **but
+`stratify_by` is now real**: any other value is looked up among the case's own grain
+columns, stratifying by that column instead when found, falling back to the first
+dimension otherwise (e.g. a measure name, which cannot stratify a categorical
+partition). **`TOP_N_ROWS_PER_MEASURE = 20`** is an invented, disclosed number for
+"the top-N rows by each measure's absolute value" -- `max(|expected|, |candidate|)` per
+key, since either side could carry the real outlier. **The required set (one key per
+stratum, plus every measure's own top-N) is never truncated to fit `sample_rows`** --
+"always included" is read literally; the final sample can exceed `sample_rows` when the
+required set alone is already larger. **The seed is generated when a caller supplies
+none** (`random.SystemRandom().getrandbits(63)`, real entropy, not a predictable
+counter) **and always recorded** on `DiffResult.sampling.seed`, satisfying "sample size
+and seed recorded" literally. **"INCONCLUSIVE if... the sample could not be
+stratified" never fires under this algorithm** -- stratification only needs a
+non-empty grain, already guarded before sampling is ever reached -- disclosed rather
+than contrived, the identical posture `InconclusiveReason.SAMPLING_SHORTFALL` already
+has (S7.3.2).
+
+**Sampling is recorded on both `ParityCase` (§10.4's own literal instruction) and
+`Verdict` (the backlog's own "on the verdict")** -- `ParityCase.sampled`/
+`.sample_size`/`.sampling_seed`/`.sampling_strategy` are written on *every* diff, not
+only a sampled one, so a case's own record always reflects its most recent run, never a
+stale `True` left over from an earlier, larger comparison; `Verdict.sampled` is written
+alongside `result`/`failing_cells` on the same call, since the Parity Dashboard (S7.4.2)
+already reads `Verdict`s directly and would need a second query back to `ParityCase` for
+no benefit otherwise. Both are declared `SpecDeviation`s (§4.1.1's own node table lists
+neither); additive only -- schema version 27 -> 28, no migration file. **"On the G3
+card" cannot be built by this story** -- G3 itself is F9.1/S9.1.1's own later, entirely
+unbuilt scope (confirmed by direct research) -- `Verdict.sampled` is the real fact that
+card will read from once it exists; the Parity Dashboard's own "Parity Run" cases table
+shows a SAMPLED pill next to a sampled PASS today, the one real screen able to show it
+now.
+
+See [ADR 0057](../../docs/adr/0057-section-10-4-sampling-a-required-set-that-truncation-never-shrinks.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

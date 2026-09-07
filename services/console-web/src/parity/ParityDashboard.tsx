@@ -20,6 +20,12 @@
  * "Re-run" is the one action here — `POST .../:run-parity`, the Parity Engineer's own
  * (S7.4.1) — offered but disabled-with-explanation for every other role, the identical
  * convention `ToleranceCharter.tsx` already established for its own Save button.
+ *
+ * **§10.4 sampling (story S7.5.1)**: "a sampled PASS is labelled SAMPLED on the
+ * verdict" — the per-run cases table already reads `Verdict.sampled` directly (added by
+ * that story), so a PASS earned on a stratified sample carries its own SAMPLED pill
+ * right here. The G3 card the AC also names does not exist anywhere in this codebase
+ * yet (F9.1/S9.1.1's own later, unbuilt scope) — see `diff.py`'s own docstring.
  */
 
 import { useCallback, useState } from 'react';
@@ -303,6 +309,11 @@ export function ParityDashboard({ api, identity }: Props): JSX.Element {
                     <td className="mono">{verdict.case_ref}</td>
                     <td>
                       <span className={pillClass(verdict.result)}>{verdict.result}</span>
+                      {verdict.result === 'PASS' && verdict.sampled && (
+                        <span className="pill idle" title="§10.4: compared on a stratified sample, not every row">
+                          {' '}SAMPLED
+                        </span>
+                      )}
                     </td>
                     <td>{verdict.failing_cells.length}</td>
                     <td className="mono">{verdict.evidence_ref ?? '—'}</td>

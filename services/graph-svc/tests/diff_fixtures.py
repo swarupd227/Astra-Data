@@ -20,11 +20,14 @@ small category confirming row order never affects the verdict (§10.3's own key-
 comparison is inherently order-independent) rather than one exercising
 `sort_sensitive`/`top_n_tie_break` directly, since neither field is read by this
 story's own algorithm -- top-N tie-breaking is §10.1's own row-retention concern, not
-part of the comparison itself. `SamplingRule` similarly gets a small category
-confirming today's algorithm always does a full compare regardless of its fields'
-values, not a real stratified-sample test -- §10.4 sampling is F7.5's own later, unbuilt
-scope, the identical boundary `InconclusiveReason.SAMPLING_SHORTFALL` already disclosed
-as unproducible (S7.3.2, ADR 0054).
+part of the comparison itself. `SamplingRule`'s category (below) covers §10.4 sampling for real as
+of story S7.5.1 -- the finer-grained, purpose-built tests proving stratification
+coverage, top-N-by-measure inclusion, and seed reproducibility live in
+`tests/test_sampling.py` instead, since they need richer multi-row-per-stratum result
+sets than this module's own single-row-per-key fixtures build; the cases kept here
+confirm the boundary conditions a hand-verified pair can still express directly (a low
+threshold that degenerates to "compare everything" once every key is its own stratum,
+and a high threshold that never triggers sampling at all).
 """
 
 from __future__ import annotations
@@ -583,9 +586,15 @@ def _rows_cases() -> list[DiffFixtureCase]:
 
 
 def _sampling_cases() -> list[DiffFixtureCase]:
-    """§10.4 stratified sampling is F7.5's own later, unbuilt scope -- these confirm
-    today's algorithm always fully compares regardless of `SamplingRule`'s own field
-    values, not a real sampling test (this module's own docstring)."""
+    """§10.4, real as of story S7.5.1 -- see `diff.py`'s own docstring for the full
+    algorithm. Every row here has its own unique `Desk` value (`_GRAIN_MEASURE`'s own
+    single-column grain), so each key is its own stratum: even a `full_compare_max_rows`
+    of 1 still ends up comparing all 20, since "every distinct value of the stratifying
+    dimension represented" already requires one key per stratum. That degenerate case is
+    still worth a fixture -- it is the boundary a hand-verified pair can express
+    directly; genuine multi-row-per-stratum coverage, top-N-by-measure inclusion and
+    seed reproducibility live in `tests/test_sampling.py` instead, which needs richer
+    result sets than this module's own single-row-per-key shape builds."""
     cases: list[DiffFixtureCase] = []
     rows = tuple((f"KEY{i}", float(i)) for i in range(20))
     e = _rs(_GRAIN_MEASURE, rows)
@@ -593,37 +602,48 @@ def _sampling_cases() -> list[DiffFixtureCase]:
 
     tiny_sample = replace(DEFAULT_CHARTER, sampling=SamplingRule(full_compare_max_rows=1, sample_rows=1))
     cases.append(
-        DiffFixtureCase("sampling_small_full_compare_max_rows_still_compares_all", "sampling", e, c, "PASS", tiny_sample)
+        DiffFixtureCase(
+            "sampling_below_max_rows_of_one_still_compares_every_key_its_own_stratum",
+            "sampling", e, c, "PASS", tiny_sample,
+        )
     )
 
     c_one_diff = _rs(_GRAIN_MEASURE, (*rows[:19], ("KEY19", 999.0)))
     cases.append(
         DiffFixtureCase(
-            "sampling_small_full_compare_max_rows_still_catches_the_one_diff",
+            "sampling_below_max_rows_of_one_still_catches_the_one_diff",
             "sampling", e, c_one_diff, "FAIL", tiny_sample,
         )
     )
 
     huge_sample = replace(DEFAULT_CHARTER, sampling=SamplingRule(full_compare_max_rows=1_000_000))
-    cases.append(DiffFixtureCase("sampling_large_full_compare_max_rows_passes", "sampling", e, c, "PASS", huge_sample))
+    cases.append(DiffFixtureCase("sampling_above_row_count_never_triggers_passes", "sampling", e, c, "PASS", huge_sample))
 
-    def _check_all_twenty_compared(result: DiffResult) -> None:
+    def _check_all_twenty_compared_and_unsampled(result: DiffResult) -> None:
         assert result.compared_keys == 20
+        assert result.sampling is None
 
     cases.append(
         DiffFixtureCase(
-            "sampling_compared_keys_reflects_the_full_set_not_a_sample",
-            "sampling", e, c, "PASS", DEFAULT_CHARTER, _check_all_twenty_compared,
+            "sampling_under_default_threshold_compares_the_full_set_unsampled",
+            "sampling", e, c, "PASS", DEFAULT_CHARTER, _check_all_twenty_compared_and_unsampled,
         )
     )
 
+    # DEFAULT_CHARTER's own full_compare_max_rows (200,000) is never crossed by 20 rows
+    # either, so `stratify_by` naming a real measure column still has no effect here --
+    # not because the field is inert (`test_sampling.py` proves it is not), but because
+    # sampling itself never triggers at this row count.
     stratify_by_measure = replace(DEFAULT_CHARTER, sampling=SamplingRule(stratify_by="Margin"))
     cases.append(
-        DiffFixtureCase("sampling_stratify_by_field_does_not_affect_todays_result", "sampling", e, c, "PASS", stratify_by_measure)
+        DiffFixtureCase(
+            "sampling_stratify_by_field_has_no_effect_below_the_threshold",
+            "sampling", e, c, "PASS", stratify_by_measure,
+        )
     )
     cases.append(
         DiffFixtureCase(
-            "sampling_stratify_by_field_still_catches_a_real_diff",
+            "sampling_stratify_by_field_below_threshold_still_catches_a_real_diff",
             "sampling", e, c_one_diff, "FAIL", stratify_by_measure,
         )
     )

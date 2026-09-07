@@ -935,6 +935,7 @@ export function verdictRow(overrides: Partial<VerdictRow> = {}): VerdictRow {
       { grain_key: ['EMEA'], measure: 'Margin', kind: 'numeric', expected: 100.0, candidate: 101.2, delta: 1.2, reason: 'numeric epsilon exceeded' },
     ],
     evidence_ref: 'af_1',
+    sampled: false,
     ...overrides,
   };
 }

@@ -1,5 +1,6 @@
 /**
- * The Parity Dashboard and per-run view — S7.4.2.
+ * The Parity Dashboard and per-run view — S7.4.2, plus §10.4 sampling's own SAMPLED
+ * label on a sampled PASS (S7.5.1).
  *
  * Tested through what a report owner sees and does: load a workbook's dashboard, read
  * the plain-language pass/fail statement, drill into a sheet's own failing cells, read
@@ -15,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { App, surfaceFromPath } from '../App';
 import { ApiError, type Identity } from '../lib/api';
 import { ParityDashboard } from '../parity/ParityDashboard';
-import { fakeApi } from './fixtures';
+import { fakeApi, parityRunResponse, verdictRow } from './fixtures';
 
 const PARITY: Identity = { principal: 'user:parity@artizent.example', roles: ['parity_engineer'] };
 const REPORT_OWNER: Identity = { principal: 'user:owner@client.example', roles: ['client_report_owner'] };
@@ -101,6 +102,30 @@ describe('reading the dashboard', () => {
     expect(screen.getByText('FAIL')).toBeInTheDocument();
     expect(screen.getByText('case_2')).toBeInTheDocument();
     expect(screen.getByText('PASS')).toBeInTheDocument();
+  });
+
+  it('labels a sampled PASS as SAMPLED (§10.4)', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    api.parityRun = async () =>
+      parityRunResponse({
+        verdicts: [verdictRow({ id: 'v_sampled', case_ref: 'case_3', result: 'PASS', failing_cells: [], sampled: true })],
+      });
+    renderScreen(REPORT_OWNER, api);
+    await load(user);
+
+    await screen.findByRole('heading', { name: 'Parity Run' });
+    expect(screen.getByText('SAMPLED')).toBeInTheDocument();
+  });
+
+  it('does not label an unsampled PASS', async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await load(user);
+
+    // The default fixture's own PASS verdict (case_2) is not sampled.
+    await screen.findByRole('heading', { name: 'Parity Run' });
+    expect(screen.queryByText('SAMPLED')).not.toBeInTheDocument();
   });
 });
 

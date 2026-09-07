@@ -1447,6 +1447,34 @@
           "required": true,
           "server_managed": false,
           "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "sampled",
+          "required": false,
+          "server_managed": false,
+          "type": "bool"
+        },
+        {
+          "enum": null,
+          "name": "sample_size",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "sampling_seed",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "sampling_strategy",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
         }
       ],
       "side": "target"
@@ -2025,6 +2053,13 @@
           "required": false,
           "server_managed": false,
           "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "sampled",
+          "required": false,
+          "server_managed": false,
+          "type": "bool"
         }
       ],
       "side": "target"
@@ -2302,5 +2337,5 @@
       "side": "source"
     }
   },
-  "schema_version": 27
+  "schema_version": 28
 }

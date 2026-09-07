@@ -1050,6 +1050,10 @@ export interface VerdictRow {
     reason: string;
   }>;
   evidence_ref: string | null;
+  /** §10.4 (story S7.5.1): whether this verdict's own cell comparison ran on a
+   * stratified sample rather than every shared key. A sampled PASS is labelled
+   * SAMPLED wherever this verdict is shown. */
+  sampled: boolean;
 }
 
 export interface ParityRunResponse {
@@ -1077,6 +1081,7 @@ export interface RunParityResult {
     result: string;
     failing_cell_count: number;
     evidence_ref: string;
+    sampled: boolean;
   }>;
 }
 
