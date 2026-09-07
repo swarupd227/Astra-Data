@@ -1,4 +1,4 @@
-"""Parity case derivation -- story S7.2.1, continuing E7/F7.2, spec §10.1.
+"""Parity case derivation -- stories S7.2.1/S7.2.2, continuing E7/F7.2, spec §10.1.
 
     "As a parity engineer, I want parity cases derived deterministically from each
     sheet, so that coverage is explicit and reproducible.
@@ -98,6 +98,39 @@ No MU page exists (F10.3, unbuilt). `mu_ref` alone -- not `ReportDefinition` -- 
 story's own real anchor: case derivation reads only the source side, and a workbook can
 have live `ParityCase`s long before any report is ever composed. Coverage is real and
 queryable by `mu_ref` today, until a real MU page exists to render it.
+
+    "Story S7.2.2 -- As a parity engineer, I want to add a manual case with specific
+    filters and parameters, so that an owner's 'check this one' becomes part of the
+    suite.
+
+    Acceptance criteria:
+    - Manual cases are authored on the Parity Run screen, tagged MANUAL with the
+      author, and persist across re-runs"
+
+**"The Parity Run screen" is a real, named future surface, not a vague "no screen
+exists" -- §15.3's own screen table gives it an exact shape: 'One run: cases table with
+verdicts, executor strategies, timings, sampling flags...', and S7.4.2's own AC is "a
+Parity Dashboard and per-run view in plain language."** Neither can be built before a
+real `ParityRun`/`Verdict` exists -- F7.3's own later scope, unbuilt. `add_manual_case`
+is this story's own real mechanism instead: a genuine, queryable `ParityCase(state=
+"MANUAL")`, until that screen exists to author one from.
+
+**"Tagged MANUAL with the author" needed no new property.** Every node already records
+`created_by` (`BASE_NODE_PROPERTIES`) -- the author the AC asks for is already there.
+`state="MANUAL"` (vs. `"DERIVED"`) is the tag, an ordinary string on an already-optional
+property, not an ontology change.
+
+**Grain and measures are still resolved from the real sheet, not supplied by the
+caller.** The AC's own "specific filters and parameters" names exactly what a manual
+case adds; grain and measures are the sheet's own real dimensions and measures, resolved
+the identical way any derived case's are -- a manual case describes something
+genuinely executable against the real sheet, never an invented one.
+
+**"Persist across re-runs" is enforced by excluding `state="MANUAL"` from
+`derive_cases_for_workbook`'s own staleness sweep.** A manual case's `case_key` was
+never produced by the deterministic derivation to begin with, so "it doesn't appear in a
+fresh derivation" is not evidence of drift the way it is for a `DERIVED` case -- the
+sweep now checks `state` before ever considering a live case stale.
 """
 
 from __future__ import annotations
@@ -562,7 +595,14 @@ async def derive_cases_for_workbook(
     if node_writes:
         await writer.write_nodes(node_writes, principal=principal)
 
-    stale_ids = [cid for key, cid in live_by_key.items() if key not in all_derived_keys]
+    # A MANUAL case (story S7.2.2) is never a candidate for staleness: it was never
+    # produced by this derivation to begin with, so "its own case_key doesn't appear in
+    # a fresh derivation" is not evidence anything about it has drifted -- the AC's own
+    # "persist across re-runs" means exactly this sweep must leave it alone.
+    stale_ids = [
+        cid for key, cid in live_by_key.items()
+        if key not in all_derived_keys and live_for_mu[cid].get("state") != "MANUAL"
+    ]
     for case_id in stale_ids:
         await writer.retire_node(
             case_id, reason="superseded by a fresh case derivation for this workbook", principal=principal,
@@ -582,6 +622,59 @@ async def derive_cases_for_workbook(
         "cases_retired": len(stale_ids),
         "suite": suite.as_dict(),
     }
+
+
+async def add_manual_case(
+    pool: asyncpg.Pool,
+    graph_name: str,
+    writer: GraphWriter,
+    *,
+    workbook_id: str,
+    sheet_ref: str,
+    filter_ctx: dict[str, Any],
+    param_values: dict[str, Any],
+    principal: Principal,
+) -> dict[str, Any]:
+    """Story S7.2.2: 'an owner's check this one becomes part of the suite'. Filters and
+    parameters are exactly what the AC names as authored; grain and measures are
+    resolved the same real way any derived case's are, from the sheet itself, so a
+    manual case still describes something executable against the real sheet -- never an
+    invented grain nobody asked for. Tagged `state="MANUAL"`; the author is the base
+    `created_by` every node already records, so no separate property was needed for it."""
+    async with pool.acquire() as conn:
+        worksheets = await hydrate(conn, graph_name, "Worksheet", [sheet_ref])
+        worksheet_properties = worksheets.get(sheet_ref)
+        if worksheet_properties is None:
+            raise CaseDerivationError(f"no Worksheet '{sheet_ref}'")
+        field_index = await _worksheet_field_index(conn, graph_name, sheet_ref)
+
+    grain, measures, _ = _resolve_grain_and_measures(field_index, worksheet_properties)
+    if not grain or not measures:
+        raise CaseDerivationError(
+            f"worksheet '{sheet_ref}' has no resolvable grain and measures -- a case "
+            f"without both is not executable (§10.1)"
+        )
+
+    case_key = compute_case_key(
+        sheet_ref=sheet_ref, grain=grain, measures=measures,
+        filter_ctx=filter_ctx, param_values=param_values,
+    )
+    created = await writer.write_nodes(
+        [
+            NodeWrite(
+                type="ParityCase",
+                properties={
+                    "mu_ref": workbook_id, "sheet_ref": sheet_ref,
+                    "grain": list(grain), "measures": list(measures),
+                    "filter_ctx": filter_ctx, "param_values": param_values,
+                    "state": "MANUAL", "case_key": case_key,
+                },
+            )
+        ],
+        principal=principal,
+    )
+    properties: dict[str, Any] = created[0]["properties"]
+    return properties
 
 
 class CaseDerivationService:
@@ -608,6 +701,34 @@ class CaseDerivationService:
     async def suite(self, workbook_id: str) -> ParitySuite | None:
         return await self._suite_store.get(workbook_id)
 
+    async def add_manual_case(
+        self, workbook_id: str, *, sheet_ref: str, filter_ctx: dict[str, Any],
+        param_values: dict[str, Any], principal: Principal,
+    ) -> dict[str, Any]:
+        return await add_manual_case(
+            self._pool, self._graph, self._writer,
+            workbook_id=workbook_id, sheet_ref=sheet_ref,
+            filter_ctx=filter_ctx, param_values=param_values, principal=principal,
+        )
+
+    async def list_cases(self, workbook_id: str) -> list[dict[str, Any]]:
+        """Every live case for this MU, derived and manual alike -- the real, queryable
+        fact standing in for the AC's own 'authored on the Parity Run screen' (F7.4's own
+        unbuilt future surface -- see this module's own docstring)."""
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""SELECT id FROM {NODE_INDEX_TABLE}
+                 WHERE graph = $1 AND kind = 'node' AND label = 'ParityCase' AND retired_at IS NULL""",
+                self._graph,
+            )
+            ids = [row["id"] for row in rows]
+            cases = await hydrate(conn, self._graph, "ParityCase", ids)
+        return [
+            {"id": case_id, **properties}
+            for case_id, properties in cases.items()
+            if properties.get("mu_ref") == workbook_id
+        ]
+
 
 __all__ = [
     "MAX_FILTER_VALUES_PER_FILTER",
@@ -619,6 +740,7 @@ __all__ = [
     "ParitySuiteStore",
     "PostgresParitySuiteStore",
     "SheetDerivation",
+    "add_manual_case",
     "compute_case_key",
     "derive_cases_for_workbook",
     "derive_filter_contexts",

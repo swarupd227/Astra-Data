@@ -1,13 +1,14 @@
-"""Parity case derivation, against real PostgreSQL + Apache AGE -- story S7.2.1,
-continuing E7/F7.2, spec §10.1.
+"""Parity case derivation, against real PostgreSQL + Apache AGE -- stories S7.2.1/
+S7.2.2, continuing E7/F7.2, spec §10.1.
 
 What only the real stack can answer: that a real worksheet's own shelves, a real
 categorical `Filter` (via `FILTERED_BY`) and a real `Parameter` (via `DEPENDS_ON`)
 combine into real `ParityCase` nodes with a real, stable `case_key`; that re-deriving
 against unchanged source data writes nothing new; that a case whose source has drifted
 away is really retired; that the charter's own bound really caps the sheet's case count
-and the excess is really recorded on the suite; and that every new route drives its own
-real role gate.
+and the excess is really recorded on the suite; that a real MANUAL case really survives
+a real re-derivation that would otherwise retire it; and that every new route drives its
+own real role gate.
 """
 
 from __future__ import annotations
@@ -316,6 +317,79 @@ async def test_the_suite_is_absent_before_any_derivation(estate) -> None:
     assert await estate["service"].suite(estate["workbook"]) is None
 
 
+# ------------------------------------------------------------------------- manual cases
+
+
+MANUAL_AUTHOR = Principal("user:owner@client.example")
+
+
+async def test_adding_a_manual_case_writes_a_real_case_tagged_manual_with_the_author(estate) -> None:
+    properties = await estate["service"].add_manual_case(
+        estate["workbook"], sheet_ref=estate["sheet"],
+        filter_ctx={"kind": "manual", "field_ref": "Region", "value": "LATAM"},
+        param_values={"Growth Rate": "0.20"}, principal=MANUAL_AUTHOR,
+    )
+    assert properties["state"] == "MANUAL"
+    assert properties["created_by"] == MANUAL_AUTHOR.value
+    assert properties["grain"] == ["Desk"]
+    assert properties["measures"] == ["MarginCalc"]
+    assert properties["filter_ctx"] == {"kind": "manual", "field_ref": "Region", "value": "LATAM"}
+    assert properties["param_values"] == {"Growth Rate": "0.20"}
+    assert properties["case_key"].startswith("sha256:")
+
+
+async def test_adding_a_manual_case_for_an_unknown_sheet_is_refused(estate) -> None:
+    with pytest.raises(CaseDerivationError, match="no Worksheet"):
+        await estate["service"].add_manual_case(
+            estate["workbook"], sheet_ref="not-a-real-sheet",
+            filter_ctx={}, param_values={}, principal=MANUAL_AUTHOR,
+        )
+
+
+async def test_a_manual_case_survives_a_re_derivation_that_would_otherwise_retire_it(estate) -> None:
+    manual = await estate["service"].add_manual_case(
+        estate["workbook"], sheet_ref=estate["sheet"],
+        filter_ctx={"kind": "manual", "field_ref": "Region", "value": "LATAM"},
+        param_values={"Growth Rate": "0.20"}, principal=MANUAL_AUTHOR,
+    )
+    manual_key = manual["case_key"]
+
+    # A real derivation never produces this exact case_key, so a naive "retire whatever
+    # this derivation didn't just produce" sweep would retire it -- the AC's own
+    # "persist across re-runs" is exactly this not happening.
+    result = await estate["service"].derive(
+        estate["workbook"], charter_version="1", charter=_charter(), principal=PARITY_ENGINEER,
+    )
+    assert result["cases_retired"] == 0
+
+    cases = await _live_cases(estate["pool"], estate["settings"].graph_name, estate["workbook"])
+    manual_ids = [cid for cid, props in cases.items() if props.get("case_key") == manual_key]
+    assert len(manual_ids) == 1
+    assert cases[manual_ids[0]]["state"] == "MANUAL"
+
+    # A second re-derivation -- the manual case must still be there, not just survive one.
+    await estate["service"].derive(
+        estate["workbook"], charter_version="1", charter=_charter(), principal=PARITY_ENGINEER,
+    )
+    cases_again = await _live_cases(estate["pool"], estate["settings"].graph_name, estate["workbook"])
+    assert any(props.get("case_key") == manual_key for props in cases_again.values())
+
+
+async def test_list_cases_includes_both_derived_and_manual_cases(estate) -> None:
+    await estate["service"].derive(
+        estate["workbook"], charter_version="1", charter=_charter(), principal=PARITY_ENGINEER,
+    )
+    await estate["service"].add_manual_case(
+        estate["workbook"], sheet_ref=estate["sheet"],
+        filter_ctx={"kind": "manual", "field_ref": "Region", "value": "LATAM"},
+        param_values={"Growth Rate": "0.20"}, principal=MANUAL_AUTHOR,
+    )
+    cases = await estate["service"].list_cases(estate["workbook"])
+    states = {case["state"] for case in cases}
+    assert states == {"DERIVED", "MANUAL"}
+    assert len(cases) == 9  # 8 derived + 1 manual
+
+
 # ---------------------------------------------------------------------------------- API
 
 
@@ -390,3 +464,48 @@ async def test_get_suite_over_http_after_derivation(estate, http_client) -> None
     )
     assert response.status_code == 200
     assert response.json()["suite"]["mu_ref"] == estate["workbook"]
+
+
+async def test_add_manual_case_over_http_requires_the_parity_engineer_role(estate, http_client) -> None:
+    response = await http_client.post(
+        f"/v1/workbooks/{estate['workbook']}:add-manual-parity-case",
+        json={"sheet_ref": estate["sheet"], "filter_ctx": {}, "param_values": {}},
+        headers=_headers("client_report_owner", MANUAL_AUTHOR),
+    )
+    assert response.status_code == 403
+
+
+async def test_add_manual_case_over_http_succeeds_for_the_parity_engineer(estate, http_client) -> None:
+    response = await http_client.post(
+        f"/v1/workbooks/{estate['workbook']}:add-manual-parity-case",
+        json={
+            "sheet_ref": estate["sheet"],
+            "filter_ctx": {"kind": "manual", "field_ref": "Region", "value": "LATAM"},
+            "param_values": {"Growth Rate": "0.20"},
+        },
+        headers=_headers("parity_engineer", PARITY_ENGINEER),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "MANUAL"
+    assert body["created_by"] == PARITY_ENGINEER.value
+
+
+async def test_list_parity_cases_over_http(estate, http_client) -> None:
+    await http_client.post(
+        f"/v1/workbooks/{estate['workbook']}:derive-parity-cases",
+        headers=_headers("parity_engineer", PARITY_ENGINEER),
+    )
+    await http_client.post(
+        f"/v1/workbooks/{estate['workbook']}:add-manual-parity-case",
+        json={"sheet_ref": estate["sheet"], "filter_ctx": {}, "param_values": {}},
+        headers=_headers("parity_engineer", PARITY_ENGINEER),
+    )
+    response = await http_client.get(
+        f"/v1/workbooks/{estate['workbook']}/parity-cases",
+        headers=_headers("platform_engineer", PARITY_ENGINEER),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 9
+    assert any(case["state"] == "MANUAL" for case in body["cases"])

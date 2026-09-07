@@ -1,13 +1,16 @@
-"""Parity case derivation's own API -- story S7.2.1, continuing E7/F7.2.
+"""Parity case derivation's own API -- stories S7.2.1/S7.2.2, continuing E7/F7.2.
 
     "Case count and coverage are shown on the MU page."
+    "Manual cases are authored on the Parity Run screen, tagged MANUAL with the
+    author, and persist across re-runs."
 
-No MU page exists (F10.3, unbuilt) -- this is the same disclosed proxy every E6/E7 ADR
-has already used: a real, queryable fact instead of an invented screen. Deriving is the
-Parity Engineer's (§2.4: "Owns the Tolerance Charter and the parity suite"), the same
-persona this epic's own S7.1.1 already drove. Reading is open to any Artizent role -- the
-Parity Dashboard (§2.4) is Artizent's own surface, and no client persona has a named
-reason to see parity coverage the way the report owner does for C4 decisions.
+Neither the MU page nor the Parity Run screen exists (F10.3/F7.4, both unbuilt) -- the
+same disclosed proxy every E6/E7 ADR has already used: real, queryable facts instead of
+an invented screen. Deriving and adding a manual case are both the Parity Engineer's
+(§2.4: "Owns the Tolerance Charter and the parity suite"), the same persona this epic's
+own S7.1.1 already drove. Reading is open to any Artizent role -- the Parity Dashboard
+(§2.4) is Artizent's own surface, and no client persona has a named reason to see parity
+coverage the way the report owner does for C4 decisions.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Path, Request
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..case_derivation import CaseDerivationError, CaseDerivationService
 from ..errors import ElementNotFoundError, InvalidRequestError
@@ -73,6 +77,47 @@ async def get_parity_suite(
     if suite is None:
         raise ElementNotFoundError(f"workbook '{workbook_id}' has no derived parity cases yet")
     return {"suite": suite.as_dict()}
+
+
+@router.get(
+    "/v1/workbooks/{workbook_id}/parity-cases",
+    tags=["parity"],
+    summary="Every live parity case for this workbook, derived and manual alike",
+)
+async def list_parity_cases(
+    request: Request, principal: PrincipalDep, roles: ArtizentDep, workbook_id: str = _WORKBOOK_ID,
+) -> dict[str, Any]:
+    cases = await _service(request).list_cases(workbook_id)
+    return {"workbook_id": workbook_id, "cases": cases, "count": len(cases)}
+
+
+class AddManualCaseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sheet_ref: str = Field(min_length=1, max_length=64)
+    filter_ctx: dict[str, Any] = Field(default_factory=dict)
+    param_values: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post(
+    "/v1/workbooks/{workbook_id}:add-manual-parity-case",
+    tags=["parity"],
+    summary="Add a manual case -- 'check this one' -- with specific filters and parameters (story S7.2.2)",
+)
+async def add_manual_parity_case(
+    body: AddManualCaseRequest,
+    request: Request,
+    principal: PrincipalDep,
+    roles: ParityEngineerDep,
+    workbook_id: str = _WORKBOOK_ID,
+) -> dict[str, Any]:
+    try:
+        return await _service(request).add_manual_case(
+            workbook_id, sheet_ref=body.sheet_ref, filter_ctx=body.filter_ctx,
+            param_values=body.param_values, principal=principal,
+        )
+    except CaseDerivationError as exc:
+        raise InvalidRequestError(str(exc)) from exc
 
 
 __all__ = ["router"]

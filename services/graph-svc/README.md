@@ -2071,6 +2071,32 @@ run before any report is ever composed.
 See [ADR 0051](../../docs/adr/0051-parity-case-derivation-a-backlog-elaboration-beyond-section-10-1.md)
 for the full reasoning.
 
+### Manual cases (story S7.2.2)
+
+`add_manual_case`. An owner's "check this one" becomes a real `ParityCase(state=
+"MANUAL")` -- filters and parameters as authored, grain and measures resolved from the
+real sheet the identical way any `DERIVED` case's are, never invented. The author is
+already the base `created_by` every node records; no new property was needed for it.
+
+**"The Parity Run screen" is a real, named future surface, not a vague gap** -- §15.3's
+own screen table gives it an exact shape ("cases table with verdicts, executor
+strategies, timings..."), and backlog story S7.4.2 names it directly ("a Parity
+Dashboard and per-run view"). Neither can exist before a real `ParityRun`/`Verdict`
+does (F7.3, still unbuilt) -- `add_manual_case` is the real mechanism until that screen
+exists to author one from.
+
+**"Persist across re-runs"** -- `derive_cases_for_workbook`'s own staleness sweep
+(S7.2.1) now excludes `state="MANUAL"` before ever considering a case stale, since a
+manual case's own `case_key` was never produced by deterministic derivation to begin
+with; its absence from a fresh derivation proves nothing about drift.
+
+`POST /v1/workbooks/{id}:add-manual-parity-case` (`ParityEngineerDep`), `GET
+/v1/workbooks/{id}/parity-cases` (any Artizent role) -- every live case for an MU,
+derived and manual alike.
+
+See [ADR 0052](../../docs/adr/0052-manual-parity-cases-a-named-future-screen-and-a-real-mechanism-today.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

@@ -1,4 +1,4 @@
-"""Parity case derivation's own pure logic -- story S7.2.1, spec §10.1.
+"""Parity case derivation's own pure logic -- stories S7.2.1/S7.2.2, spec §10.1.
 
     "Cases = sheet x (parameter combinations from charter enumeration strategy) x
     (filter contexts: default, and each categorical filter's top-N values); each case
@@ -6,9 +6,10 @@
 
 `derive_filter_contexts`, `derive_parameter_combinations`, `derive_sheet_cases` and
 `compute_case_key` are pure and testable without a database -- the graph reads
-(`_worksheet_field_index`, `_worksheet_filters`, the orchestration that writes/retires
-`ParityCase` nodes and the suite record) are graph-coupled and covered by the
-integration suite instead.
+(`_worksheet_field_index`, `_worksheet_filters`, `add_manual_case`, the orchestration
+that writes/retires `ParityCase` nodes and the suite record) are graph-coupled and
+covered by the integration suite instead, including S7.2.2's own "a MANUAL case
+persists across re-runs."
 """
 
 from __future__ import annotations
