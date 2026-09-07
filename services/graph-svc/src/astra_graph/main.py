@@ -225,7 +225,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.build_store = PostgresBuildStore(pool, graph_name=config.graph_name)
     # Story S4.3.2: the architect's own saved rules, versioned; a fresh graph builds
     # against the in-memory default (version 0) until an architect saves one of their own.
-    app.state.conformance_store = PostgresConformanceRulesetStore(pool, graph_name=config.graph_name)
+    # A distinct attribute from `conformance_store` above (S2.1.2's own adapter promotion
+    # gate) -- found live, S7.3.2's own smoke test: both had been wired onto the identical
+    # `app.state.conformance_store` name since this story first landed, the second silently
+    # shadowing the first, so `routes_adapters.py`/`routes_platform.py`'s own `_conformance`
+    # section had read the wrong store type -- and 500'd the moment either was actually
+    # exercised -- since S4.3.2 shipped.
+    app.state.conformance_ruleset_store = PostgresConformanceRulesetStore(pool, graph_name=config.graph_name)
     # No live Fabric tenant is configured anywhere this platform has been deployed yet
     # (story S4.3.1) — the fixture target adapter's own docstring says what stands in for
     # what, the identical "real until later" posture the source side's fixture has had

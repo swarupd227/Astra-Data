@@ -354,7 +354,7 @@ async def http_client(estate):
     app.state.question_store = PostgresQuestionStore(estate["pool"], graph_name=estate["settings"].graph_name)
     app.state.artefact_store = estate["artefact_store"]
     app.state.build_store = estate["build_store"]
-    app.state.conformance_store = estate["conformance_store"]
+    app.state.conformance_ruleset_store = estate["conformance_store"]
     app.state.target_adapter = estate["target_adapter"]
     app.state.target_workspace = "dev"
 
@@ -472,7 +472,7 @@ async def test_approving_at_g2_triggers_a_build_automatically(settings: Settings
         app.state.question_store = question_store
         app.state.artefact_store = artefact_store
         app.state.build_store = build_store
-        app.state.conformance_store = conformance_store
+        app.state.conformance_ruleset_store = conformance_store
         app.state.target_adapter = target_adapter
         app.state.target_workspace = "dev"
 

@@ -1,8 +1,8 @@
-"""Dual execution -- story S7.3.1, opening F7.3, spec §10.2.
+"""Dual execution -- stories S7.3.1 and S7.3.2, closing F7.3, spec §10.2.
 
-    "As a parity engineer, I want each case executed on the source via the adapter and
-    on the target via XMLA and the results stored, so that the comparison is between two
-    executions, never between an execution and a re-implementation.
+    S7.3.1, "As a parity engineer, I want each case executed on the source via the
+    adapter and on the target via XMLA and the results stored, so that the comparison is
+    between two executions, never between an execution and a re-implementation.
 
     Acceptance criteria:
     - Target side: DAX EVALUATE over XMLA against the dev or test model, with filters
@@ -13,31 +13,85 @@
     - Execution is parallel per MU with a configurable concurrency per Fabric workspace
       (default 8) and per Tableau site (default 4)"
 
+    S7.3.2, "As a platform engineer, I want INCONCLUSIVE to be a first-class outcome
+    distinct from FAIL, so that infrastructure problems do not look like migration
+    defects.
+
+    Acceptance criteria:
+    - Timeout, adapter error, executor error and sampling shortfall produce
+      INCONCLUSIVE with the reason class; the orchestrator retries once with a longer
+      budget
+    - Inconclusive rate is a Platform Health metric with an alert threshold (default 2%)"
+
 §10.2 itself, verbatim: *"The expected side is produced by the source adapter's
 executeCase... and the candidate side by the target executor as a DAX query over XMLA.
 Both return a ResultSet: an ordered list of column descriptors (name, role, type) and
-rows."* The identical, symmetric shape (`astra_adapter.ResultSet`) is used for both
-sides here, on purpose -- it is what lets a future diff (F7.4) treat expected and
-candidate the same way.
+rows... Both executions are scheduled by the orchestrator with retry and timeout; a
+timeout on either side yields INCONCLUSIVE, not FAIL, and is retried once with a longer
+budget before being surfaced."* The identical, symmetric shape (`astra_adapter.
+ResultSet`) is used for both sides here, on purpose -- it is what lets a future diff
+(F7.4) treat expected and candidate the same way.
 
 **This module does not build the diff engine or a verdict.** §10.3-§10.6
 (normalisation, the row/key diff, sampling, visual parity, regression) are F7.4's own
 later, explicit scope -- confirmed directly against the backlog's own F7.3 section,
-which has exactly two stories (S7.3.1, this one, and S7.3.2, "INCONCLUSIVE... the
-orchestrator retries once with a longer budget"). Retry-with-a-longer-budget is
-S7.3.2's own scope too, not built here: a case that fails or times out on either side is
-recorded as `INCONCLUSIVE` once, honestly, and stored -- exactly what §10.2 itself
-already gives a failed execution ("a timeout... yields INCONCLUSIVE, not FAIL"), without
-the retry loop the next story owns.
+which has exactly these two stories. A case that fails on either side, even after its
+one retry, is recorded as `INCONCLUSIVE`, honestly, and stored -- exactly what §10.2
+itself already gives a failed execution ("a timeout... yields INCONCLUSIVE, not FAIL"),
+without a diff or a verdict, which stay F7.4's own later scope.
 
-**Neither `SourceAdapter.execute_case` nor the new `TargetAdapter.evaluate` takes the
+**The retry-with-a-longer-budget rule is broadened from §10.2's own timeout-only wording
+to every orchestrator-classified reason class -- a backlog elaboration, not a
+contradiction.** §10.2's own prose ties the retry to a timeout specifically; the
+backlog's own S7.3.2 AC reads as one retry rule for the whole sentence ("Timeout,
+adapter error, executor error and sampling shortfall produce INCONCLUSIVE... the
+orchestrator retries once with a longer budget"), covering every one of its own four
+reason classes. Implemented the broader way -- the identical "broaden the spec's one
+worked scenario to the general case" reading S7.2.1's own filter-context elaboration
+already used (ADR 0051). **The one exception**: an adapter's own honest capability
+decline (e.g. `FixtureSourceAdapter.execute_case` returning `INCONCLUSIVE` because
+neither `extract_read` nor `live_query` is claimed, no exception raised at all) is never
+retried -- a longer budget fixes a slow warehouse, not a capability the deployment does
+not have, and retrying it would only repeat the identical decline for no benefit. This
+is also why that case's own `ResultSet.reason_class` is left `None`: it was never one of
+this story's own four orchestrator-classified causes to begin with (see
+`InconclusiveReason`'s own docstring in `astra_adapter.proof`).
+
+**"Sampling shortfall" is declared but never produced today.** §10.4 (sampling) is
+F7.4's own later, unbuilt scope, so no path through this module can fail that way yet --
+the fourth `InconclusiveReason` member exists for the AC's own completeness and for
+F7.4 to raise the moment it exists, not because anything here raises it.
+
+**Every side-execution is recorded as an observation, win or lose.** `record_execution_
+observation` appends one row per side per case per execution to `public.
+execution_observation` (migration v0028) -- the identical "append-only, an inconclusive
+rate is always computed live from the complete history this platform has actually seen,
+never a maintained counter" discipline `patterns.record_observation`/`calibration.
+PostgresCalibrationStore.record` already established for their own metrics. `inconclusive_
+rate` is the AC's own "Platform Health metric": total executions versus INCONCLUSIVE
+ones over a trailing window (an operational alert should reflect what the platform is
+doing now, not a spike from months ago), against `DEFAULT_INCONCLUSIVE_RATE_THRESHOLD =
+0.02` -- the AC's own literal default. Surfaced from `GET /v1/platform/health`'s own
+existing computed-on-read shape (`routes_platform.py`), the same footing every other
+section of that route already has -- not a new metrics-exposition mechanism, since none
+exists anywhere in this codebase yet (a real Prometheus/OTel exporter is S12.3.1's own
+later, explicitly-scoped-elsewhere work) and the *screen* called Platform Health is
+S12.3.2's own later, unbuilt console surface (E12/F12.3) -- this route is only, as its
+own docstring already says, "the graph service's contribution."
+
+**Neither `SourceAdapter.execute_case` nor `TargetAdapter.evaluate` takes a charter --
+this orchestrator does, but only `astra_adapter.proof.ExecutionCharter`, never the
 Tolerance Charter.** Source-side strategy selection is entirely the adapter's own
 capability-driven decision (confirmed directly: `FixtureSourceAdapter.execute_case`
 chooses from its own declared capabilities, not a passed-in charter); target-side
 execution has exactly one strategy (`ExecutionStrategy.XMLA_DAX`, added to
-`astra_adapter.proof` by this story). This module therefore never reads the charter at
-all -- S7.2.1's own case derivation is the only place `params.enumerate_max_values`
-matters.
+`astra_adapter.proof` by S7.3.1). `CaseExecutionService` now holds one `ExecutionCharter`
+(story S7.3.2, for its own `timeout_seconds`) -- a real, disclosed gap on its own: no
+route or store persists one anywhere yet, so it is always the dataclass's own default
+(`ExecutionCharter()`, `DEFAULT_TIMEOUT_SECONDS = 120.0`) unless a caller constructs the
+service with a different one directly. §4.4's own Tolerance Charter (diff tolerances) is
+a completely different document this module still never reads -- S7.2.1's own case
+derivation is the only place `params.enumerate_max_values` matters.
 
 **The query text is built here, not by the adapter.** `TargetAdapter.evaluate` takes an
 already-built DAX string; building it needs graph access (field names, and whatever real
@@ -95,12 +149,19 @@ from __future__ import annotations
 
 import asyncio
 import io
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import asyncpg
 import pyarrow as pa
 import pyarrow.parquet as pq
-from astra_adapter import ExecutionOutcome, ExecutionStrategy, ResultSet
+from astra_adapter import (
+    ExecutionCharter,
+    ExecutionOutcome,
+    ExecutionStrategy,
+    InconclusiveReason,
+    ResultSet,
+)
 from astra_adapter import ParityCase as SdkParityCase
 from astra_adapter.contract import SourceAdapter
 from astra_adapter.target_contract import TargetAdapter
@@ -108,6 +169,7 @@ from astra_adapter.target_contract import TargetAdapter
 from .artefacts import ArtefactStore
 from .case_derivation import _worksheet_field_index  # same epic (E7); see module docstring
 from .graph.queries import EDGE_INDEX_TABLE, NODE_INDEX_TABLE
+from .ids import new_ulid
 from .lineage import hydrate
 from .principal import Principal
 from .writes import GraphWriter
@@ -117,6 +179,23 @@ DEFAULT_FABRIC_CONCURRENCY = 8
 DEFAULT_TABLEAU_CONCURRENCY = 4
 
 RESULT_SET_MEDIA_TYPE = "application/vnd.apache.parquet"
+
+#: "Retried once with a longer budget" (§10.2, story S7.3.2) -- neither the spec nor the
+#: backlog says how much longer, so this module owns the number, the same "invented,
+#: disclosed bound" footing `MAX_FILTER_VALUES_PER_FILTER` (S7.2.1) and `DEPLOY_RETRY_
+#: DEFAULT`'s own backoff schedule (S6.1.2) already set for their own unspecified knobs.
+DEFAULT_RETRY_TIMEOUT_MULTIPLIER = 2.0
+
+EXECUTION_OBSERVATION_TABLE = "public.execution_observation"
+
+#: The AC's own literal default: "an alert threshold (default 2%)".
+DEFAULT_INCONCLUSIVE_RATE_THRESHOLD = 0.02
+
+#: Not specified by the AC; an operational alert should reflect what the platform is
+#: doing now, not an inconclusive spike from months ago that has long since stopped
+#: recurring -- a disclosed, invented window, the same footing the retry multiplier above
+#: already has.
+DEFAULT_INCONCLUSIVE_WINDOW_HOURS = 24.0
 
 
 class CaseExecutionError(Exception):
@@ -311,16 +390,82 @@ async def _resolve_site(conn: asyncpg.Connection, graph: str, workbook_id: str) 
 
 
 def _inconclusive(
-    *, case_id: str, strategy: ExecutionStrategy, reason: str, detail: dict[str, Any] | None = None
+    *,
+    case_id: str,
+    strategy: ExecutionStrategy,
+    reason_class: InconclusiveReason,
+    reason: str,
+    detail: dict[str, Any] | None = None,
 ) -> ResultSet:
     """A case's own execution never propagates an exception -- the identical per-item
     failure isolation `harvest/runner.py`'s own `_harvest_workbook` already established,
-    applied to one side of one case instead of one workbook."""
+    applied to one side of one case instead of one workbook. `reason_class` is required
+    here (story S7.3.2's own AC: "the reason class") -- every INCONCLUSIVE this function
+    produces is one this orchestrator itself classified, never an adapter's own honest
+    decline (see this module's own docstring)."""
     return ResultSet(
         case_id=case_id, columns=(), rows=(), strategy=strategy,
         interface_version="", adapter_name="none", adapter_version="",
-        outcome=ExecutionOutcome.INCONCLUSIVE, reason=reason, detail=detail or {},
+        outcome=ExecutionOutcome.INCONCLUSIVE, reason=reason, reason_class=reason_class,
+        detail=detail or {},
     )
+
+
+async def _attempt_once(
+    call: Callable[[], Awaitable[ResultSet]],
+    budget_seconds: float,
+    *,
+    attempt: int,
+    case_id: str,
+    strategy: ExecutionStrategy,
+    reason_class_on_error: InconclusiveReason,
+    detail: dict[str, Any] | None,
+) -> ResultSet:
+    """One bounded call. A hang becomes `TIMEOUT`; any other raise becomes
+    `reason_class_on_error` (`ADAPTER_ERROR` for the source, `EXECUTOR_ERROR` for the
+    target) -- §10.2's own two named causes for a failed execution, made concrete."""
+    try:
+        return await asyncio.wait_for(call(), timeout=budget_seconds)
+    except TimeoutError:
+        return _inconclusive(
+            case_id=case_id, strategy=strategy, reason_class=InconclusiveReason.TIMEOUT,
+            reason=f"timed out after {budget_seconds:.0f}s (attempt {attempt} of 2)",
+            detail={**(detail or {}), "attempt": attempt, "budget_seconds": budget_seconds},
+        )
+    except Exception as exc:  # a broken adapter/executor is INCONCLUSIVE, not a crash
+        return _inconclusive(
+            case_id=case_id, strategy=strategy, reason_class=reason_class_on_error, reason=str(exc),
+            detail={**(detail or {}), "attempt": attempt},
+        )
+
+
+async def _run_with_retry(
+    call: Callable[[], Awaitable[ResultSet]],
+    *,
+    case_id: str,
+    strategy: ExecutionStrategy,
+    reason_class_on_error: InconclusiveReason,
+    timeout_seconds: float,
+    retry_timeout_seconds: float,
+    detail: dict[str, Any] | None = None,
+) -> tuple[ResultSet, int]:
+    """§10.2: "retried once with a longer budget before being surfaced" -- broadened to
+    every orchestrator-classified reason class, not only a timeout (see this module's
+    own docstring). Returns the surfaced result and how many attempts it took (1 or 2),
+    the latter for `record_execution_observation`'s own audit trail."""
+    first = await _attempt_once(
+        call, timeout_seconds, attempt=1, case_id=case_id, strategy=strategy,
+        reason_class_on_error=reason_class_on_error, detail=detail,
+    )
+    if first.outcome is ExecutionOutcome.OK or first.reason_class is None:
+        # A success, or the adapter's own honest decline -- neither is retried; see this
+        # module's own docstring for why an unclassified INCONCLUSIVE is left alone.
+        return first, 1
+    second = await _attempt_once(
+        call, retry_timeout_seconds, attempt=2, case_id=case_id, strategy=strategy,
+        reason_class_on_error=reason_class_on_error, detail=detail,
+    )
+    return second, 2
 
 
 async def _execute_one_case(
@@ -338,6 +483,7 @@ async def _execute_one_case(
     workspace: str,
     site_semaphore: asyncio.Semaphore,
     workspace_semaphore: asyncio.Semaphore,
+    charter: ExecutionCharter,
     principal: Principal,
 ) -> dict[str, Any]:
     sheet_ref = str(case_properties.get("sheet_ref") or "")
@@ -363,24 +509,41 @@ async def _execute_one_case(
         grain=grain, measures=measures, filters=sdk_filters, parameters=sdk_parameters,
     )
 
-    async def run_source() -> ResultSet:
+    retry_timeout_seconds = charter.timeout_seconds * DEFAULT_RETRY_TIMEOUT_MULTIPLIER
+
+    async def run_source() -> tuple[ResultSet, int]:
         async with site_semaphore:
-            try:
-                return await source_adapter.execute_case(sdk_case)
-            except Exception as exc:
-                return _inconclusive(case_id=sdk_case.id, strategy=ExecutionStrategy.EXTRACT_READ, reason=str(exc))
+            return await _run_with_retry(
+                lambda: source_adapter.execute_case(sdk_case),
+                case_id=sdk_case.id, strategy=ExecutionStrategy.EXTRACT_READ,
+                reason_class_on_error=InconclusiveReason.ADAPTER_ERROR,
+                timeout_seconds=charter.timeout_seconds, retry_timeout_seconds=retry_timeout_seconds,
+            )
 
-    async def run_target() -> ResultSet:
+    async def run_target() -> tuple[ResultSet, int]:
         async with workspace_semaphore:
-            try:
-                return await target_adapter.evaluate(query_text=query_text, case=sdk_case, workspace=workspace)
-            except Exception as exc:
-                return _inconclusive(
-                    case_id=sdk_case.id, strategy=ExecutionStrategy.XMLA_DAX, reason=str(exc),
-                    detail={"dax_query": query_text},
-                )
+            return await _run_with_retry(
+                lambda: target_adapter.evaluate(query_text=query_text, case=sdk_case, workspace=workspace),
+                case_id=sdk_case.id, strategy=ExecutionStrategy.XMLA_DAX,
+                reason_class_on_error=InconclusiveReason.EXECUTOR_ERROR,
+                timeout_seconds=charter.timeout_seconds, retry_timeout_seconds=retry_timeout_seconds,
+                detail={"dax_query": query_text},
+            )
 
-    expected, candidate = await asyncio.gather(run_source(), run_target())
+    (expected, expected_attempts), (candidate, candidate_attempts) = await asyncio.gather(
+        run_source(), run_target()
+    )
+
+    await record_execution_observation(
+        pool, graph_name, mu_ref=workbook_id, case_id=case_id, side="source",
+        strategy=expected.strategy, outcome=expected.outcome, reason_class=expected.reason_class,
+        attempts=expected_attempts, created_by=principal.value,
+    )
+    await record_execution_observation(
+        pool, graph_name, mu_ref=workbook_id, case_id=case_id, side="target",
+        strategy=candidate.strategy, outcome=candidate.outcome, reason_class=candidate.reason_class,
+        attempts=candidate_attempts, created_by=principal.value,
+    )
 
     expected_artefact = await artefact_store.store(
         kind="result_set_expected", mu_ref=workbook_id, case_id=case_id,
@@ -406,6 +569,10 @@ async def _execute_one_case(
         "candidate_ref": candidate_artefact.id,
         "expected_outcome": expected.outcome.value,
         "candidate_outcome": candidate.outcome.value,
+        "expected_reason_class": expected.reason_class.value if expected.reason_class else None,
+        "candidate_reason_class": candidate.reason_class.value if candidate.reason_class else None,
+        "expected_attempts": expected_attempts,
+        "candidate_attempts": candidate_attempts,
         "source_strategy": expected.strategy.value,
         "query_text": query_text,
     }
@@ -423,6 +590,7 @@ async def execute_cases_for_workbook(
     workspace: str,
     site_semaphore: asyncio.Semaphore,
     workspace_semaphore: asyncio.Semaphore,
+    charter: ExecutionCharter,
     principal: Principal,
 ) -> dict[str, Any]:
     """Execute every live `ParityCase` for a workbook, source and target sides in
@@ -451,11 +619,84 @@ async def execute_cases_for_workbook(
             pool, graph_name, writer, artefact_store, source_adapter, target_adapter,
             case_id=case_id, case_properties=case_properties, workbook_id=workbook_id,
             workbook_luid=workbook_luid, workspace=workspace,
-            site_semaphore=site_semaphore, workspace_semaphore=workspace_semaphore, principal=principal,
+            site_semaphore=site_semaphore, workspace_semaphore=workspace_semaphore,
+            charter=charter, principal=principal,
         )
 
     results = list(await asyncio.gather(*(one(cid, props) for cid, props in cases.items())))
     return {"workbook_id": workbook_id, "cases_executed": len(results), "results": results}
+
+
+# --------------------------------------------------------------------------- observability
+
+
+async def record_execution_observation(
+    pool: asyncpg.Pool,
+    graph_name: str,
+    *,
+    mu_ref: str,
+    case_id: str,
+    side: str,
+    strategy: ExecutionStrategy,
+    outcome: ExecutionOutcome,
+    reason_class: InconclusiveReason | None,
+    attempts: int,
+    created_by: str,
+) -> None:
+    """Append-only, the identical footing `patterns.record_observation`/`calibration.
+    PostgresCalibrationStore.record` already set -- `inconclusive_rate` is always
+    computed live from the complete history this platform has actually seen, never a
+    maintained counter. One row per side per case per execution, win or lose, so the
+    rate has a real denominator, not only a count of failures."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            f"""INSERT INTO {EXECUTION_OBSERVATION_TABLE}
+             (id, graph, mu_ref, case_id, side, strategy, outcome, reason_class, attempts,
+              created_by, recorded_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())""",
+            f"exeobs_{new_ulid()}", graph_name, mu_ref, case_id, side, strategy.value,
+            outcome.value, reason_class.value if reason_class else None, attempts, created_by,
+        )
+
+
+async def inconclusive_rate(
+    pool: asyncpg.Pool,
+    graph_name: str,
+    *,
+    window_hours: float = DEFAULT_INCONCLUSIVE_WINDOW_HOURS,
+    threshold: float = DEFAULT_INCONCLUSIVE_RATE_THRESHOLD,
+) -> dict[str, Any]:
+    """The AC's own Platform Health metric: total executions versus INCONCLUSIVE ones,
+    recomputed live over the trailing window -- see this module's own docstring for why
+    a window, not all-time."""
+    async with pool.acquire() as conn:
+        totals = await conn.fetchrow(
+            f"""SELECT count(*) AS total,
+                       count(*) FILTER (WHERE outcome = 'INCONCLUSIVE') AS inconclusive
+                  FROM {EXECUTION_OBSERVATION_TABLE}
+                 WHERE graph = $1 AND recorded_at >= now() - ($2 * interval '1 hour')""",
+            graph_name, window_hours,
+        )
+        by_reason_rows = await conn.fetch(
+            f"""SELECT reason_class, count(*) AS n
+                  FROM {EXECUTION_OBSERVATION_TABLE}
+                 WHERE graph = $1 AND recorded_at >= now() - ($2 * interval '1 hour')
+                   AND outcome = 'INCONCLUSIVE' AND reason_class IS NOT NULL
+              GROUP BY reason_class""",
+            graph_name, window_hours,
+        )
+    total = (totals["total"] if totals else 0) or 0
+    inconclusive = (totals["inconclusive"] if totals else 0) or 0
+    rate = (inconclusive / total) if total else 0.0
+    return {
+        "window_hours": window_hours,
+        "total": total,
+        "inconclusive": inconclusive,
+        "rate": rate,
+        "threshold": threshold,
+        "alert": rate > threshold,
+        "by_reason": {row["reason_class"]: row["n"] for row in by_reason_rows},
+    }
 
 
 class CaseExecutionService:
@@ -476,6 +717,7 @@ class CaseExecutionService:
         target_adapter: TargetAdapter,
         fabric_concurrency: int = DEFAULT_FABRIC_CONCURRENCY,
         tableau_concurrency: int = DEFAULT_TABLEAU_CONCURRENCY,
+        execution_charter: ExecutionCharter | None = None,
     ) -> None:
         self._pool = pool
         self._graph = graph_name
@@ -485,6 +727,7 @@ class CaseExecutionService:
         self._target_adapter = target_adapter
         self._fabric_concurrency = max(1, fabric_concurrency)
         self._tableau_concurrency = max(1, tableau_concurrency)
+        self._charter = execution_charter or ExecutionCharter()
         self._workspace_semaphores: dict[str, asyncio.Semaphore] = {}
         self._site_semaphores: dict[str, asyncio.Semaphore] = {}
 
@@ -515,18 +758,36 @@ class CaseExecutionService:
             workbook_id=workbook_id, workspace=workspace,
             site_semaphore=self._site_semaphore(site),
             workspace_semaphore=self._workspace_semaphore(workspace),
-            principal=principal,
+            charter=self._charter, principal=principal,
+        )
+
+    async def inconclusive_rate(
+        self,
+        *,
+        window_hours: float = DEFAULT_INCONCLUSIVE_WINDOW_HOURS,
+        threshold: float = DEFAULT_INCONCLUSIVE_RATE_THRESHOLD,
+    ) -> dict[str, Any]:
+        """The AC's own Platform Health metric -- see the module-level `inconclusive_
+        rate` function for what this computes."""
+        return await inconclusive_rate(
+            self._pool, self._graph, window_hours=window_hours, threshold=threshold
         )
 
 
 __all__ = [
     "DEFAULT_FABRIC_CONCURRENCY",
+    "DEFAULT_INCONCLUSIVE_RATE_THRESHOLD",
+    "DEFAULT_INCONCLUSIVE_WINDOW_HOURS",
+    "DEFAULT_RETRY_TIMEOUT_MULTIPLIER",
     "DEFAULT_TABLEAU_CONCURRENCY",
+    "EXECUTION_OBSERVATION_TABLE",
     "RESULT_SET_MEDIA_TYPE",
     "CaseExecutionError",
     "CaseExecutionService",
     "build_dax_query",
     "execute_cases_for_workbook",
+    "inconclusive_rate",
+    "record_execution_observation",
     "result_set_to_parquet",
     "to_sdk_filters",
     "to_sdk_parameters",

@@ -1,5 +1,5 @@
-"""Dual execution, against real PostgreSQL + Apache AGE -- story S7.3.1, opening F7.3,
-spec §10.2.
+"""Dual execution, against real PostgreSQL + Apache AGE -- stories S7.3.1/S7.3.2,
+closing F7.3, spec §10.2.
 
 What only the real stack can answer: that a real, derived `ParityCase` really gets run
 on both a real `SourceAdapter` and a real `TargetAdapter`, concurrently, and that both
@@ -7,9 +7,13 @@ sides' `ResultSet`s land as real Parquet artefacts with a real content hash; tha
 `expected_ref`/`candidate_ref` are really written back onto the case while `state` is
 really left alone; that a real `Field -> ModelTable` `MAPS_TO` binding really qualifies
 the DAX query text when one exists; that a source-side adapter failure (an unmatched
-workbook luid) is really recorded as `INCONCLUSIVE`, not a crash; that a workbook with no
-live cases, no resolvable site, or no source adapter configured is really refused; and
-that the new route drives its own real role gate.
+workbook luid) is really recorded as `INCONCLUSIVE` with the right reason class, not a
+crash; that a workbook with no live cases, no resolvable site, or no source adapter
+configured is really refused; that the new route drives its own real role gate; that a
+real slow call is really retried once with a real longer budget and really recovers;
+that every side-execution really lands as an observation row; and that the real
+inconclusive rate, its alert threshold, and its trailing window are computed correctly
+against real rows.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ pytestmark = pytest.mark.integration
 asyncpg = pytest.importorskip("asyncpg")
 pq = pytest.importorskip("pyarrow.parquet")
 
+from astra_adapter import ExecutionCharter  # noqa: E402
 from astra_adapter.fake.source import (  # noqa: E402
     FixtureSite,
     FixtureSourceAdapter,
@@ -41,7 +46,12 @@ from astra_graph.case_derivation import (  # noqa: E402
     CaseDerivationService,
     PostgresParitySuiteStore,
 )
-from astra_graph.case_execution import CaseExecutionError, CaseExecutionService  # noqa: E402
+from astra_graph.case_execution import (  # noqa: E402
+    EXECUTION_OBSERVATION_TABLE,
+    CaseExecutionError,
+    CaseExecutionService,
+    inconclusive_rate,
+)
 from astra_graph.config import Settings  # noqa: E402
 from astra_graph.events import source_for  # noqa: E402
 from astra_graph.graph import AgeGraphRepository, create_pool  # noqa: E402
@@ -130,6 +140,7 @@ def settings() -> Settings:
                 "public.estate_event",
                 "public.parity_suite",
                 "public.artefacts",
+                "public.execution_observation",
             ):
                 await conn.execute(f"DELETE FROM {table} WHERE graph = $1", config.graph_name)
             await conn.execute("SELECT ag_catalog.drop_graph($1, true)", config.graph_name)
@@ -313,7 +324,136 @@ async def test_a_source_side_luid_mismatch_is_recorded_inconclusive_not_a_crash(
     assert result["cases_executed"] > 0
     for one in result["results"]:
         assert one["expected_outcome"] == "INCONCLUSIVE"
+        assert one["expected_reason_class"] == "ADAPTER_ERROR"
+        # A raised AdapterError is retried once too (S7.3.2's own broadened rule, not
+        # only a timeout) -- the mismatch is real on both attempts, so it surfaces still
+        # INCONCLUSIVE after using its one retry.
+        assert one["expected_attempts"] == 2
         assert one["candidate_outcome"] == "OK"
+        assert one["candidate_reason_class"] is None
+
+
+class _SlowSourceAdapter:
+    """Wraps a real `FixtureSourceAdapter`, delaying `execute_case` by a configurable
+    duration -- real enough to exercise `CaseExecutionService`'s own retry-with-a-
+    longer-budget path end to end, story S7.3.2's own AC."""
+
+    def __init__(self, inner: FixtureSourceAdapter, *, delay_seconds: float) -> None:
+        self._inner = inner
+        self._delay_seconds = delay_seconds
+        self.calls = 0
+
+    async def execute_case(self, case: Any) -> Any:
+        self.calls += 1
+        await asyncio.sleep(self._delay_seconds)
+        return await self._inner.execute_case(case)
+
+
+async def test_a_slow_source_call_is_retried_once_with_a_longer_budget_and_recovers(estate) -> None:
+    # First budget 0.1s < the real 0.15s delay (times out); retry budget
+    # 0.1 * DEFAULT_RETRY_TIMEOUT_MULTIPLIER (2.0) = 0.2s > 0.15s (recovers).
+    slow_adapter = _SlowSourceAdapter(estate["source_adapter"], delay_seconds=0.15)
+    service = CaseExecutionService(
+        estate["pool"], graph_name=estate["settings"].graph_name, writer=estate["writer"],
+        artefact_store=estate["artefact_store"], source_adapter=slow_adapter,
+        target_adapter=estate["target_adapter"],
+        execution_charter=ExecutionCharter(timeout_seconds=0.1),
+    )
+    result = await service.execute(estate["workbook"], workspace="dev", principal=PARITY_ENGINEER)
+    assert result["cases_executed"] > 0
+    for one in result["results"]:
+        assert one["expected_outcome"] == "OK"
+        assert one["expected_reason_class"] is None
+        assert one["expected_attempts"] == 2  # timed out once, recovered on the retry
+    assert slow_adapter.calls == 2 * result["cases_executed"]
+
+
+async def test_a_slow_source_call_that_never_recovers_surfaces_a_real_timeout(estate) -> None:
+    # Even the retry's own longer budget (0.02 * 2 = 0.04s) is far shorter than the
+    # 0.2s delay -- both attempts genuinely time out.
+    slow_adapter = _SlowSourceAdapter(estate["source_adapter"], delay_seconds=0.2)
+    service = CaseExecutionService(
+        estate["pool"], graph_name=estate["settings"].graph_name, writer=estate["writer"],
+        artefact_store=estate["artefact_store"], source_adapter=slow_adapter,
+        target_adapter=estate["target_adapter"],
+        execution_charter=ExecutionCharter(timeout_seconds=0.02),
+    )
+    result = await service.execute(estate["workbook"], workspace="dev", principal=PARITY_ENGINEER)
+    for one in result["results"]:
+        assert one["expected_outcome"] == "INCONCLUSIVE"
+        assert one["expected_reason_class"] == "TIMEOUT"
+        assert one["expected_attempts"] == 2
+    assert slow_adapter.calls == 2 * result["cases_executed"]
+
+
+# ------------------------------------------------------------------------ observability
+
+
+async def test_executing_records_one_observation_row_per_side_per_case(estate) -> None:
+    result = await estate["service"].execute(estate["workbook"], workspace="dev", principal=PARITY_ENGINEER)
+    async with estate["pool"].acquire() as conn:
+        rows = await conn.fetch(
+            f"SELECT side, strategy, outcome, reason_class, attempts FROM {EXECUTION_OBSERVATION_TABLE} "
+            "WHERE graph = $1 ORDER BY side",
+            estate["settings"].graph_name,
+        )
+    assert len(rows) == 2 * result["cases_executed"]
+    sides = {row["side"] for row in rows}
+    assert sides == {"source", "target"}
+    assert all(row["outcome"] == "OK" for row in rows)
+    assert all(row["reason_class"] is None for row in rows)
+    assert all(row["attempts"] == 1 for row in rows)
+
+
+async def test_inconclusive_rate_is_zero_after_an_all_ok_execution(estate) -> None:
+    await estate["service"].execute(estate["workbook"], workspace="dev", principal=PARITY_ENGINEER)
+    report = await estate["service"].inconclusive_rate()
+    assert report["total"] > 0
+    assert report["inconclusive"] == 0
+    assert report["rate"] == 0.0
+    assert report["alert"] is False
+    assert report["by_reason"] == {}
+
+
+async def test_inconclusive_rate_reflects_a_real_failure_and_trips_the_alert(estate) -> None:
+    mismatched_adapter = FixtureSourceAdapter(
+        [FixtureSite(name="other-site", workbooks=[FixtureWorkbook(name="Other", luid="different-luid", project="Risk Core")])]
+    )
+    service = CaseExecutionService(
+        estate["pool"], graph_name=estate["settings"].graph_name, writer=estate["writer"],
+        artefact_store=estate["artefact_store"], source_adapter=mismatched_adapter,
+        target_adapter=estate["target_adapter"],
+    )
+    result = await service.execute(estate["workbook"], workspace="dev", principal=PARITY_ENGINEER)
+
+    report = await service.inconclusive_rate()
+    expected_total = 2 * result["cases_executed"]
+    expected_inconclusive = result["cases_executed"]  # every source side, none of the target sides
+    assert report["total"] == expected_total
+    assert report["inconclusive"] == expected_inconclusive
+    assert report["rate"] == pytest.approx(expected_inconclusive / expected_total)
+    assert report["alert"] is True  # far above the default 2% threshold
+    assert report["by_reason"] == {"ADAPTER_ERROR": expected_inconclusive}
+
+
+async def test_inconclusive_rate_respects_a_lower_threshold_argument(estate) -> None:
+    await estate["service"].execute(estate["workbook"], workspace="dev", principal=PARITY_ENGINEER)
+    report = await estate["service"].inconclusive_rate(threshold=-1.0)
+    assert report["alert"] is True  # even a real 0% rate exceeds an impossible -1.0 threshold
+
+
+async def test_inconclusive_rate_excludes_observations_outside_the_window(estate) -> None:
+    await estate["service"].execute(estate["workbook"], workspace="dev", principal=PARITY_ENGINEER)
+    async with estate["pool"].acquire() as conn:
+        await conn.execute(
+            f"UPDATE {EXECUTION_OBSERVATION_TABLE} SET recorded_at = now() - interval '48 hours' "
+            "WHERE graph = $1",
+            estate["settings"].graph_name,
+        )
+    report = await inconclusive_rate(estate["pool"], estate["settings"].graph_name, window_hours=24.0)
+    assert report["total"] == 0
+    assert report["rate"] == 0.0
+    assert report["alert"] is False
 
 
 async def test_executing_a_workbook_with_no_live_cases_is_refused(estate) -> None:
@@ -397,3 +537,20 @@ async def test_execute_over_http_with_no_cases_is_a_clean_400(estate, http_clien
         headers=_headers("parity_engineer", PARITY_ENGINEER),
     )
     assert response.status_code == 400
+
+
+async def test_platform_health_over_http_reports_the_real_inconclusive_rate(estate, http_client) -> None:
+    await http_client.post(
+        f"/v1/workbooks/{estate['workbook']}:execute-parity-cases",
+        headers=_headers("parity_engineer", PARITY_ENGINEER),
+    )
+    response = await http_client.get(
+        "/v1/platform/health", headers=_headers("platform_engineer", PARITY_ENGINEER),
+    )
+    assert response.status_code == 200
+    execution = response.json()["execution"]
+    assert execution["available"] is True
+    assert execution["total"] > 0
+    assert execution["inconclusive"] == 0
+    assert execution["threshold"] == pytest.approx(0.02)
+    assert execution["alert"] is False

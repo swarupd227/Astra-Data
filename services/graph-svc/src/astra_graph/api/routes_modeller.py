@@ -65,7 +65,7 @@ def _build_store(request: Request) -> BuildStore:
 
 
 def _conformance_store(request: Request) -> ConformanceRulesetStore:
-    store: ConformanceRulesetStore | None = getattr(request.app.state, "conformance_store", None)
+    store: ConformanceRulesetStore | None = getattr(request.app.state, "conformance_ruleset_store", None)
     if store is None:
         raise InvalidRequestError("builds are not available on this deployment")
     return store

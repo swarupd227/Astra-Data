@@ -145,7 +145,7 @@ async def http_client(store):
     from astra_graph.main import create_app
 
     app = create_app()
-    app.state.conformance_store = store
+    app.state.conformance_ruleset_store = store
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://graph-svc") as async_client:

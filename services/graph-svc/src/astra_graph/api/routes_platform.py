@@ -3,8 +3,9 @@
 S1.2.4: "schedule and last run are visible on Platform Health". Specification §15.3.3 wants
 more on that screen than one service holds — executor latencies, gateway error rates,
 pattern promotions — which arrive with the epics that own them (E12/F12.3). This is the
-graph service's contribution: what its adapter is, what is scheduled, what ran, and what
-drifted.
+graph service's contribution: what its adapter is, what is scheduled, what ran, what
+drifted, and (story S7.3.2) how the inconclusive rate is trending against its own alert
+threshold.
 
 ``/health`` stays what it is: a readiness probe for the container platform, cheap enough to
 call every few seconds. This is the operator's view, and it costs real queries.
@@ -64,6 +65,7 @@ async def platform_health(
         "schedules": await _schedules(state),
         "harvests": await _harvests(state),
         "source_drift": await _drift(state),
+        "execution": await _execution(state),
         "directory_resolver": str(getattr(getattr(state, "directory", None), "kind", "none")),
         "migration_units": str(
             getattr(getattr(state, "migration_units", None), "kind", "none")
@@ -267,6 +269,18 @@ async def _drift(state: Any) -> dict[str, Any]:
             for event in events
         ],
     }
+
+
+async def _execution(state: Any) -> dict[str, Any]:
+    """The AC's own Platform Health metric (story S7.3.2): the inconclusive rate over
+    the trailing window, against the default 2% alert threshold. Computed-on-read from
+    `public.execution_observation`, the same footing every other section of this route
+    already has -- the real Platform Health *screen* is S12.3.2's own later, unbuilt
+    console surface (E12/F12.3); this is only this service's own contribution to it."""
+    service = getattr(state, "case_execution", None)
+    if service is None:  # pragma: no cover - set in every wiring path
+        return {"available": False, "detail": "dual execution is not available on this deployment"}
+    return {"available": True, **await service.inconclusive_rate()}
 
 
 __all__ = ["router"]

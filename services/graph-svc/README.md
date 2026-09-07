@@ -2131,9 +2131,9 @@ same workspace share a real bound, not a fresh one each time. Each side of a cas
 execution acquires only the semaphore relevant to it; the two calls already run
 concurrently via `asyncio.gather`.
 
-**A failure on either side is recorded `INCONCLUSIVE`, once, honestly** -- not a crash,
-and not the retry-with-a-longer-budget loop S7.3.2 (F7.3's own second and last story)
-owns next. No diff, no verdict: §10.3-§10.6 are F7.4's own later scope.
+**A failure on either side is recorded `INCONCLUSIVE`, once, honestly, with its own
+retry** -- see S7.3.2 below for the retry and reason-class detail this story's own AC
+stops short of. No diff, no verdict: §10.3-§10.6 are F7.4's own later scope.
 
 **`ParityCase.state` is left untouched** -- it already carries S7.2.1/S7.2.2's own
 origin tag (`DERIVED`/`MANUAL`); execution populates `expected_ref`/`candidate_ref`
@@ -2145,6 +2145,57 @@ new read route -- `expected_ref`/`candidate_ref` land on the same `ParityCase` n
 `GET .../parity-cases` already lists.
 
 See [ADR 0053](../../docs/adr/0053-dual-execution-a-symmetric-resultset-and-two-persistent-concurrency-pools.md)
+for the full reasoning.
+
+### INCONCLUSIVE as a first-class outcome, and its own Platform Health metric (story S7.3.2, closes F7.3)
+
+Every execution call is now real-timeout-bounded (`asyncio.wait_for`) and classified by
+a real, typed cause -- `InconclusiveReason.TIMEOUT`/`ADAPTER_ERROR`/`EXECUTOR_ERROR`/
+`SAMPLING_SHORTFALL` (`astra_adapter.proof`) -- rather than a plain free-text `reason`
+string alone. A failure is retried exactly once, with a longer budget (`timeout_seconds
+* DEFAULT_RETRY_TIMEOUT_MULTIPLIER`, an invented, disclosed `2.0`); the retry's own
+outcome, not the first attempt's, is what is finally surfaced and stored.
+
+**The retry rule is broadened from §10.2's own timeout-only wording to every reason
+class** -- the backlog's own AC sentence reads as one retry rule covering all four
+causes, not only a timeout; a backlog elaboration, the identical "broaden the spec's one
+worked scenario to the general case" reading S7.2.1's own filter-context elaboration
+already used. **The one exception**: an adapter's own honest capability decline (no
+exception, no timeout -- the adapter just says it cannot do this) is never retried,
+since a longer budget cannot change whether a deployment has a capability; that case's
+own `reason_class` stays `None`, distinguishing it cleanly from this story's own four
+orchestrator-classified causes.
+
+**Every side-execution is recorded, win or lose** -- `record_execution_observation`
+appends one row per side per case per execution to a new `public.execution_observation`
+table (migration v0028, no ontology change), the identical "append-only, always computed
+live, never a maintained counter" discipline `pattern_observation`/`calibration_
+observation` already established for their own metrics.
+
+**The AC's own Platform Health metric, computed live**: `inconclusive_rate` -- total
+executions versus INCONCLUSIVE ones over a trailing 24-hour window (an invented,
+disclosed default; an alert should reflect what the platform is doing now, not a spike
+from months ago), against `DEFAULT_INCONCLUSIVE_RATE_THRESHOLD = 0.02`, the AC's own
+literal default. Surfaced as a new `"execution"` section on the existing `GET
+/v1/platform/health` route -- not a new metrics-exposition mechanism, since none exists
+anywhere in this codebase yet (a real Prometheus/OTel exporter is S12.3.1's own later,
+explicitly-scoped-elsewhere work), and the real Platform Health *screen* is S12.3.2's
+own later, unbuilt console surface (E12/F12.3) -- this route stays, as its own docstring
+already says, "the graph service's contribution."
+
+**Found live, fixed at the root: `app.state.conformance_store` had named two different
+stores since S4.3.2.** Smoke-testing this story's own new `"execution"` section hit a
+real 500 -- but in an *unrelated*, pre-existing section (`_conformance`), from
+`main.py` wiring both S2.1.2's own adapter-promotion store and S4.3.2's own
+model-build-rules store onto the identical attribute name, the second silently
+shadowing the first at every real startup. `routes_adapters.py`/`routes_platform.py`
+had been reading the wrong store type since S4.3.2 shipped; no test caught it because
+every test wires its own isolated app by hand rather than exercising the real startup
+path. Split into `conformance_store` (adapter promotion) and `conformance_ruleset_store`
+(model build rules) -- see ADR 0054's own decision 9 for the full account, including why
+a dedicated regression test against the real `lifespan()` was considered and declined.
+
+See [ADR 0054](../../docs/adr/0054-inconclusive-as-a-first-class-outcome-a-broadened-retry-and-a-live-rate.md)
 for the full reasoning.
 
 ## Grammar issues

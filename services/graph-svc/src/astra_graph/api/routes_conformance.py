@@ -28,7 +28,7 @@ router = APIRouter()
 
 
 def _store(request: Request) -> ConformanceRulesetStore:
-    store: ConformanceRulesetStore | None = getattr(request.app.state, "conformance_store", None)
+    store: ConformanceRulesetStore | None = getattr(request.app.state, "conformance_ruleset_store", None)
     if store is None:
         raise InvalidRequestError("the conformance ruleset is not available on this deployment")
     return store

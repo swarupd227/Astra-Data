@@ -435,7 +435,7 @@ async def http_client(estate):
     app.state.question_store = estate["question_store"]
     app.state.artefact_store = estate["artefact_store"]
     app.state.build_store = estate["build_store"]
-    app.state.conformance_store = estate["conformance_store"]
+    app.state.conformance_ruleset_store = estate["conformance_store"]
     app.state.target_adapter = estate["target_adapter"]
     app.state.target_workspace = "dev"
     app.state.target_workspace_published = "prod"

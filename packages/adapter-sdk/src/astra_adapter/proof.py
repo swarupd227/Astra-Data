@@ -33,6 +33,33 @@ class ExecutionOutcome(str, Enum):
     INCONCLUSIVE = "INCONCLUSIVE"
 
 
+class InconclusiveReason(str, Enum):
+    """Why an outcome is INCONCLUSIVE, not just that it is (§10.2, story S7.3.2's own
+    AC: "produce INCONCLUSIVE with the reason class").
+
+    Four classes, the AC's own words: a timeout, an exception from the *source*
+    adapter's own ``execute_case`` (``ADAPTER_ERROR``), an exception from the *target*
+    executor's own ``evaluate`` (``EXECUTOR_ERROR``), and a stratified sample that could
+    not be built (``SAMPLING_SHORTFALL`` — §10.3's own verdict rule: "INCONCLUSIVE if
+    either execution did not complete or the sample could not be stratified"). Distinct
+    from the free-text ``ResultSet.reason`` the same way ``ExecutionStrategy`` is
+    distinct from a query string: a Platform Health metric needs to break an
+    inconclusive rate down by cause, not lump every "did not complete" together.
+
+    ``SAMPLING_SHORTFALL`` is declared, disclosed, and never produced by anything in
+    this codebase today — §10.4 sampling is F7.4's own later, unbuilt scope (confirmed
+    by direct research against the backlog's own F7.3/F7.4 boundary), so no execution
+    path here can fail *this* way yet. Declaring it now, unproducible, is the same
+    "descriptive today, real the moment the owning story lands" posture this codebase
+    already gave `Pattern.guards`/`rules.RuleMeta.guards`.
+    """
+
+    TIMEOUT = "TIMEOUT"
+    ADAPTER_ERROR = "ADAPTER_ERROR"
+    EXECUTOR_ERROR = "EXECUTOR_ERROR"
+    SAMPLING_SHORTFALL = "SAMPLING_SHORTFALL"
+
+
 class ColumnRole(str, Enum):
     """§10.1 splits a case into a *grain* and its *measures*, and the diff treats them
     differently: the grain is the key rows are matched on, the measures are what is compared
@@ -130,6 +157,14 @@ class ResultSet:
     """Why, when the outcome is not OK. A timeout that said only "inconclusive" would leave
     a parity engineer to guess between a slow warehouse, a missing extract and a rejected
     credential."""
+
+    reason_class: InconclusiveReason | None = None
+    """The categorical cause behind ``reason`` (story S7.3.2), so a Platform Health metric
+    can compute an inconclusive rate broken down by cause rather than only its total.
+    Absent when the outcome is OK, and also absent for a source adapter's own honest
+    capability decline (e.g. "this fixture claims neither extract_read nor live_query") --
+    that is a real INCONCLUSIVE the adapter chose for itself, not one of this story's own
+    four orchestrator-classified causes."""
 
     truncated: bool = False
     """The row limit was reached. §10's comparison must refuse rather than diff."""

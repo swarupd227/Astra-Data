@@ -78,7 +78,7 @@ async def _build_on_approval(request: Request, family_id: str, *, gate_decision_
     build_store = getattr(request.app.state, "build_store", None)
     artefact_store = getattr(request.app.state, "artefact_store", None)
     target_adapter = getattr(request.app.state, "target_adapter", None)
-    conformance_store = getattr(request.app.state, "conformance_store", None)
+    conformance_store = getattr(request.app.state, "conformance_ruleset_store", None)
     if build_store is None or artefact_store is None or target_adapter is None or conformance_store is None:
         return
     engine = _modeller_engine(request)
