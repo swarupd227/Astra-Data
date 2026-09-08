@@ -1057,6 +1057,59 @@ export interface ParityDashboardResponse {
   };
 }
 
+// ---------------------------------------------------------------------------- Regression
+
+/** §10.6 (story S7.7.1) -- one workbook's own recurring regression check. */
+export interface RegressionScheduleRecord {
+  id: string;
+  workbook_id: string;
+  workspace: string;
+  cadence: { every_minutes: number } | { daily_at: string };
+  cadence_description: string;
+  enabled: boolean;
+  paused_reason: string | null;
+  /** `null` when disabled -- a paused schedule has no next firing to show. */
+  next_run_at: string | null;
+  last_run: {
+    id: string | null;
+    at: string | null;
+    /** `"PASS" | "FAIL" | "INCONCLUSIVE"`, or `null` before the first check ever runs. */
+    result: string | null;
+    error: string | null;
+  };
+  consecutive_failures: number;
+  created_by: string;
+  created_at: string | null;
+}
+
+export interface RegressionDriftAlert {
+  /** True when a real `SOURCE_DRIFT` event names this workbook and this schedule has
+   * not yet checked it (§10.6's own "on SOURCE_DRIFT" trigger). */
+  unaddressed: boolean;
+  last_drift_at: string | null;
+}
+
+export interface RegressionMonitorRow {
+  workbook_id: string;
+  workbook_name: string;
+  /** `null` for a released workbook nobody has enrolled in scheduled regression yet. */
+  schedule: RegressionScheduleRecord | null;
+  last_result: string | null;
+  drift_alert: RegressionDriftAlert;
+}
+
+export interface RegressionMonitorResponse {
+  workbooks: RegressionMonitorRow[];
+  count: number;
+}
+
+export interface RegressionExportRecord {
+  id: string;
+  kind: string;
+  mu_ref: string;
+  size_bytes: number;
+}
+
 export interface VerdictRow {
   id: string;
   case_ref: string;
@@ -1264,6 +1317,14 @@ export interface Api {
   runParity(workbookId: string, identity: Identity): Promise<RunParityResult>;
   runVisualParity(workbookId: string, identity: Identity): Promise<RunVisualParityResult>;
   visualCaptures(workbookId: string, visualId: string, identity: Identity): Promise<VisualCapturePair>;
+  regressionMonitor(identity: Identity): Promise<RegressionMonitorResponse>;
+  scheduleRegression(
+    workbookId: string,
+    workspace: string,
+    identity: Identity,
+    cadence?: { every_minutes: number } | { daily_at: string },
+  ): Promise<RegressionScheduleRecord>;
+  exportRegressionSuite(workbookId: string, identity: Identity): Promise<RegressionExportRecord>;
 }
 
 export function createApi(base = ''): Api {
@@ -1565,6 +1626,23 @@ export function createApi(base = ''): Api {
         `/v1/workbooks/${workbookId}/visual-captures/${visualId}`,
         identity,
       )) as VisualCapturePair;
+    },
+    async regressionMonitor(identity) {
+      return (await get('/v1/regression-monitor', identity)) as RegressionMonitorResponse;
+    },
+    async scheduleRegression(workbookId, workspace, identity, cadence) {
+      return (await post(
+        `/v1/workbooks/${workbookId}:schedule-regression`,
+        cadence ? { workspace, cadence } : { workspace },
+        identity,
+      )) as RegressionScheduleRecord;
+    },
+    async exportRegressionSuite(workbookId, identity) {
+      return (await post(
+        `/v1/workbooks/${workbookId}:export-regression-suite`,
+        {},
+        identity,
+      )) as RegressionExportRecord;
     },
   };
 }

@@ -42,6 +42,7 @@ from .api import (
     provenance_router,
     quality_router,
     redesign_router,
+    regression_router,
     router,
     rules_router,
     schedules_router,
@@ -95,6 +96,14 @@ from .logging_setup import configure_logging
 from .modeller import Modeller
 from .ontology import SCHEMA_VERSION
 from .provenance import ContextVerifier, PostgresProvenanceStore
+from .regression import (
+    LocalNotificationChannel as LocalRegressionNotificationChannel,
+)
+from .regression import (
+    PostgresRegressionScheduleStore,
+    RegressionScheduler,
+    RegressionService,
+)
 from .report_deploy import PostgresReportDeployStore
 from .retention import PostgresProgrammeStore
 from .rules import RulesEngine
@@ -318,6 +327,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
         source_adapter=app.state.source_adapter, target_adapter=app.state.target_adapter,
     )
+    # Story S7.7.1, closing F7.7/E7: §10.6 regression -- re-executing (S7.3.1) and
+    # re-diffing (S7.4.1) a released workbook's own retained suite on a schedule, on
+    # SOURCE_DRIFT, or after a model publish. See regression.py's own docstring for why
+    # this re-executes rather than merely re-diffing stale ResultSets.
+    app.state.regression_schedule_store = PostgresRegressionScheduleStore(pool, graph_name=config.graph_name)
+    app.state.regression_service = RegressionService(
+        pool, graph_name=config.graph_name, store=app.state.regression_schedule_store,
+        case_derivation=app.state.case_derivation, charter_store=app.state.tolerance_charter_store,
+    )
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(
         quality=quality_store,
@@ -342,6 +360,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         scheduler_task = asyncio.create_task(app.state.scheduler.run_forever())
 
+    # Story S7.7.1. A second, independent scheduler -- see regression.py's own docstring
+    # for why it is a parallel copy of HarvestScheduler's own shape rather than a
+    # generalisation of it. Gated identically: no source adapter, no real execution to
+    # re-run regression checks with.
+    app.state.regression_scheduler = None
+    regression_scheduler_task: asyncio.Task[None] | None = None
+    if app.state.source_adapter is None:
+        logger.info("no source adapter, so no regression scheduler started")
+    elif not config.scheduler_enabled:
+        logger.info("regression scheduler disabled by configuration")
+    else:
+        app.state.regression_scheduler = RegressionScheduler(
+            pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
+            verdicts=app.state.verdicts, case_execution=app.state.case_execution,
+            charter_store=app.state.tolerance_charter_store, store=app.state.regression_schedule_store,
+            notifier=LocalRegressionNotificationChannel(), poll_seconds=config.scheduler_poll_seconds,
+        )
+        regression_scheduler_task = asyncio.create_task(app.state.regression_scheduler.run_forever())
+
     try:
         yield
     finally:
@@ -349,6 +386,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             scheduler_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await scheduler_task
+        if regression_scheduler_task is not None:
+            regression_scheduler_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await regression_scheduler_task
         # A harvest is an in-process task until Temporal takes over (E12/F12.1). Its run
         # record is already persisted, so cancelling here loses the worker, not the trail.
         for task in list(app.state.harvest_tasks):
@@ -402,6 +443,7 @@ def create_app() -> FastAPI:
     app.include_router(case_execution_router)
     app.include_router(verdicts_router)
     app.include_router(visual_parity_router)
+    app.include_router(regression_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

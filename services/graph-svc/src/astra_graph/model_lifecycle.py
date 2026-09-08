@@ -56,9 +56,10 @@ See ADR 0029.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import asyncpg
 
@@ -72,6 +73,13 @@ from .ontology.types import BASE_NODE_PROPERTIES
 from .principal import Principal
 from .versions import EVENT_TABLE
 from .writes import GraphWriter, NodeWrite
+
+logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:  # regression.py -> tolerance_charter.py -> g2.py -> model_lifecycle.py:
+    from .regression import (
+        RegressionScheduleStore,  # a real cycle; see promote_family's own local import.
+    )
 
 #: §12.2's table, transcribed. Keys are the state a family is in; values are the states it
 #: may legally move to from there.
@@ -648,12 +656,21 @@ async def promote_family(
     family_id: str,
     *,
     principal: Principal,
+    regression_schedule_store: RegressionScheduleStore | None = None,
 ) -> dict[str, Any]:
     """`BUILT` -> `PUBLISHED` — "promote", driven for the first time by this story (every
     earlier story left it declared and undriven). Marks the current version PUBLISHED
     and, if it has a predecessor, marks that predecessor DEPRECATED with the date —
     S4.3.3's own "promoting v(n+1) marks v(n) DEPRECATED with the date." Refused if
     `regression_status` has not passed.
+
+    **§10.6's own "after every model publish" default (story S7.7.1)**: a promotion
+    nudges any already-scheduled regression check for this family's own workbooks to
+    fire on the next tick, via `trigger_after_publish` -- optional, since not every
+    caller wires scheduled regression (`regression_schedule_store` is `None` in every
+    test that predates S7.7.1), and best-effort, since a promotion this AC's own six
+    state-machine edges already gate on real deploy success must not be undone by a
+    scheduling nudge failing.
     """
     properties = await _family_properties(pool, graph_name, family_id)
     require_transition(properties.get("state"), "PUBLISHED")
@@ -706,6 +723,20 @@ async def promote_family(
         principal=principal,
     )
     await _set_family_state(writer, family_id, properties, to_state="PUBLISHED", principal=principal)
+
+    if regression_schedule_store is not None:
+        from .regression import (
+            trigger_after_publish,  # local: see this module's own TYPE_CHECKING import
+        )
+
+        try:
+            await trigger_after_publish(pool, graph_name, regression_schedule_store, family_id=family_id)
+        except Exception:
+            logger.exception(
+                "family %s published, but nudging its own regression schedules failed -- "
+                "the publish itself stands; the next scheduled or on-demand check still catches it",
+                family_id,
+            )
 
     return {
         "family_id": family_id,

@@ -52,6 +52,7 @@ _FAILURE_CLASSES = (
     "SOURCE_DRIFT",
     "UNKNOWN",
     "VISUAL_REDESIGN",
+    "REGRESSION",
 )
 
 _VALIDATION_STATE_NOTE = (
@@ -1235,6 +1236,24 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "are the AC's own three closing facts, the identical `*_by`/`*_at` shape "
                "`CalculatedField.redesign_decision_by`/`.redesign_decision_at` (S5.4.1) "
                "already set for a comparable closing action.",
+    ),
+    SpecDeviation(
+        element="ExceptionCase.class (REGRESSION)",
+        reason="Section 11.1's own failure taxonomy is for a first-pass parity verdict "
+               "the Mender diagnoses (FILTER_CONTEXT, NULL_HANDLING, ...); a regression "
+               "is a second, later fact about a report the platform already accepted -- "
+               "the identical 'different moment' gap VISUAL_REDESIGN (S6.2.1) and "
+               "SOURCE_DRIFT already have. Section 10.6 names it explicitly: 'a "
+               "regression FAIL on a released report raises an ExceptionCase tagged "
+               "REGRESSION'; backlog story S7.7.1's own acceptance criteria repeats "
+               "this verbatim.",
+        detail="Reuses the one real work-item mechanism this platform has (`ExceptionCase`) "
+               "for a third disclosed use, the same footing VISUAL_REDESIGN already set. "
+               "No new property is added: `evidence_ref` (already declared) points at a "
+               "stored artefact (kind 'regression_evidence') recording the run id and its "
+               "pass/fail/inconclusive counts -- the identical 'evidence_ref names a real "
+               "artefact' shape the parity evidence bundle (S7.4.1) already established, "
+               "not a second, REGRESSION-only property.",
     ),
     SpecDeviation(
         element="ReportDefinition.documentation_artefact_ref, "

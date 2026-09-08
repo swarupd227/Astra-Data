@@ -24,6 +24,7 @@ import { ParityDashboard } from './parity/ParityDashboard';
 import { PatternLibrary } from './patterns/PatternLibrary';
 import { ProgrammeBoard } from './programme/ProgrammeBoard';
 import { ParseQualityQueue } from './quality/ParseQualityQueue';
+import { RegressionMonitor } from './regression/RegressionMonitor';
 import { WaveBoard } from './trains/WaveBoard';
 
 /** The Estate surface's screens (§15.3.2), plus the Programme Board's own figure (S3.1.3),
@@ -45,7 +46,10 @@ import { WaveBoard } from './trains/WaveBoard';
  * editor" as the Parity Engineer's own surfaces, and neither is a natural sub-screen of
  * Admin (the Migration Architect's own single-purpose surface). The Parity Dashboard
  * (S7.4.2) is that same named surface, finally built — its own top-level entry for the
- * identical reason, not an Admin sub-screen. */
+ * identical reason, not an Admin sub-screen. The Regression Monitor (S7.7.1, closing
+ * F7.7/E7) is its own top-level entry too — the AC's own literal "Regression Monitor
+ * screen", not a Parity Dashboard tab: it lists every released workbook at once, the
+ * opposite shape from the Parity Dashboard's own one-workbook-at-a-time search. */
 export const SURFACES = [
   { key: 'estate', label: 'Estate Explorer' },
   { key: 'lineage', label: 'Lineage View' },
@@ -58,6 +62,7 @@ export const SURFACES = [
   { key: 'patterns', label: 'Pattern Library' },
   { key: 'charter', label: 'Tolerance Charter' },
   { key: 'parity', label: 'Parity Dashboard' },
+  { key: 'regression', label: 'Regression Monitor' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -195,6 +200,7 @@ export function App({
       {surface === 'patterns' && <PatternLibrary api={api} identity={identity} />}
       {surface === 'charter' && <ToleranceCharter api={api} identity={identity} />}
       {surface === 'parity' && <ParityDashboard api={api} identity={identity} />}
+      {surface === 'regression' && <RegressionMonitor api={api} identity={identity} />}
     </div>
   );
 }

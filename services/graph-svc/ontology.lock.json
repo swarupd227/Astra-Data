@@ -803,7 +803,8 @@
             "KEY_MISSING",
             "SOURCE_DRIFT",
             "UNKNOWN",
-            "VISUAL_REDESIGN"
+            "VISUAL_REDESIGN",
+            "REGRESSION"
           ],
           "name": "class",
           "required": true,
@@ -2379,5 +2380,5 @@
       "side": "source"
     }
   },
-  "schema_version": 29
+  "schema_version": 30
 }

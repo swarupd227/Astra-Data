@@ -175,7 +175,7 @@ from typing import Any, cast
 
 from astra_adapter import Column, ExecutionOutcome, ResultSet
 
-from .tolerance_charter import ToleranceCharter, compare_cell
+from .tolerance_rules import ToleranceCharter, compare_cell
 
 #: §10.3's own three lattice chains, collapsed to the family `compare_cell` dispatches
 #: on. Anything not listed here is classified "string" -- the lattice's own top element.

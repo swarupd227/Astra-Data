@@ -43,6 +43,10 @@ import type {
   PromoteResult,
   QueueResponse,
   ReclassifyResult,
+  RegressionExportRecord,
+  RegressionMonitorResponse,
+  RegressionMonitorRow,
+  RegressionScheduleRecord,
   RequestNewVersionResult,
   RuleCatalog,
   RuleCatalogEntry,
@@ -1009,6 +1013,46 @@ export function visualCapturePair(overrides: Partial<VisualCapturePair> = {}): V
   };
 }
 
+export function regressionScheduleRecord(
+  overrides: Partial<RegressionScheduleRecord> = {},
+): RegressionScheduleRecord {
+  return {
+    id: 'rs_1',
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    workspace: 'dev',
+    cadence: { every_minutes: 10080 },
+    cadence_description: 'every 10080 minutes',
+    enabled: true,
+    paused_reason: null,
+    next_run_at: '2027-06-08T09:00:00.000Z',
+    last_run: { id: 'run_9', at: '2027-06-01T09:00:00.000Z', result: 'PASS', error: null },
+    consecutive_failures: 0,
+    created_by: 'user:pm@artizent.example',
+    created_at: '2027-06-01T08:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function regressionMonitorRow(
+  overrides: Partial<RegressionMonitorRow> = {},
+): RegressionMonitorRow {
+  return {
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    workbook_name: 'Daily VaR',
+    schedule: overrides.schedule === undefined ? regressionScheduleRecord() : overrides.schedule,
+    last_result: 'PASS',
+    drift_alert: overrides.drift_alert ?? { unaddressed: false, last_drift_at: null },
+    ...overrides,
+  };
+}
+
+export function regressionMonitorResponse(
+  overrides: Partial<RegressionMonitorResponse> = {},
+): RegressionMonitorResponse {
+  const workbooks = overrides.workbooks ?? [regressionMonitorRow()];
+  return { workbooks, count: workbooks.length, ...overrides };
+}
+
 export const RAISED_ISSUE: ConstructIssue = {
   id: 'gi_01M1',
   state: 'OPEN',
@@ -1048,6 +1092,7 @@ export function fakeApi(
   initialCharter: ToleranceCharterVersion = toleranceCharterVersion(),
   initialParityDashboard: ParityDashboardResponse | null = parityDashboardResponse(),
   initialParityRun: ParityRunResponse | null = parityRunResponse(),
+  initialRegressionMonitor: RegressionMonitorResponse = regressionMonitorResponse({ workbooks: [] }),
 ): FakeApi {
   const calls: FakeApi['calls'] = { estate: [], workbook: [], lineage: [], quality: 0 };
   const recorded: FakeApi['recorded'] = [];
@@ -1055,6 +1100,8 @@ export function fakeApi(
   let charterState: ToleranceCharterVersion = { ...initialCharter, charter: { ...initialCharter.charter } };
   const parityDashboardState: ParityDashboardResponse | null = initialParityDashboard;
   const parityRunState: ParityRunResponse | null = initialParityRun;
+  const regressionMonitorRows = initialRegressionMonitor.workbooks.map((row) => ({ ...row }));
+  let regressionScheduleSeq = regressionMonitorRows.length;
   let g1Approved = false;
   const programmeRows = programmes.programmes.map((row) => ({ ...row }));
   const trainRows = trains.trains.map((train) => ({
@@ -1934,6 +1981,54 @@ export function fakeApi(
     },
     async visualCaptures(_workbookId: string, visualId: string, _identity: Identity): Promise<VisualCapturePair> {
       return visualCapturePair({ visual_id: visualId });
+    },
+    async regressionMonitor(_identity: Identity): Promise<RegressionMonitorResponse> {
+      return { workbooks: regressionMonitorRows.map((row) => ({ ...row })), count: regressionMonitorRows.length };
+    },
+    async scheduleRegression(
+      workbookId: string,
+      workspace: string,
+      identity: Identity,
+      cadence?: { every_minutes: number } | { daily_at: string },
+    ): Promise<RegressionScheduleRecord> {
+      maybeFail();
+      if (!identity.roles.includes('programme_manager')) {
+        throw new ApiError(403, 'forbidden', 'scheduling regression is the Programme Manager\'s action');
+      }
+      const row = regressionMonitorRows.find((candidate) => candidate.workbook_id === workbookId);
+      if (!row) {
+        throw new ApiError(404, 'not_found', `no released workbook '${workbookId}'`);
+      }
+      if (row.schedule) {
+        throw new ApiError(
+          400, 'invalid_request', `a regression schedule already exists for workbook '${workbookId}'`,
+        );
+      }
+      regressionScheduleSeq += 1;
+      const created = regressionScheduleRecord({
+        id: `rs_${regressionScheduleSeq}`,
+        workbook_id: workbookId,
+        workspace,
+        cadence: cadence ?? { every_minutes: 10080 },
+        cadence_description: cadence && 'daily_at' in cadence ? `daily at ${cadence.daily_at} UTC` : 'every 10080 minutes',
+        last_run: { id: null, at: null, result: null, error: null },
+        created_by: identity.principal,
+      });
+      row.schedule = created;
+      recorded.push({ kind: 'SCHEDULE_REGRESSION', id: workbookId, reason: '' });
+      return created;
+    },
+    async exportRegressionSuite(workbookId: string, identity: Identity): Promise<RegressionExportRecord> {
+      maybeFail();
+      const artizent = [
+        'programme_manager', 'migration_architect', 'semantic_model_engineer',
+        'migration_engineer', 'parity_engineer', 'platform_engineer',
+      ];
+      if (!identity.roles.some((role) => artizent.includes(role))) {
+        throw new ApiError(403, 'forbidden', 'exporting a handover suite is an Artizent action');
+      }
+      recorded.push({ kind: 'EXPORT_REGRESSION_SUITE', id: workbookId, reason: '' });
+      return { id: `af_export_${workbookId}`, kind: 'regression_export', mu_ref: workbookId, size_bytes: 4096 };
     },
   };
 }

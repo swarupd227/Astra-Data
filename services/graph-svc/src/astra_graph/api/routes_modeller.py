@@ -493,7 +493,10 @@ async def promote(
             f"could not deploy to '{published_workspace}': {deployment.detail or 'deployment failed'}"
         )
 
-    result = await promote_family(engine.pool, engine.graph_name, engine.writer, family_id, principal=principal)
+    result = await promote_family(
+        engine.pool, engine.graph_name, engine.writer, family_id, principal=principal,
+        regression_schedule_store=getattr(request.app.state, "regression_schedule_store", None),
+    )
     result["published_workspace"] = published_workspace
     result["deployment_id"] = deployment.deployment_id
     logger.info(

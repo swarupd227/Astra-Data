@@ -2399,6 +2399,92 @@ cannot be built by this story** -- G3 is F9.1/S9.1.1's own later, entirely unbui
 See [ADR 0058](../../docs/adr/0058-section-10-5-visual-parity-a-weighted-jaccard-score-and-an-average-hash.md)
 for the full reasoning.
 
+## §10.6 Regression (story S7.7.1, closes F7.7 and E7)
+
+`regression.py`: a second, independent scheduler alongside `HarvestScheduler`, mirroring
+its own shape (`Cadence` reused unchanged; `RegressionSchedule`/`RegressionScheduleStore`
+claimed with the identical `FOR UPDATE SKIP LOCKED` discipline) but applied to one
+workbook instead of one site. "On demand" needed no new code -- a Parity Engineer already
+has both buttons on the Parity Dashboard (`:execute-parity-cases`, S7.3.1, then
+`:run-parity`, S7.4.1). This story builds the *scheduled* half only.
+
+**A scheduled check re-executes, then re-diffs -- it never calls `:run-parity` alone.**
+`VerdictsService.run` diffs whatever Parquet a case's *last* execution already stored;
+re-diffing the same stale snapshot on a schedule would report the identical verdict
+forever and could never itself notice a source change. Each tick therefore calls
+`CaseExecutionService.execute` first, then `VerdictsService.run` -- the same two-step a
+Parity Engineer already performs by hand. `RegressionSchedule.workspace` (default
+`"dev"`) exists because no property anywhere binds a workbook to its own Fabric
+workspace, the identical gap `:execute-parity-cases`'s own `workspace` query parameter
+already discloses.
+
+**No `steward.py` module exists** -- `"agent:steward"` was, before this story, a bare
+`Principal` string used once and never backed by a real service (`report_documentation.
+py` already disclosed the identical gap). Every scheduled write is now attributed to
+`STEWARD_PRINCIPAL = "agent:steward"` -- the first story to make that principal actually
+act. Configuring a schedule (`:schedule-regression`) is gated on `ProgrammeManagerDep`
+instead, matching the AC's own literal persona.
+
+**"After every model publish" is a narrow, best-effort hook, not a schedule created out
+of nowhere.** `model_lifecycle.promote_family` gained one new, optional `regression_
+schedule_store` parameter; when given, `trigger_after_publish` re-bases an *already-
+existing* schedule's own `next_run_at` to now, for whichever of the family's own
+workbooks already have one -- a workbook with no schedule stays untouched, and a nudge
+failure only logs, never undoing a real, already-succeeded deploy.
+
+**"On SOURCE_DRIFT" reads the real event outbox directly.** `EventType.SOURCE_DRIFT`
+(S1.2.4) already existed; nothing consumed it before this story. Each tick compares the
+outbox's own latest drift sequence number against each schedule's own stored watermark
+-- claimed and advanced with the identical discipline `due()` already uses for
+time-based firing.
+
+**A regression FAIL never touches an MU's state** -- because no MU state machine exists
+to touch; §10.6's own words describe a constraint this codebase could not violate even
+by accident. `REGRESSION` is a new, disclosed `ExceptionCase.class` value, reusing the
+already-declared `evidence_ref` (a stored `regression_evidence` artefact: run id,
+pass/fail/inconclusive counts) rather than a new property. `NotificationChannel`/
+`LocalNotificationChannel` mirrors `g2_reminders.py`'s own honest disclosure verbatim:
+no property anywhere binds a report owner to a workbook, so "notified" means "logged,
+addressed to the role."
+
+**"Released" is `ReportDefinition.deploy_state == "GENERATED"`** -- the closest real,
+already-written fact standing in for a state (an MU node, a "parallel running" phase)
+this codebase has never built, the same reasoning already applied to `SOURCE_DRIFT` and
+`redesign_flag`. `regression_monitor` reads it directly for the Regression Monitor
+screen. Auto-pause after five consecutive failures reuses `HarvestScheduler`'s own
+constant and reasoning verbatim.
+
+**The handover export vendors the real algorithm's source, and only the parts that need
+no database.** Two new standalone modules -- `tolerance_rules.py` (the nine charter rule
+dataclasses, `ToleranceCharter`, the `compare_*` comparators, split out of
+`tolerance_charter.py`) and `case_execution_query.py` (`build_dax_query`/`to_sdk_filters`/
+`to_sdk_parameters`, split out of `case_execution.py`) -- are genuinely pure, confirmed by
+their own imports. `tolerance_charter.py`/`case_execution.py` now import from them rather
+than defining the same code twice; `diff.py` now imports `ToleranceCharter`/`compare_
+cell` from `tolerance_rules` directly. `regression_export.build_regression_export` copies
+`diff.py`, `tolerance_rules.py` and `case_execution_query.py` verbatim into a zip
+alongside a new `run_suite.py` driver, `suite.json` (case *definitions* from
+`CaseDerivationService.list_cases`, not a frozen snapshot), `charter.json` and a README --
+never `tolerance_charter.py` itself, which needs `asyncpg`/`g2.py` and is not needed
+standalone. The one mechanical exception: `diff.py`'s own in-package relative import is
+rewritten to a plain top-level one when embedded, since the bundle is a flat folder of
+scripts. "Without the platform" means without graph-svc and its database -- the Source/
+Target adapters `run_suite.py` needs are `astra-adapter-sdk`, already an independently
+installable package, loaded the identical way `adapter-sdk/cli.py`'s own CLI already
+does.
+
+New routes: `POST /v1/workbooks/{id}:schedule-regression` (`ProgrammeManagerDep`),
+`GET /v1/regression-monitor` (`ParityDashboardReaderDep`), `POST /v1/workbooks/{id}
+:export-regression-suite` (`ArtizentDep` -- the resulting artefact is fetched via the
+existing `GET /v1/artefacts/{id}/content`, not a second content-serving route). Ontology:
+`ExceptionCase.class` gains `REGRESSION`; schema version 29 -> 30, two new declared
+`SpecDeviation`s, no new properties. New migration `v0029_regression_schedule.py`:
+`public.regression_schedule`. A second `RegressionScheduler` wired into `main.py`'s
+lifespan alongside `HarvestScheduler`, gated identically.
+
+See [ADR 0059](../../docs/adr/0059-section-10-6-regression-a-second-scheduler-that-re-executes-before-it-re-diffs.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

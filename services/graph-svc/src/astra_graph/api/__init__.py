@@ -25,6 +25,7 @@ from .routes_platform import router as platform_router
 from .routes_provenance import router as provenance_router
 from .routes_quality import router as quality_router
 from .routes_redesign import router as redesign_router
+from .routes_regression import router as regression_router
 from .routes_rules import router as rules_router
 from .routes_schedules import router as schedules_router
 from .routes_tolerance_charter import router as tolerance_charter_router
@@ -57,6 +58,7 @@ __all__ = [
     "provenance_router",
     "quality_router",
     "redesign_router",
+    "regression_router",
     "router",
     "rules_router",
     "schedules_router",

@@ -170,6 +170,7 @@ from astra_adapter.target_contract import TargetAdapter
 
 from .artefacts import ArtefactStore
 from .case_derivation import _worksheet_field_index  # same epic (E7); see module docstring
+from .case_execution_query import build_dax_query, to_sdk_filters, to_sdk_parameters
 from .graph.queries import EDGE_INDEX_TABLE, NODE_INDEX_TABLE
 from .ids import new_ulid
 from .lineage import hydrate
@@ -202,96 +203,6 @@ DEFAULT_INCONCLUSIVE_WINDOW_HOURS = 24.0
 
 class CaseExecutionError(Exception):
     """Cases could not be executed for this workbook."""
-
-
-# --------------------------------------------------------------------------- conversion
-
-
-def to_sdk_filters(filter_ctx: dict[str, Any]) -> tuple[tuple[str, str], ...]:
-    """The case's own filter context (S7.2.1/S7.2.2) as §6.2's flat ``(field, value)``
-    pairs -- "applied as the sheet applies them ... through vf_ parameters"
-    (`astra_adapter.proof.ParityCase.filters`'s own docstring). A `categorical_value`
-    context is exactly one pair; the default context re-states every categorical
-    filter's own harvested members as repeated pairs on the same field -- the same
-    repeated-parameter shape a real Tableau `vf_` call already uses for a multi-select
-    filter, so no richer shape was needed here."""
-    kind = filter_ctx.get("kind")
-    if kind == "categorical_value":
-        field_ref = filter_ctx.get("field_ref")
-        value = filter_ctx.get("value")
-        if field_ref and value is not None:
-            return ((str(field_ref), str(value)),)
-        return ()
-
-    pairs: list[tuple[str, str]] = []
-    for filter_properties in filter_ctx.get("filters") or ():
-        field_ref = filter_properties.get("field_ref")
-        if not field_ref:
-            continue
-        if filter_properties.get("type") == "categorical":
-            members = (filter_properties.get("values") or {}).get("members") or ()
-            for member in members:
-                pairs.append((str(field_ref), str(member)))
-        else:
-            # A non-categorical filter's own concrete value, when the harvester
-            # recorded one -- disclosed as a best-effort read, since range/relative-
-            # date/top_n/condition filters each carry a differently-shaped `values`
-            # document §4.1.1 does not standardise further.
-            values = filter_properties.get("values") or {}
-            for key in ("value", "min", "anchor"):
-                if key in values:
-                    pairs.append((str(field_ref), str(values[key])))
-                    break
-    return tuple(pairs)
-
-
-def to_sdk_parameters(param_values: dict[str, Any]) -> tuple[tuple[str, str], ...]:
-    return tuple((str(name), str(value)) for name, value in param_values.items() if value is not None)
-
-
-# ------------------------------------------------------------------------------- DAX
-
-
-def build_dax_query(
-    *,
-    grain: tuple[str, ...],
-    measures: tuple[str, ...],
-    sdk_filters: tuple[tuple[str, str], ...],
-    sdk_parameters: tuple[tuple[str, str], ...],
-    table_map: dict[str, str],
-) -> str:
-    """§10.2's own worked-example shape, from real grain/measures/filters/parameters.
-    ``table_map`` is field name -> DAX table name, from a real `Field -> ModelTable`
-    binding when one exists (honestly empty today -- see this module's own docstring);
-    a field absent from it is qualified against its own name, a disclosed placeholder,
-    not a guess."""
-
-    def column_ref(field: str) -> str:
-        table = table_map.get(field, field)
-        return f"'{table}'[{field}]"
-
-    body: list[str] = [f"    {column_ref(dim)}," for dim in grain]
-
-    grouped: dict[str, list[str]] = {}
-    for field, value in (*sdk_filters, *sdk_parameters):
-        grouped.setdefault(field, []).append(value)
-    for field, values in grouped.items():
-        if len(values) == 1:
-            body.append(f'    TREATAS({{"{values[0]}"}}, {column_ref(field)}),')
-        else:
-            quoted = ", ".join(f'"{v}"' for v in values)
-            body.append(f"    FILTER(ALL({column_ref(field)}), {column_ref(field)} IN {{{quoted}}}),")
-
-    for measure in measures:
-        body.append(f'    "{measure}", [{measure}],')
-
-    if body:
-        body[-1] = body[-1].rstrip(",")
-
-    lines = ["EVALUATE", "SUMMARIZECOLUMNS(", *body, ")"]
-    if grain:
-        lines.append(f"ORDER BY {', '.join(column_ref(dim) for dim in grain)}")
-    return "\n".join(lines)
 
 
 # ----------------------------------------------------------------------------- Parquet
