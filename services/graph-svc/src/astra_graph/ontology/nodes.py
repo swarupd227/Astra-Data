@@ -746,7 +746,12 @@ NODE_TYPES: tuple[NodeType, ...] = (
                     "is story S8.2.2's own addition -- checked ahead of every other "
                     "strategy, for the narrower, evidenced subset of KEY_MISSING/"
                     "AGGREGATION that is a real model defect, not a report one."),
-            _p("pattern_ref", T.STRING, note="The ACTIVE Pattern applied, pass 1 only."),
+            _p("pattern_ref", T.STRING,
+               note="The ACTIVE (or CANDIDATE) Pattern applied, pass 1. Story S8.2.3 "
+                    "widens this to a second, real meaning on a MODEL/MODEL_WIDENED pass "
+                    "whose repair proved: the Pattern that repair was generalised into "
+                    "(a new CANDIDATE, or an existing one reused) -- 'a repair made once "
+                    "becomes a rule', made real and traceable from the pass that made it."),
             _p("measure_ref", T.STRING,
                note="The new Measure this pass produced, when it produced one -- absent "
                     "for a pass that never got that far (no pattern match, an unroutable "
@@ -826,6 +831,17 @@ NODE_TYPES: tuple[NodeType, ...] = (
                     "`ProvenanceRecord.supersedes_id` already uses for the same "
                     "'this new record replaces that one' relationship, applied here to "
                     "a graph node instead of a provenance row."),
+            _p("failure_class", T.ENUM, enum=_FAILURE_CLASSES,
+               note="§11.1's own failure class this pattern was generalised to repair "
+                    "(story S8.2.3) -- absent on every pattern generalised the original "
+                    "way (S5.5.1's own `generation.generate_c3_field`, a first C3 "
+                    "generation with no failure to repair at all). `class` stays the "
+                    "Transpiler's own C1-C4 taxonomy regardless (§4.3) -- this is a "
+                    "second, orthogonal axis, never a replacement for it. `find_matching_"
+                    "pattern` prefers an exact `failure_class` match when the caller "
+                    "names one, but still falls back to any AST-shape match without one "
+                    "-- the identical AST-shape-only behaviour S8.2.1 already shipped, "
+                    "unchanged for every pattern with no failure_class."),
         ),
     ),
     NodeType(
@@ -1231,6 +1247,23 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "node (`GraphWriter.retire_node`) so `find_matching_pattern`'s own "
                "'one live pattern per shape' invariant never sees two candidates for one "
                "AST shape at once.",
+    ),
+    SpecDeviation(
+        element="Pattern.failure_class",
+        reason="Section 4.1.1's own node table declares no such property. Backlog story "
+               "S8.2.3's own acceptance criteria requires a successful model repair to be "
+               "'generalised into a CANDIDATE pattern keyed by (failure class, AST "
+               "shape)' -- §11.1's own failure class (S8.1.1) is a genuinely different "
+               "axis from `Pattern.class` (§4.3's own Transpiler C1-C4 taxonomy), and "
+               "nothing on Pattern carried it before this story needed to key against it.",
+        detail="Absent on every pattern generalised the original S5.5.1 way (a first C3 "
+               "generation, with no failure to repair at all) -- only a Mender-generalised "
+               "pattern (`mender.py`'s own successful MODEL/MODEL_WIDENED repair) ever "
+               "writes it. `find_matching_pattern` treats it as a real, but not "
+               "exclusive, preference: an exact match is preferred within each promotion "
+               "state, but a shape match with no (or a different) failure_class still "
+               "matches as a fallback -- unchanged from S8.2.1's own AST-shape-only "
+               "behaviour for every pattern that predates this property.",
     ),
     SpecDeviation(
         element="Visual.layout",

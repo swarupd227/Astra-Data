@@ -121,15 +121,21 @@ one `MenderPass(strategy="ESCALATE_IMMEDIATE")` written for a complete evidence 
 even though no repair was attempted -- consistent with "every pass is in evidence"
 covering the *decision* not to attempt one, not only the attempts themselves.
 
-**Pattern matching is AST-shape-only today, not failure-class-aware.** `Pattern.class`
-(§4.3) is the Transpiler's own C1-C4 taxonomy, not §11.1's -- confirmed directly, no
-property on `Pattern` carries a failure class at all. Backlog story S8.2.3 (not this
-one) is what "generalises a repair into a CANDIDATE pattern keyed by (failure class, AST
-shape)" -- until it exists, pass 1 matches purely by AST shape (`patterns.
-find_matching_pattern`, reused verbatim), a real, disclosed, narrower reading of the
-AC's own "matches the failure class and AST shape" than the AC's own words promise.
-Patternising a successful repair (§11.2's own last bullet) is that same S8.2.3's own
-scope, not built here.
+**Pattern matching is now failure-class-aware, story S8.2.3.** `Pattern.class` (§4.3)
+stays the Transpiler's own C1-C4 taxonomy, never the failure class; `Pattern.
+failure_class` (a new, orthogonal, optional property) is what pass 1 now also considers
+-- `apply_pattern_repair` passes this exception's own real failure class through to
+`patterns.find_matching_pattern`, which prefers an exact match but still falls back to
+any AST-shape match without one, the identical behaviour every pattern that predates
+this property already had. **A proved MODEL/MODEL_WIDENED repair generalises into a
+real CANDIDATE Pattern**, keyed by (failure class, AST shape) -- `patterns.
+generalise_from_proof`, widened the identical way, called the moment a pass's own
+re-proof shows PROVED. Never for a PATTERN-strategy pass: that pass already reused an
+existing Pattern, so generalising it again would be self-referential, not "a repair made
+once becomes a rule." F5.5's own promotion pipeline (`promote_pattern`/`record_failure_
+and_maybe_retire`) is untouched -- a Mender-generalised CANDIDATE is promoted or retired
+through the identical mechanism S5.5.2/S5.5.3 already built, since nothing about *how* a
+Pattern was generalised changes what a proof pass or a failure against it means.
 """
 
 from __future__ import annotations
@@ -166,7 +172,7 @@ from .graph.queries import EDGE_INDEX_TABLE, NODE_INDEX_TABLE
 from .ids import new_ulid
 from .lineage import children, hydrate
 from .ontology.types import BASE_NODE_PROPERTIES
-from .patterns import PatternMatch, find_matching_pattern, render_target
+from .patterns import PatternMatch, find_matching_pattern, generalise_from_proof, render_target
 from .principal import Principal
 from .provenance import AgentMode, ProvenanceStore, new_record
 from .rules import dax_sanity_check
@@ -635,6 +641,7 @@ async def apply_pattern_repair(
     *,
     calc_id: str,
     calc_properties: dict[str, Any],
+    failure_class: str,
     principal: Principal,
 ) -> tuple[str, PatternMatch] | None:
     """Pass 1 -- reuses `patterns.find_matching_pattern`/`render_target`/
@@ -644,11 +651,17 @@ async def apply_pattern_repair(
     own first-generation moment (it also reclassifies the source `CalculatedField` to
     C2 -- a Transpiler classification fact this repair has no business changing). `None`
     when no ACTIVE pattern matches this AST shape, or the render fails even the
-    structural check -- either way the caller falls through to a model repair."""
+    structural check -- either way the caller falls through to a model repair.
+
+    `failure_class` (story S8.2.3) is passed straight through to `find_matching_pattern`
+    -- a real preference for a pattern this exact class of failure already generalised
+    one from, still falling back to any AST-shape match without one (`find_matching_
+    pattern`'s own docstring), closing the "AST-shape-only, not failure-class-aware" gap
+    S8.2.1's own docstring disclosed and deferred to this story."""
     formula_ast = calc_properties.get("formula_ast")
     if not isinstance(formula_ast, dict):
         return None
-    pattern = await find_matching_pattern(pool, graph_name, formula_ast)
+    pattern = await find_matching_pattern(pool, graph_name, formula_ast, failure_class=failure_class)
     if pattern is None or pattern.promotion_state != "ACTIVE":
         return None
     captures = capture_identifiers(formula_ast)
@@ -1045,7 +1058,7 @@ async def mend_exception(
             if calc is not None:
                 applied = await apply_pattern_repair(
                     pool, graph_name, writer, provenance_store,
-                    calc_id=calc[0], calc_properties=calc[1], principal=principal,
+                    calc_id=calc[0], calc_properties=calc[1], failure_class=failure_class, principal=principal,
                 )
                 if applied is None:
                     result = "NO_PATTERN_MATCH"
@@ -1105,6 +1118,20 @@ async def mend_exception(
             if result != "REGRESSED":
                 cases_reproved_this_pass = tuple(sorted(newly_passing))
                 result = "PROVED" if not new_still_failing else "STILL_FAILING"
+                # Story S8.2.3: "a repair made once becomes a rule" -- a proved MODEL/
+                # MODEL_WIDENED repair (never a PATTERN-strategy one: that already reused
+                # an existing Pattern, so generalising it again would be self-referential)
+                # generalises into a real CANDIDATE Pattern keyed by (failure class, AST
+                # shape), or records a further real proof pass against one already there.
+                if result == "PROVED" and strategy != "PATTERN" and calc is not None and dax is not None:
+                    generalised_pattern_id = await generalise_from_proof(
+                        pool, graph_name, writer,
+                        calc_id=calc[0], formula_ast=calc[1].get("formula_ast"), dax=dax,
+                        class_="C3", principal=principal, failure_class=failure_class,
+                    )
+                    if generalised_pattern_id is not None:
+                        pattern_ref = generalised_pattern_id
+                        evidence["generalised_pattern_id"] = generalised_pattern_id
 
         finished_at = datetime.now(UTC)
         evidence_artefact = await artefact_store.store(

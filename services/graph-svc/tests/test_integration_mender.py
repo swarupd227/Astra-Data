@@ -77,6 +77,7 @@ from astra_graph.mender import (  # noqa: E402
 )
 from astra_graph.migrations import run as run_migrations  # noqa: E402
 from astra_graph.ontology import EDGE_LABELS, NODE_LABELS  # noqa: E402
+from astra_graph.patterns import promote_pattern, promotion_status  # noqa: E402
 from astra_graph.principal import Principal  # noqa: E402
 from astra_graph.provenance import PostgresProvenanceStore  # noqa: E402
 from astra_graph.tolerance_charter import PostgresToleranceCharterStore  # noqa: E402
@@ -84,6 +85,7 @@ from astra_graph.writes import EdgeWrite, GraphWriter, NodeWrite  # noqa: E402
 
 PRINCIPAL = Principal("agent:harvester", run_id="run-harvester")
 PARITY_ENGINEER = Principal("user:parity@artizent.example")
+PLATFORM_ENGINEER = Principal("user:platform@artizent.example")
 
 _WORKSPACE = "dev"
 
@@ -758,3 +760,103 @@ async def test_mend_over_http_on_a_nonexistent_case_is_a_clean_400(estate, http_
         f"/v1/exceptions/{new_ulid()}:mend", headers=_headers("parity_engineer", PARITY_ENGINEER),
     )
     assert response.status_code == 400
+
+
+# --------------------------------------------- S8.2.3: a repair made once becomes a rule
+
+
+async def test_a_proved_model_repair_generalises_a_pattern_and_f55_promotion_makes_it_applicable(estate) -> None:
+    """The whole story arc, real end to end: a proved MODEL repair generalises a real
+    CANDIDATE Pattern keyed by (failure class, AST shape); a second, distinct calculation
+    sharing the identical shape proves against the same pattern too, but still cannot use
+    it deterministically (F5.5 promotion is a real gate, not skipped, and 'N distinct
+    proof passes' needs a real second calc_id, the same disclosed MU proxy `patterns.py`
+    already uses); promoting it through the identical, unchanged F5.5 pipeline
+    (`patterns.promote_pattern`) makes a third case's own pass 1 apply it
+    deterministically, no model call needed."""
+    # -- pass 2 (MODEL) proves and generalises, against MarginCalc ---------------------
+    case_id, _key = await _write_case(estate, sheet_ref=estate["sheet"], matching=True)
+    await _write_fail_verdict(estate, case_id=case_id)
+    exception_id = await _open_exception(
+        estate, failure_class="NULL_HANDLING", case_ids=[case_id], artefact_ref=estate["margin_calc"],
+    )
+    gateway = StaticGateway(_ScriptedModelCaller(
+        responses=[{"dax": "COALESCE([Margin], 0)", "m": None, "assumptions": [], "confidence": 0.8, "notes": "fixed"}],
+    ))
+    result = await _service(estate, gateway=gateway).mend(exception_id, workspace=_WORKSPACE, principal=PARITY_ENGINEER)
+    assert result["outcome"] == "closed"
+    model_pass = result["passes"][1]
+    assert model_pass["strategy"] == "MODEL"
+    assert model_pass["result"] == "PROVED"
+    pattern_id = model_pass["pattern_ref"]
+    assert pattern_id
+
+    pattern = await _hydrate_one(estate["pool"], estate["settings"].graph_name, "Pattern", pattern_id)
+    assert pattern["promotion_state"] == "CANDIDATE"
+    assert pattern["failure_class"] == "NULL_HANDLING"
+    assert pattern["source_signature"]["ast_shape"] == "SUM(a)"
+    assert pattern["class"] == "C3"  # the Transpiler's own taxonomy, untouched
+
+    # -- a second, distinct CalculatedField sharing the identical AST shape ------------
+    second_calc = await _write(
+        estate["writer"], "CalculatedField", name="MarginCalc2", formula="SUM([Margin])",
+        formula_ast=_MARGIN_CALC_AST,
+    )
+    await _edge(estate["writer"], "HAS_FIELD", estate["datasource"], second_calc)
+    second_sheet = await _write(
+        estate["writer"], "Worksheet", name="Second bar sheet", mark_type="bar",
+        rows_shelf=["Desk"], cols_shelf=["MarginCalc2"], marks_shelf=[],
+    )
+    await _edge(estate["writer"], "CONTAINS", estate["workbook"], second_sheet)
+    await _edge(estate["writer"], "USES_DATASOURCE", second_sheet, estate["datasource"])
+    second_measure = await _write(
+        estate["writer"], "Measure", name="MarginCalc2", dax="SUM([AnotherWrongField])", provenance_ref="prov_seed_2",
+    )
+    await _edge(estate["writer"], "MAPS_TO", second_calc, second_measure)
+
+    second_case, _key2 = await _write_case(estate, sheet_ref=second_sheet, matching=True)
+    await _write_fail_verdict(estate, case_id=second_case)
+    second_exception = await _open_exception(
+        estate, failure_class="NULL_HANDLING", case_ids=[second_case], artefact_ref=second_calc,
+    )
+    second_gateway = StaticGateway(_ScriptedModelCaller(
+        responses=[{"dax": "COALESCE([Margin], 0)", "m": None, "assumptions": [], "confidence": 0.8, "notes": "fixed"}],
+    ))
+    second_result = await _service(estate, gateway=second_gateway).mend(
+        second_exception, workspace=_WORKSPACE, principal=PARITY_ENGINEER,
+    )
+    # Pass 1 (PATTERN) still cannot use a CANDIDATE; pass 2 (MODEL) proves again and
+    # reuses the same pattern (an exact shape+failure_class match), recording a second,
+    # genuinely distinct proof pass -- not yet promoted, so still not ACTIVE for pass 1.
+    assert second_result["passes"][0]["strategy"] == "PATTERN"
+    assert second_result["passes"][0]["result"] == "NO_PATTERN_MATCH"
+    assert second_result["passes"][1]["strategy"] == "MODEL"
+    assert second_result["passes"][1]["result"] == "PROVED"
+    assert second_result["passes"][1]["pattern_ref"] == pattern_id
+
+    status = await promotion_status(estate["pool"], estate["settings"].graph_name, pattern_id, threshold=2)
+    assert status.distinct_passing_calcs == 2
+    assert status.eligible is True
+
+    # -- F5.5's own real, unchanged promotion pipeline --------------------------------
+    await promote_pattern(
+        estate["pool"], estate["settings"].graph_name, estate["writer"],
+        pattern_id=pattern_id, principal=PLATFORM_ENGINEER, threshold=2,
+    )
+    promoted = await _hydrate_one(estate["pool"], estate["settings"].graph_name, "Pattern", pattern_id)
+    assert promoted["promotion_state"] == "ACTIVE"
+
+    # -- a third, identical-shape case: pass 1 now applies it deterministically --------
+    third_case, _key3 = await _write_case(estate, sheet_ref=estate["sheet"], matching=True)
+    await _write_fail_verdict(estate, case_id=third_case)
+    third_exception = await _open_exception(
+        estate, failure_class="NULL_HANDLING", case_ids=[third_case], artefact_ref=estate["margin_calc"],
+    )
+    third_result = await _service(estate, gateway=null_gateway()).mend(
+        third_exception, workspace=_WORKSPACE, principal=PARITY_ENGINEER,
+    )
+    assert third_result["outcome"] == "closed"
+    assert third_result["passes_consumed"] == 1
+    assert third_result["passes"][0]["strategy"] == "PATTERN"
+    assert third_result["passes"][0]["result"] == "PROVED"
+    assert third_result["passes"][0]["pattern_ref"] == pattern_id

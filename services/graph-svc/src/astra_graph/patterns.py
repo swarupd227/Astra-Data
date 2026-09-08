@@ -92,6 +92,18 @@ Parity Dashboard "retirements feed" — this story's own acceptance criteria ask
 mechanism and the event, not a screen, the identical scope boundary S5.2.1/S5.2.2 already
 drew for the Pattern Library's own promotion pipeline before either of these stories existed
 to build it.
+
+**Story S8.2.3 widens `generalise_from_proof`/`find_matching_pattern` with an optional
+`failure_class` keyword — the same real mechanism, not a second one.** The backlog's own
+words, "a repair made once becomes a rule": a successful `mender.py` model repair
+(`mend_exception`'s own MODEL/MODEL_WIDENED pass, once its re-proof shows PROVED)
+generalises the identical way a first C3 generation already does, keyed additionally by
+§11.1's own failure class the repair actually addressed — `Pattern.class` stays the
+Transpiler's own C1-C4 taxonomy throughout (§4.3), a second, orthogonal axis, never
+replaced. F5.5 promotion (`promote_pattern`/`record_failure_and_maybe_retire`, above) is
+untouched: a Mender-generalised CANDIDATE accumulates real proof passes and is promoted
+or retired through the identical pipeline, since nothing about *how* a Pattern was
+generalised changes what a proof pass or a failure against it means.
 """
 
 from __future__ import annotations
@@ -158,13 +170,21 @@ class PatternMatch:
 
 
 async def find_matching_pattern(
-    pool: asyncpg.Pool, graph_name: str, formula_ast: Any
+    pool: asyncpg.Pool, graph_name: str, formula_ast: Any, *, failure_class: str | None = None,
 ) -> PatternMatch | None:
     """Any live, non-RETIRED Pattern whose `source_signature` matches this AST's shape
     (§9.3: "Patterns are matched by AST shape"). ACTIVE wins over CANDIDATE if, somehow,
     two patterns exist for one shape (`generalise_from_proof` reuses an existing pattern
     rather than ever creating a second one for the same shape, so this should not arise in
-    practice; a deterministic tiebreak is still the honest choice if it ever does)."""
+    practice; a deterministic tiebreak is still the honest choice if it ever does).
+
+    `failure_class` (story S8.2.3) is a real, but not exclusive, second preference within
+    each promotion-state tier: when given, a pattern whose own `Pattern.failure_class`
+    matches exactly is preferred, but a shape match with no (or a different) failure_class
+    still matches as a fallback -- the identical AST-shape-only behaviour every caller
+    that never names one (S5.5.1's own `generation.generate_c3_field`) already gets,
+    unchanged.
+    """
     if not isinstance(formula_ast, dict):
         return None
     try:
@@ -191,7 +211,12 @@ async def find_matching_pattern(
     ]
     if not live:
         return None
-    live.sort(key=lambda item: item[1].get("promotion_state") != "ACTIVE")
+    live.sort(
+        key=lambda item: (
+            item[1].get("promotion_state") != "ACTIVE",
+            failure_class is not None and item[1].get("failure_class") != failure_class,
+        )
+    )
     pattern_id, props = live[0]
     return PatternMatch(
         pattern_id=pattern_id,
@@ -656,6 +681,7 @@ async def generalise_from_proof(
     dax: str,
     class_: str,
     principal: Principal,
+    failure_class: str | None = None,
 ) -> str | None:
     """The AC's own bullet 1: "When a GENERATED_PROVED artefact passes proof, its (source
     AST shape, target template, guards) tuple is generalised and stored as a Pattern in
@@ -664,6 +690,19 @@ async def generalise_from_proof(
     the AC's own "N distinct proof passes" — rather than ever creating a second Pattern
     for the same shape. Returns `None` when the AST has no computable shape rather than
     guessing at one.
+
+    `failure_class` (story S8.2.3) widens the AC's own "(source AST shape)" key to the
+    backlog's own "(failure class, AST shape)": passed by `mender.py` for a real, proved
+    model repair, never by `generation.generate_c3_field`'s own first-generation call
+    (which has no failure to repair at all — `failure_class` stays `None` there,
+    unchanged). Reuse still finds a shape match first (`find_matching_pattern`'s own real
+    preference for an exact `failure_class` match, not an exclusive filter — see that
+    function's own docstring); a shape match whose own `failure_class` differs (or has
+    none) is still reused, recording this pass as a further real observation against it,
+    rather than fragmenting one AST shape into several near-duplicate patterns that would
+    each need their own "N distinct proof passes" from scratch. Only when *no* shape
+    match exists at all does this write a brand-new Pattern, and only then does the new
+    node itself carry `failure_class`.
     """
     if not isinstance(formula_ast, dict):
         return None
@@ -673,7 +712,7 @@ async def generalise_from_proof(
         return None
     captures = capture_identifiers(formula_ast)
 
-    existing = await find_matching_pattern(pool, graph_name, formula_ast)
+    existing = await find_matching_pattern(pool, graph_name, formula_ast, failure_class=failure_class)
     if existing is not None:
         await record_observation(
             pool, graph_name, pattern_id=existing.pattern_id, calc_id=calc_id,
@@ -683,24 +722,21 @@ async def generalise_from_proof(
 
     guards = await _infer_guards(pool, graph_name, calc_id, captures)
     pattern_id = new_ulid()
+    properties: dict[str, Any] = {
+        "name": f"pattern_{shape}"[:80],
+        "class": class_,
+        "source_signature": signature_of(formula_ast, adapter="tableau"),
+        "target_template": _abstract_template(dax, captures),
+        "guards": guards,
+        "provenance": {"origin": "PROMOTED_FROM_LLM", "first_seen": calc_id},
+        "promotion_state": "CANDIDATE",
+        "pass_count": 1,
+        "version": 1,
+    }
+    if failure_class is not None:
+        properties["failure_class"] = failure_class
     await writer.write_nodes(
-        [
-            NodeWrite(
-                type="Pattern",
-                id=pattern_id,
-                properties={
-                    "name": f"pattern_{shape}"[:80],
-                    "class": class_,
-                    "source_signature": signature_of(formula_ast, adapter="tableau"),
-                    "target_template": _abstract_template(dax, captures),
-                    "guards": guards,
-                    "provenance": {"origin": "PROMOTED_FROM_LLM", "first_seen": calc_id},
-                    "promotion_state": "CANDIDATE",
-                    "pass_count": 1,
-                    "version": 1,
-                },
-            )
-        ],
+        [NodeWrite(type="Pattern", id=pattern_id, properties=properties)],
         principal=principal,
     )
     await record_observation(

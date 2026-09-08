@@ -2690,6 +2690,52 @@ gains `ROUTED_TO_FOUNDRY`/`ALREADY_IN_FOUNDRY`; schema version 32 -> 33, one new
 See [ADR 0062](../../docs/adr/0062-routing-a-model-defect-to-the-foundry-real-graph-evidence-two-narrow-triggers.md)
 for the full reasoning.
 
+## A repair made once becomes a rule (story S8.2.3, continues F8.2/E8)
+
+Closes the gap S8.2.1's own docstring explicitly deferred here: "Pattern matching is
+AST-shape-only today, not failure-class-aware... Backlog story S8.2.3... is what
+generalises a repair into a CANDIDATE pattern keyed by (failure class, AST shape)."
+`patterns.find_matching_pattern`/`generalise_from_proof` each gain one optional
+`failure_class` keyword -- the same real mechanism every existing caller
+(`generation.generate_c3_field`, unchanged, passes none) already uses, not a second one.
+
+**`Pattern.class` and the new `Pattern.failure_class` are two real, orthogonal axes,
+never merged.** `class` stays the Transpiler's own C1-C4 taxonomy (§4.3); `failure_class`
+(new, optional, additive) is §11.1's own class a Mender-generalised pattern repairs.
+**The failure-class preference is real but not exclusive** -- promotion state (ACTIVE
+over CANDIDATE) stays the primary sort key; an exact `failure_class` match is a secondary
+preference within each state tier, but a shape match with no (or a different)
+failure_class still matches as a fallback, unchanged from S8.2.1's own AST-shape-only
+capability. **Reuse-by-shape still wins over fragmenting into near-duplicates** -- a
+first, plain C3 generation (no failure_class) and a later Mender-sourced generalisation
+of the identical shape reuse the *same* Pattern, accumulating real, distinct proof passes
+toward one shared promotion threshold; only when no shape match exists at all does a new
+Pattern get written, carrying `failure_class` only then.
+
+**Generalisation happens only for a proved MODEL/MODEL_WIDENED pass, never PATTERN.** A
+PATTERN-strategy pass that proves already reused an *existing* Pattern -- generalising it
+again would derive the identical tuple from itself, not "a repair made once becomes a
+rule" (about a model-derived fix earning a rule for the first time). `mend_exception`
+checks `strategy != "PATTERN"`, `result == "PROVED"` and a real `formula_ast` before ever
+calling `generalise_from_proof`.
+
+**F5.5 promotion (S5.5.2/S5.5.3) is completely untouched.** A Mender-generalised
+CANDIDATE is promoted or retired through the identical, unchanged pipeline every other
+CANDIDATE already goes through -- nothing about *how* a Pattern was generalised changes
+what a proof pass or a failure against it means. `MenderPass.pattern_ref` gains a second,
+real meaning (disclosed on the property itself): pass 1's own "the ACTIVE Pattern
+applied," and now also a proved MODEL/MODEL_WIDENED pass's own "the Pattern this repair
+was generalised into."
+
+No new route, no new role, no console change -- every surface this story touches is
+already reachable through the existing `:mend` route and the existing Pattern Library
+routes. Ontology: `Pattern` gains `failure_class`; `MenderPass.pattern_ref`'s own note
+widened; schema version 33 -> 34, one new declared `SpecDeviation`, no migration file
+(additive only).
+
+See [ADR 0063](../../docs/adr/0063-a-repair-made-once-becomes-a-rule-failure-class-keyed-generalisation.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

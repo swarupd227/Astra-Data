@@ -1748,6 +1748,27 @@
           "required": false,
           "server_managed": false,
           "type": "string"
+        },
+        {
+          "enum": [
+            "FILTER_CONTEXT",
+            "NULL_HANDLING",
+            "DATE_GRAIN",
+            "AGGREGATION",
+            "TYPE_COERCION",
+            "LOD_SCOPE",
+            "TABLE_CALC",
+            "SORT_LIMIT",
+            "KEY_MISSING",
+            "SOURCE_DRIFT",
+            "UNKNOWN",
+            "VISUAL_REDESIGN",
+            "REGRESSION"
+          ],
+          "name": "failure_class",
+          "required": false,
+          "server_managed": false,
+          "type": "enum"
         }
       ],
       "side": "platform"
@@ -2521,5 +2542,5 @@
       "side": "source"
     }
   },
-  "schema_version": 33
+  "schema_version": 34
 }

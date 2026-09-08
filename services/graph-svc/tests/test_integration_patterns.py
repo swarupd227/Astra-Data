@@ -55,6 +55,7 @@ from astra_graph.patterns import (  # noqa: E402
     apply_active_pattern,
     edit_guards,
     find_matching_pattern,
+    generalise_from_proof,
     promote_pattern,
     promotion_status,
     record_failure_and_maybe_retire,
@@ -153,6 +154,15 @@ def settings() -> Settings:
 
 
 async def _write(writer: GraphWriter, type_: str, **properties: Any) -> str:
+    created = await writer.write_nodes(
+        [NodeWrite(type=type_, properties=properties)], principal=PRINCIPAL
+    )
+    return str(created[0]["properties"]["id"])
+
+
+async def _write_props(writer: GraphWriter, type_: str, properties: dict[str, Any]) -> str:
+    """The identical write `_write` performs, for a property set carrying a reserved
+    Python keyword (`class`) that cannot be spelled as a `**kwargs` name at a call site."""
     created = await writer.write_nodes(
         [NodeWrite(type=type_, properties=properties)], principal=PRINCIPAL
     )
@@ -329,6 +339,106 @@ async def test_a_ladder_failure_records_a_real_failure_against_an_existing_patte
     status = await promotion_status(estate["pool"], estate["graph_name"], first.pattern_id, threshold=5)
     assert status.has_failure is True
     assert status.eligible is False
+
+
+# ------------------------------------------------------------ S8.2.3: failure-class-aware
+
+
+async def test_generalise_from_proof_with_a_failure_class_creates_a_pattern_carrying_it(estate) -> None:
+    calc_id = await estate["new_c3_calc"]()
+    formula_ast = _window(estate["window_fn"], "table_calc_simple", _aggregate("SUM", _ref(estate["field_name"])))
+    pattern_id = await generalise_from_proof(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        calc_id=calc_id, formula_ast=formula_ast, dax=f"CALCULATE(SUM([{estate['field_name']}]))",
+        class_="C3", principal=PRINCIPAL, failure_class="NULL_HANDLING",
+    )
+    assert pattern_id is not None
+
+    async with estate["pool"].acquire() as conn:
+        patterns = await hydrate(conn, estate["graph_name"], "Pattern", [pattern_id])
+    assert patterns[pattern_id]["failure_class"] == "NULL_HANDLING"
+    assert patterns[pattern_id]["class"] == "C3"  # the Transpiler's own taxonomy, untouched
+
+
+async def test_generalise_from_proof_without_a_failure_class_leaves_it_absent(estate) -> None:
+    """The original S5.5.1 call shape (`generation.generate_c3_field`'s own, unchanged) --
+    confirms this story's new keyword is additive, never a silent default."""
+    calc_id = await estate["new_c3_calc"]()
+    formula_ast = _window(estate["window_fn"], "table_calc_simple", _aggregate("SUM", _ref(estate["field_name"])))
+    pattern_id = await generalise_from_proof(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        calc_id=calc_id, formula_ast=formula_ast, dax=f"CALCULATE(SUM([{estate['field_name']}]))",
+        class_="C3", principal=PRINCIPAL,
+    )
+    assert pattern_id is not None
+
+    async with estate["pool"].acquire() as conn:
+        patterns = await hydrate(conn, estate["graph_name"], "Pattern", [pattern_id])
+    assert patterns[pattern_id].get("failure_class") is None
+
+
+async def test_generalise_from_proof_reuses_an_existing_shape_match_regardless_of_failure_class(estate) -> None:
+    """A shape already proved with no failure class (a first, plain C3 generation) is
+    still reused by a later, Mender-sourced generalisation naming one -- one Pattern per
+    shape wins over fragmenting into near-duplicates (`generalise_from_proof`'s own
+    docstring)."""
+    first_calc = await estate["new_c3_calc"]()
+    formula_ast = _window(estate["window_fn"], "table_calc_simple", _aggregate("SUM", _ref(estate["field_name"])))
+    first_pattern_id = await generalise_from_proof(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        calc_id=first_calc, formula_ast=formula_ast, dax=f"CALCULATE(SUM([{estate['field_name']}]))",
+        class_="C3", principal=PRINCIPAL,
+    )
+
+    second_calc = await estate["new_c3_calc"]()
+    second_pattern_id = await generalise_from_proof(
+        estate["pool"], estate["graph_name"], estate["writer"],
+        calc_id=second_calc, formula_ast=formula_ast, dax=f"CALCULATE(SUM([{estate['field_name']}]))",
+        class_="C3", principal=PRINCIPAL, failure_class="AGGREGATION",
+    )
+    assert second_pattern_id == first_pattern_id
+
+    async with estate["pool"].acquire() as conn:
+        patterns = await hydrate(conn, estate["graph_name"], "Pattern", [first_pattern_id])
+    assert patterns[first_pattern_id].get("failure_class") is None  # unchanged by the reuse
+
+    status = await promotion_status(estate["pool"], estate["graph_name"], first_pattern_id, threshold=5)
+    assert status.distinct_passing_calcs == 2  # a real, further proof pass was recorded
+
+
+async def test_find_matching_pattern_prefers_an_exact_failure_class_match(estate) -> None:
+    """A synthetic scenario `find_matching_pattern`'s own docstring already names ("if it
+    ever does") -- two live patterns sharing one shape, written directly rather than
+    through `generalise_from_proof` (which would only ever reuse the first)."""
+    shape_signature = {"ast_shape": f"{estate['window_fn']}(SUM(a))", "adapter": "tableau"}
+    generic = await _write_props(estate["writer"], "Pattern", {
+        "name": "generic", "class": "C3", "source_signature": shape_signature,
+        "target_template": "CALCULATE(SUM({a}))", "promotion_state": "ACTIVE",
+    })
+    exact = await _write_props(estate["writer"], "Pattern", {
+        "name": "null-handling-specific", "class": "C3", "source_signature": shape_signature,
+        "target_template": "COALESCE(CALCULATE(SUM({a})), 0)", "promotion_state": "ACTIVE",
+        "failure_class": "NULL_HANDLING",
+    })
+
+    formula_ast = _window(estate["window_fn"], "table_calc_simple", _aggregate("SUM", _ref(estate["field_name"])))
+    match = await find_matching_pattern(
+        estate["pool"], estate["graph_name"], formula_ast, failure_class="NULL_HANDLING",
+    )
+    assert match is not None
+    assert match.pattern_id == exact
+
+    # Without naming a failure class, or naming one neither pattern carries, the match is
+    # still real (falls back to any live shape match) -- unchanged S8.2.1 behaviour.
+    no_class_match = await find_matching_pattern(estate["pool"], estate["graph_name"], formula_ast)
+    assert no_class_match is not None
+    assert no_class_match.pattern_id in (generic, exact)
+
+    other_class_match = await find_matching_pattern(
+        estate["pool"], estate["graph_name"], formula_ast, failure_class="DATE_GRAIN",
+    )
+    assert other_class_match is not None
+    assert other_class_match.pattern_id in (generic, exact)
 
 
 # --------------------------------------------------------------------------- bullet 2: promotion
