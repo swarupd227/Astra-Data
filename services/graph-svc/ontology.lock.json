@@ -2121,6 +2121,48 @@
           "required": false,
           "server_managed": false,
           "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "structural_score",
+          "required": false,
+          "server_managed": false,
+          "type": "float"
+        },
+        {
+          "enum": null,
+          "name": "structural_score_breakdown",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "image_score",
+          "required": false,
+          "server_managed": false,
+          "type": "float"
+        },
+        {
+          "enum": null,
+          "name": "visual_score_computed_at",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
+        },
+        {
+          "enum": null,
+          "name": "source_screenshot_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "target_render_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
         }
       ],
       "side": "target"
@@ -2337,5 +2379,5 @@
       "side": "source"
     }
   },
-  "schema_version": 28
+  "schema_version": 29
 }

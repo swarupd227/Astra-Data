@@ -48,6 +48,7 @@ import type {
   RuleCatalogEntry,
   RuleCoverage,
   RunParityResult,
+  RunVisualParityResult,
   SheetParityStats,
   SimulateResult,
   ToleranceCharter,
@@ -61,6 +62,7 @@ import type {
   TrainsResponse,
   VerdictRow,
   VersionsResponse,
+  VisualCapturePair,
   Workbook,
   WorkbookDetail,
 } from '../lib/api';
@@ -880,6 +882,7 @@ export function sheetParityStats(overrides: Partial<SheetParityStats> = {}): She
   return {
     sheet_ref: 'sheet_1',
     sheet_name: 'Bar sheet',
+    visual_id: 'vis_1',
     cases_run: 4,
     pass: 3,
     fail: 1,
@@ -887,6 +890,14 @@ export function sheetParityStats(overrides: Partial<SheetParityStats> = {}): She
     waived_count: 0,
     first_pass_rate: 0.75,
     failing_cells: [failingCellRow()],
+    structural_score: 0.86,
+    structural_score_breakdown: {
+      score: 0.86, mark_type: 1.0, encodings: 1.0, axes: 1.0, sort: 1.0, reference_lines: 0.0,
+    },
+    image_score: 0.93,
+    visual_score_computed_at: '2027-06-01T09:00:00.000Z',
+    source_screenshot_ref: 'af_screenshot',
+    target_render_ref: 'af_render',
     ...overrides,
   };
 }
@@ -968,6 +979,32 @@ export function runParityResult(overrides: Partial<RunParityResult> = {}): RunPa
     inconclusive: 0,
     proved_by_report: null,
     results: [],
+    ...overrides,
+  };
+}
+
+export function runVisualParityResult(
+  overrides: Partial<RunVisualParityResult> = {},
+): RunVisualParityResult {
+  return {
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    visuals_scored: 1,
+    results: [
+      { visual_id: 'vis_1', sheet_ref: 'sheet_1', structural_score: 0.86, image_score: 0.93 },
+    ],
+    ...overrides,
+  };
+}
+
+// A one-pixel PNG, the same disclosed placeholder the fixture adapters return.
+const ONE_PIXEL_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==';
+
+export function visualCapturePair(overrides: Partial<VisualCapturePair> = {}): VisualCapturePair {
+  return {
+    visual_id: 'vis_1',
+    source: { media_type: 'image/png', content_base64: ONE_PIXEL_PNG_BASE64 },
+    target: { media_type: 'image/png', content_base64: ONE_PIXEL_PNG_BASE64 },
     ...overrides,
   };
 }
@@ -1889,6 +1926,14 @@ export function fakeApi(
       maybeFail();
       recorded.push({ kind: 'RUN_PARITY', id: workbookId, reason: '' });
       return runParityResult({ workbook_id: workbookId });
+    },
+    async runVisualParity(workbookId: string, _identity: Identity): Promise<RunVisualParityResult> {
+      maybeFail();
+      recorded.push({ kind: 'RUN_VISUAL_PARITY', id: workbookId, reason: '' });
+      return runVisualParityResult({ workbook_id: workbookId });
+    },
+    async visualCaptures(_workbookId: string, visualId: string, _identity: Identity): Promise<VisualCapturePair> {
+      return visualCapturePair({ visual_id: visualId });
     },
   };
 }

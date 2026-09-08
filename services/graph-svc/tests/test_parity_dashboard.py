@@ -221,3 +221,57 @@ def test_a_sheet_missing_from_the_worksheet_hydration_falls_back_to_its_own_ref(
         workbook_id=WORKBOOK, runs=runs, verdicts=verdicts, cases=cases, sheets={}, waived_case_ids=set(),
     )
     assert result["sheets"][0]["sheet_name"] == "sheet_missing"
+
+
+# --------------------------------------------------------- visual parity (story S7.6.1)
+
+
+def test_a_sheet_with_no_visual_ever_scored_reports_no_visual_scores() -> None:
+    runs = dict([_run("r1", started="t", finished="t", charter_version="1", verdict_ids=["v1"])])
+    verdicts = {"v1": _verdict("c1", "PASS")}
+    cases = {"c1": _case()}
+    result = aggregate_dashboard(
+        workbook_id=WORKBOOK, runs=runs, verdicts=verdicts, cases=cases,
+        sheets={"sheet_1": _sheet("Bar sheet")}, waived_case_ids=set(),
+    )
+    sheet = result["sheets"][0]
+    assert sheet["structural_score"] is None
+    assert sheet["image_score"] is None
+    assert sheet["source_screenshot_ref"] is None
+    assert sheet["target_render_ref"] is None
+
+
+def test_a_scored_visual_s_facts_appear_on_its_own_sheet_row() -> None:
+    runs = dict([_run("r1", started="t", finished="t", charter_version="1", verdict_ids=["v1"])])
+    verdicts = {"v1": _verdict("c1", "PASS")}
+    cases = {"c1": _case()}
+    visual = {
+        "structural_score": 0.82,
+        "structural_score_breakdown": {"score": 0.82, "mark_type": 1.0, "encodings": 1.0, "axes": 1.0, "sort": 1.0, "reference_lines": 0.0},
+        "image_score": 0.97,
+        "visual_score_computed_at": "2026-01-01T00:00:00Z",
+        "source_screenshot_ref": "af_shot",
+        "target_render_ref": "af_render",
+    }
+    result = aggregate_dashboard(
+        workbook_id=WORKBOOK, runs=runs, verdicts=verdicts, cases=cases,
+        sheets={"sheet_1": _sheet("Bar sheet")}, waived_case_ids=set(),
+        visuals_by_sheet={"sheet_1": visual},
+    )
+    sheet = result["sheets"][0]
+    assert sheet["structural_score"] == 0.82
+    assert sheet["image_score"] == 0.97
+    assert sheet["source_screenshot_ref"] == "af_shot"
+    assert sheet["target_render_ref"] == "af_render"
+
+
+def test_a_visual_scored_for_a_different_sheet_does_not_leak_onto_this_one() -> None:
+    runs = dict([_run("r1", started="t", finished="t", charter_version="1", verdict_ids=["v1"])])
+    verdicts = {"v1": _verdict("c1", "PASS")}
+    cases = {"c1": _case("sheet_1")}
+    result = aggregate_dashboard(
+        workbook_id=WORKBOOK, runs=runs, verdicts=verdicts, cases=cases,
+        sheets={"sheet_1": _sheet("Bar sheet")}, waived_case_ids=set(),
+        visuals_by_sheet={"sheet_other": {"structural_score": 0.5}},
+    )
+    assert result["sheets"][0]["structural_score"] is None

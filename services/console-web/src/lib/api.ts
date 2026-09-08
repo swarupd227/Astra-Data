@@ -993,9 +993,20 @@ export interface FailingCellRow {
   filter_ctx: Record<string, unknown>;
 }
 
+export interface StructuralScoreBreakdown {
+  score: number;
+  mark_type: number;
+  encodings: number;
+  axes: number;
+  sort: number;
+  reference_lines: number;
+}
+
 export interface SheetParityStats {
   sheet_ref: string;
   sheet_name: string;
+  /** The sheet's own composed `Visual`, when one exists — needed to fetch its captures. */
+  visual_id: string | null;
   cases_run: number;
   pass: number;
   fail: number;
@@ -1004,6 +1015,16 @@ export interface SheetParityStats {
   /** `null` when no case on this sheet has ever had a first verdict — never 0/0. */
   first_pass_rate: number | null;
   failing_cells: FailingCellRow[];
+  /** §10.5 (story S7.6.1), advisory only — never gates. `null` until this sheet's own
+   * visual has been scored at least once. */
+  structural_score: number | null;
+  structural_score_breakdown: StructuralScoreBreakdown | null;
+  /** `null` either before scoring, or when the source adapter does not claim the
+   * screenshot capability — an honest absence, not a zero. */
+  image_score: number | null;
+  visual_score_computed_at: string | null;
+  source_screenshot_ref: string | null;
+  target_render_ref: string | null;
 }
 
 export interface ParityRunTrendEntry {
@@ -1083,6 +1104,25 @@ export interface RunParityResult {
     evidence_ref: string;
     sampled: boolean;
   }>;
+}
+
+export interface RunVisualParityResult {
+  workbook_id: string;
+  visuals_scored: number;
+  results: Array<{
+    visual_id: string;
+    sheet_ref: string;
+    structural_score: number;
+    image_score: number | null;
+  }>;
+}
+
+/** §10.5's own "side-by-side images" — both captures for one scored visual, base64
+ * encoded so the console can render them with a plain `<img>` data URI. */
+export interface VisualCapturePair {
+  visual_id: string;
+  source: { media_type: string; content_base64: string };
+  target: { media_type: string; content_base64: string };
 }
 
 export interface Api {
@@ -1222,6 +1262,8 @@ export interface Api {
   parityDashboard(workbookId: string, identity: Identity): Promise<ParityDashboardResponse>;
   parityRun(workbookId: string, identity: Identity): Promise<ParityRunResponse>;
   runParity(workbookId: string, identity: Identity): Promise<RunParityResult>;
+  runVisualParity(workbookId: string, identity: Identity): Promise<RunVisualParityResult>;
+  visualCaptures(workbookId: string, visualId: string, identity: Identity): Promise<VisualCapturePair>;
 }
 
 export function createApi(base = ''): Api {
@@ -1514,6 +1556,15 @@ export function createApi(base = ''): Api {
     },
     async runParity(workbookId, identity) {
       return (await post(`/v1/workbooks/${workbookId}:run-parity`, {}, identity)) as RunParityResult;
+    },
+    async runVisualParity(workbookId, identity) {
+      return (await post(`/v1/workbooks/${workbookId}:run-visual-parity`, {}, identity)) as RunVisualParityResult;
+    },
+    async visualCaptures(workbookId, visualId, identity) {
+      return (await get(
+        `/v1/workbooks/${workbookId}/visual-captures/${visualId}`,
+        identity,
+      )) as VisualCapturePair;
     },
   };
 }

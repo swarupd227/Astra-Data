@@ -1,4 +1,5 @@
-"""The Parity Dashboard's own aggregation -- story S7.4.2, closing F7.4.
+"""The Parity Dashboard's own aggregation -- story S7.4.2, closing F7.4, plus §10.5's own
+advisory visual-parity scores folded in (story S7.6.1, opening F7.6).
 
     "As a report owner, I want a Parity Dashboard and per-run view in plain language,
     so that I can see whether my report is right without reading a diff.
@@ -56,6 +57,14 @@ since `run_parity_for_workbook` (S7.4.1) always diffs every executed case for th
 workbook, never a subset. A future story that lets a Parity Engineer re-run a narrower
 subset of cases would need to revisit this assumption; disclosed here rather than
 silently relied on.
+
+**Visual parity's own two scores (story S7.6.1, §10.5) are folded into each sheet's own
+row here, not a separate read.** `visual_parity.run_visual_parity_for_workbook` writes
+`structural_score`/`image_score`/`source_screenshot_ref`/`target_render_ref` directly
+onto the sheet's own `Visual`; this module reads them back by matching
+`Visual.source_sheet_ref` to the case's own `sheet_ref` -- `None` throughout for a sheet
+whose visual has never been scored, an honest absence exactly like `first_pass_rate`'s
+own. Advisory only: neither score is ever read by anything upstream of this dashboard.
 """
 
 from __future__ import annotations
@@ -78,6 +87,28 @@ async def _all_parity_runs_for_workbook(
     )
     all_runs = await hydrate(conn, graph, "ParityRun", [row["id"] for row in rows])
     return {rid: props for rid, props in all_runs.items() if props.get("suite_ref") == workbook_id}
+
+
+async def _visuals_by_sheet(
+    conn: asyncpg.Connection, graph: str, sheet_ids: set[str]
+) -> dict[str, dict[str, Any]]:
+    """Sheet ref -> its own live `Visual`'s properties (story S7.6.1) -- the first live
+    `Visual` found per sheet when more than one exists, matching `compose_report`'s own
+    "retire the old report on a recompose" precedent (typically exactly one)."""
+    if not sheet_ids:
+        return {}
+    rows = await conn.fetch(
+        f"""SELECT id FROM {NODE_INDEX_TABLE}
+         WHERE graph = $1 AND kind = 'node' AND label = 'Visual' AND retired_at IS NULL""",
+        graph,
+    )
+    all_visuals = await hydrate(conn, graph, "Visual", [row["id"] for row in rows])
+    by_sheet: dict[str, dict[str, Any]] = {}
+    for visual_id, props in all_visuals.items():
+        sheet_ref = str(props.get("source_sheet_ref") or "")
+        if sheet_ref in sheet_ids and sheet_ref not in by_sheet:
+            by_sheet[sheet_ref] = {"id": visual_id, **props}
+    return by_sheet
 
 
 async def _waived_case_ids(conn: asyncpg.Connection, graph: str, case_ids: set[str]) -> set[str]:
@@ -104,6 +135,7 @@ def aggregate_dashboard(
     cases: dict[str, dict[str, Any]],
     sheets: dict[str, dict[str, Any]],
     waived_case_ids: set[str],
+    visuals_by_sheet: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The pure aggregation step -- no database, every input already hydrated. This is
     what lets the per-sheet/first-pass-rate/trend logic be tested directly, the same
@@ -111,6 +143,7 @@ def aggregate_dashboard(
     established (story S7.4.1's own precedent, reused here for a read path instead of a
     write one). Callers must pass a non-empty ``runs``; `parity_dashboard` is what
     decides the "no run yet" honest-absence case, one level up."""
+    visuals_by_sheet = visuals_by_sheet or {}
     ordered_run_ids = sorted(
         runs, key=lambda rid: str(runs[rid].get("started") or runs[rid].get("finished") or "")
     )
@@ -157,11 +190,19 @@ def aggregate_dashboard(
         if not sheet_ref or latest_verdict is None:
             continue  # never diffed, or has no sheet -- neither is a real case for this dashboard
 
+        visual = visuals_by_sheet.get(str(sheet_ref)) or {}
         stat = sheet_stats.setdefault(str(sheet_ref), {
             "sheet_ref": sheet_ref,
             "sheet_name": (sheets.get(str(sheet_ref)) or {}).get("name") or sheet_ref,
+            "visual_id": visual.get("id"),
             "cases_run": 0, "pass": 0, "fail": 0, "inconclusive": 0,
             "waived_count": 0, "failing_cells": [],
+            "structural_score": visual.get("structural_score"),
+            "structural_score_breakdown": visual.get("structural_score_breakdown"),
+            "image_score": visual.get("image_score"),
+            "visual_score_computed_at": visual.get("visual_score_computed_at"),
+            "source_screenshot_ref": visual.get("source_screenshot_ref"),
+            "target_render_ref": visual.get("target_render_ref"),
             "_first_pass": 0, "_first_total": 0,
         })
         stat["cases_run"] += 1
@@ -235,10 +276,11 @@ async def parity_dashboard(
         sheets = await hydrate(conn, graph_name, "Worksheet", sheet_ids)
 
         waived_case_ids = await _waived_case_ids(conn, graph_name, set(cases))
+        visuals_by_sheet = await _visuals_by_sheet(conn, graph_name, set(sheet_ids))
 
     return aggregate_dashboard(
         workbook_id=workbook_id, runs=runs, verdicts=all_verdicts, cases=cases,
-        sheets=sheets, waived_case_ids=waived_case_ids,
+        sheets=sheets, waived_case_ids=waived_case_ids, visuals_by_sheet=visuals_by_sheet,
     )
 
 

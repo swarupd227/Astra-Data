@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { App, surfaceFromPath } from '../App';
 import { ApiError, type Identity } from '../lib/api';
 import { ParityDashboard } from '../parity/ParityDashboard';
-import { fakeApi, parityRunResponse, verdictRow } from './fixtures';
+import { fakeApi, parityDashboardResponse, parityRunResponse, sheetParityStats, verdictRow } from './fixtures';
 
 const PARITY: Identity = { principal: 'user:parity@artizent.example', roles: ['parity_engineer'] };
 const REPORT_OWNER: Identity = { principal: 'user:owner@client.example', roles: ['client_report_owner'] };
@@ -143,13 +143,14 @@ describe('re-running', () => {
     expect(api.recorded.some((r) => r.kind === 'RUN_PARITY')).toBe(true);
   });
 
-  it('hides Re-run from anyone but the Parity Engineer', async () => {
+  it('hides Re-run and Score visuals from anyone but the Parity Engineer', async () => {
     const user = userEvent.setup();
     renderScreen(REPORT_OWNER);
     await load(user);
 
     expect(screen.queryByRole('button', { name: 'Re-run parity' })).not.toBeInTheDocument();
-    expect(screen.getByText(/Running parity is the Parity Engineer/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Score visuals' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Running parity and scoring visuals are the Parity Engineer/)).toBeInTheDocument();
   });
 
   it('also hides Re-run from an Artizent role that is not the Parity Engineer', async () => {
@@ -158,6 +159,64 @@ describe('re-running', () => {
     await load(user);
 
     expect(screen.queryByRole('button', { name: 'Re-run parity' })).not.toBeInTheDocument();
+  });
+});
+
+describe('visual parity (§10.5, advisory)', () => {
+  it('shows the structural and image scores in the per-sheet table', async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await load(user);
+
+    expect(screen.getByText('86%')).toBeInTheDocument();
+    expect(screen.getByText('93%')).toBeInTheDocument();
+  });
+
+  it('shows the source screenshot and target render side by side for a scored sheet', async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await load(user);
+
+    await user.click((await screen.findByText('Bar sheet')).closest('tr')!);
+
+    expect(await screen.findByText('Source screenshot')).toBeInTheDocument();
+    expect(screen.getByText('Target render')).toBeInTheDocument();
+    expect(screen.getByAltText('Source screenshot of Bar sheet')).toBeInTheDocument();
+    expect(screen.getByAltText('Target render of Bar sheet')).toBeInTheDocument();
+  });
+
+  it('discloses that an unscored sheet has not been scored yet, with no images', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    api.parityDashboard = async () =>
+      parityDashboardResponse({
+        sheets: [
+          sheetParityStats({
+            structural_score: null, structural_score_breakdown: null, image_score: null,
+            visual_score_computed_at: null, source_screenshot_ref: null, target_render_ref: null,
+          }),
+        ],
+      });
+    renderScreen(REPORT_OWNER, api);
+    await load(user);
+
+    await user.click((await screen.findByText('Bar sheet')).closest('tr')!);
+
+    expect(await screen.findByText(/has not been scored yet/)).toBeInTheDocument();
+    expect(screen.queryByText('Source screenshot')).not.toBeInTheDocument();
+  });
+
+  it('lets the parity engineer score visuals and reports how many were scored', async () => {
+    const user = userEvent.setup();
+    const { api } = renderScreen(PARITY);
+    await load(user);
+
+    await user.click(screen.getByRole('button', { name: 'Score visuals' }));
+
+    expect(
+      await screen.findByText('Scored 1 visual(s) against their own source sheet.'),
+    ).toBeInTheDocument();
+    expect(api.recorded.some((r) => r.kind === 'RUN_VISUAL_PARITY')).toBe(true);
   });
 });
 

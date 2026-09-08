@@ -37,13 +37,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from .proof import ParityCase, ResultSet
+from .proof import ParityCase, ResultSet, VisualCapture, VisualCase
 
 #: Version of *this interface*, not of any adapter implementing it — the same discipline
 #: ``INTERFACE_VERSION`` (contract.py) applies to the source side. Bumped for story
-#: S7.3.1's own addition of ``evaluate`` — an additive change, every prior method
-#: unchanged.
-TARGET_INTERFACE_VERSION = "1.1"
+#: S7.6.1's own addition of ``render_visual`` — an additive change, every prior method
+#: unchanged (S7.3.1 bumped it to 1.1 for ``evaluate``).
+TARGET_INTERFACE_VERSION = "1.2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +148,21 @@ class TargetAdapter(Protocol):
         is carried alongside the query for identification (``ResultSet.case_id``) and
         capability checks, not for the adapter to build a query from -- see this module's
         own docstring."""
+        ...
+
+    async def render_visual(self, *, visual_case: VisualCase, workspace: str) -> VisualCapture:
+        """A rendered image of the target visual, via the Power BI export API (§10.5,
+        story S7.6.1) -- the candidate side of the advisory visual comparison, the
+        identical role ``evaluate`` plays for data parity. Reuses ``VisualCase``/
+        ``VisualCapture`` verbatim from the source side's own ``capture_visual`` (§6.2) --
+        the same "both sides return the identical shape" symmetry §10.2 already
+        established for ``ResultSet`` (ADR 0053), rather than a second, parallel pair of
+        types for what is structurally the same fact: an image of a named view.
+
+        No ``Capabilities`` gate exists for this method, matching every other
+        ``TargetAdapter`` method (``TargetManifest`` carries none at all -- see this
+        module's own docstring): an adapter either implements this whole narrow contract
+        or it is not one."""
         ...
 
 

@@ -1,4 +1,4 @@
-"""The fixture target adapter — story S4.3.1.
+"""The fixture target adapter — story S4.3.1, plus ``render_visual`` (S7.6.1).
 
     "TMDL is committed to the client's Git repository through the target adapter... /
     Deployment to the dev workspace uses Fabric Git integration; a smoke query per table
@@ -7,7 +7,9 @@
 ``commit`` is exercised against a real, local Git repository — the one part of this
 adapter that is genuinely real rather than a disclosed stand-in (see the module's own
 docstring). ``deploy``/``smoke_query`` are checked for what they actually do: materialize
-the committed tree, and report whether a table's own file landed there.
+the committed tree, and report whether a table's own file landed there. ``render_visual``
+is checked for what it actually is: the identical disclosed one-pixel placeholder
+``capture_visual`` already returns on the source side, real and deterministic.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from astra_adapter import (
     ParityCase,
     TargetAdapterError,
     TmdlBundle,
+    VisualCase,
 )
 from astra_adapter.target_fake import FixtureTargetAdapter
 
@@ -231,3 +234,28 @@ async def test_evaluate_discloses_that_it_is_synthetic_fixture_data(tmp_path: Pa
     result = await adapter.evaluate(query_text="EVALUATE {1}", case=_case(), workspace="dev")
     assert "synthetic" in result.detail["note"]
     assert result.adapter_name == "fixture-target"
+
+
+# --------------------------------------------------------------------------- render_visual
+
+
+async def test_render_visual_returns_a_real_image(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    case = VisualCase(id="Bar sheet", workbook_luid="wb-1", view_name="Bar sheet")
+
+    result = await adapter.render_visual(visual_case=case, workspace="dev")
+
+    assert result.case_id == "Bar sheet"
+    assert result.media_type == "image/png"
+    assert result.image.startswith(b"\x89PNG")
+    assert result.adapter_name == "fixture-target"
+
+
+async def test_render_visual_is_deterministic(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    case = VisualCase(id="Bar sheet", workbook_luid="wb-1", view_name="Bar sheet")
+
+    first = await adapter.render_visual(visual_case=case, workspace="dev")
+    second = await adapter.render_visual(visual_case=case, workspace="dev")
+
+    assert first.image == second.image

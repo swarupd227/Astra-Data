@@ -2350,6 +2350,55 @@ now.
 See [ADR 0057](../../docs/adr/0057-section-10-4-sampling-a-required-set-that-truncation-never-shrinks.md)
 for the full reasoning.
 
+## §10.5 Visual parity, advisory only (story S7.6.1, opens F7.6)
+
+`visual_parity.py`: `compute_structural_score`/`compute_image_similarity` (pure) +
+`run_visual_parity_for_workbook`/`get_visual_captures` (graph-coupled) -- the identical
+"pure core, graph-coupled shell" split every E7 story has drawn. Never gates -- nothing
+here is ever read by `diff.py`, `verdicts.py`, or any `Verdict.result`.
+
+**The structural score is five weighted components** (mark type 0.3, encodings 0.3, axes
+0.2, sort 0.1, reference lines 0.1, invented and disclosed -- §10.5 names the five facts,
+not the weights), the identical shape `lineage.similarity` (the Cartographer's own
+strength score) already established. **Mark type reads the already-computed
+`Visual.redesign_flag`** rather than re-deriving `compositor.resolve_visual`'s own
+refinement logic a second time -- that needs live graph reads this pure function does
+not have. **Axes are read from each field well's own `shelf` tag**, already stored by
+the compositor. **Reference lines score 0 whenever the source has any** -- `compose_
+report` never carries them to `Visual` at all, a real, disclosed structural gap, not a
+bug to paper over.
+
+**Image similarity is a real, deterministic average hash (aHash)** -- resize both images
+to 8x8 grayscale, threshold against the image's own mean, compare by Hamming distance.
+Pillow is a new, graph-svc-only dependency (the identical "this story needs it"
+precedent pyarrow set for S7.3.1). **A real, disclosed limitation, proven by its own
+test**: two solid-colour images of any two different colours hash identically (aHash
+detects pattern, not absolute colour) -- a visual whose entire drift is a colour-palette
+change would score a perfect 1.0 despite looking different.
+
+**`TargetAdapter.render_visual` is a new, required contract method** (interface 1.1 ->
+1.2, additive) -- no `Capabilities` gate, matching `TargetManifest`'s own stated design
+("an adapter either implements this whole narrow contract or it is not one").
+**`FixtureTargetAdapter.render_visual` returns the identical one-pixel placeholder
+`FixtureSourceAdapter.capture_visual` already does** -- a synthetic image cannot exercise
+a perceptual comparison the way synthetic rows exercise a diff, so any computed
+`image_score` in this platform's own local/demo environment is real arithmetic over
+content-free bytes, disclosed rather than hidden.
+
+**Scores and capture refs are stored on `Visual`, not `ParityCase`/`Verdict`** -- a
+structural/image score is a fact about one sheet's own mapping, not about a specific
+parity case. Six new additive properties, schema version 28 -> 29, no migration file.
+**"Side-by-side images" is a real route**, `GET /v1/workbooks/{id}/visual-captures/
+{visual_id}`, returning both stored captures base64-encoded so the console needs no
+separate binary route -- gated identically to the rest of the dashboard
+(`ParityDashboardReaderDep`), the existing generic artefact-content route left
+untouched. The Parity Dashboard's own per-sheet table gains Structural/Image columns and
+shows both images side by side when a scored sheet is selected. **"On the G3 card"
+cannot be built by this story** -- G3 is F9.1/S9.1.1's own later, entirely unbuilt scope.
+
+See [ADR 0058](../../docs/adr/0058-section-10-5-visual-parity-a-weighted-jaccard-score-and-an-average-hash.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

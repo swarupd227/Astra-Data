@@ -26,11 +26,28 @@
  * that story), so a PASS earned on a stratified sample carries its own SAMPLED pill
  * right here. The G3 card the AC also names does not exist anywhere in this codebase
  * yet (F9.1/S9.1.1's own later, unbuilt scope) — see `diff.py`'s own docstring.
+ *
+ * **§10.5 visual parity, advisory only (story S7.6.1)**: the per-sheet table gains
+ * Structural and Image score columns, read straight off `SheetParityStats` (never a
+ * gate — nothing here can turn a PASS into a FAIL or back). Selecting a sheet with both
+ * images captured shows them side by side, fetched from `GET .../visual-captures/
+ * {visual_id}` as base64 so no separate binary route is needed. "Score visuals" is a
+ * second Parity Engineer action alongside "Re-run parity", the identical hide-not-
+ * disable convention. The G3 card this AC also names does not exist yet — see
+ * `visual_parity.py`'s own docstring.
  */
 
 import { useCallback, useState } from 'react';
 
-import type { Api, Identity, ParityDashboardResponse, ParityRunResponse, RunParityResult } from '../lib/api';
+import type {
+  Api,
+  Identity,
+  ParityDashboardResponse,
+  ParityRunResponse,
+  RunParityResult,
+  RunVisualParityResult,
+  VisualCapturePair,
+} from '../lib/api';
 import { ApiError } from '../lib/api';
 
 interface Props {
@@ -59,6 +76,12 @@ export function ParityDashboard({ api, identity }: Props): JSX.Element {
 
   const [runBusy, setRunBusy] = useState(false);
   const [runNotice, setRunNotice] = useState<string | null>(null);
+
+  const [visualParityBusy, setVisualParityBusy] = useState(false);
+  const [visualParityNotice, setVisualParityNotice] = useState<string | null>(null);
+
+  const [captures, setCaptures] = useState<VisualCapturePair | null>(null);
+  const [capturesError, setCapturesError] = useState<string | null>(null);
 
   const canRun = identity.roles.includes('parity_engineer');
 
@@ -110,7 +133,42 @@ export function ParityDashboard({ api, identity }: Props): JSX.Element {
     }
   }, [api, identity, loadedWorkbookId, load]);
 
+  const runVisualParity = useCallback(async () => {
+    if (!loadedWorkbookId) return;
+    setVisualParityBusy(true);
+    setVisualParityNotice(null);
+    try {
+      const result: RunVisualParityResult = await api.runVisualParity(loadedWorkbookId, identity);
+      setVisualParityNotice(`Scored ${result.visuals_scored} visual(s) against their own source sheet.`);
+      await load(loadedWorkbookId);
+    } catch (caught: unknown) {
+      setVisualParityNotice(caught instanceof ApiError ? caught.message : 'Visual scoring could not be started.');
+    } finally {
+      setVisualParityBusy(false);
+    }
+  }, [api, identity, loadedWorkbookId, load]);
+
   const activeSheet = dashboard?.sheets.find((sheet) => sheet.sheet_ref === selectedSheet) ?? null;
+
+  const selectSheet = useCallback(
+    (sheet: { sheet_ref: string; visual_id: string | null }) => {
+      const nextRef = sheet.sheet_ref === selectedSheet ? null : sheet.sheet_ref;
+      setSelectedSheet(nextRef);
+      setCaptures(null);
+      setCapturesError(null);
+      if (!nextRef || !loadedWorkbookId || !sheet.visual_id) return;
+      void (async () => {
+        try {
+          setCaptures(await api.visualCaptures(loadedWorkbookId, sheet.visual_id!, identity));
+        } catch (caught: unknown) {
+          setCapturesError(
+            caught instanceof ApiError ? caught.message : 'The side-by-side images could not be read.',
+          );
+        }
+      })();
+    },
+    [api, identity, loadedWorkbookId, selectedSheet],
+  );
 
   return (
     <div className="workspace parity-workspace">
@@ -158,6 +216,12 @@ export function ParityDashboard({ api, identity }: Props): JSX.Element {
                     <th>Inconclusive</th>
                     <th>First-pass rate</th>
                     <th>Waived</th>
+                    <th title="§10.5: mark type, encodings, axes, sort, reference lines — advisory, never gates">
+                      Structural
+                    </th>
+                    <th title="§10.5: perceptual similarity of the source screenshot and target render — advisory, never gates">
+                      Image
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -165,7 +229,7 @@ export function ParityDashboard({ api, identity }: Props): JSX.Element {
                     <tr
                       key={sheet.sheet_ref}
                       aria-selected={sheet.sheet_ref === selectedSheet}
-                      onClick={() => setSelectedSheet(sheet.sheet_ref === selectedSheet ? null : sheet.sheet_ref)}
+                      onClick={() => selectSheet(sheet)}
                       style={{ cursor: 'pointer' }}
                     >
                       <td>{sheet.sheet_name}</td>
@@ -183,11 +247,13 @@ export function ParityDashboard({ api, identity }: Props): JSX.Element {
                       </td>
                       <td>{percent(sheet.first_pass_rate)}</td>
                       <td>{sheet.waived_count}</td>
+                      <td>{percent(sheet.structural_score)}</td>
+                      <td>{percent(sheet.image_score)}</td>
                     </tr>
                   ))}
                   {dashboard.sheets.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="empty">
+                      <td colSpan={9} className="empty">
                         No diffed sheets yet.
                       </td>
                     </tr>
@@ -226,6 +292,52 @@ export function ParityDashboard({ api, identity }: Props): JSX.Element {
                       </tbody>
                     </table>
                   )}
+
+                  <h3>
+                    Side by side — {activeSheet.sheet_name}
+                    {activeSheet.structural_score !== null && (
+                      <span className="pill idle mono">
+                        {' '}
+                        structural {percent(activeSheet.structural_score)}
+                      </span>
+                    )}
+                    {activeSheet.image_score !== null && (
+                      <span className="pill idle mono"> image {percent(activeSheet.image_score)}</span>
+                    )}
+                  </h3>
+                  {activeSheet.structural_score === null ? (
+                    <p className="empty">
+                      This sheet has not been scored yet. Score visuals to see how closely its mark
+                      type, encodings, axes, sort and reference lines mirror the source (§10.5,
+                      advisory — never gates).
+                    </p>
+                  ) : capturesError ? (
+                    <div className="banner">{capturesError}</div>
+                  ) : captures ? (
+                    <div style={{ display: 'flex', gap: 16 }}>
+                      <figure>
+                        <figcaption className="faint">Source screenshot</figcaption>
+                        <img
+                          src={`data:${captures.source.media_type};base64,${captures.source.content_base64}`}
+                          alt={`Source screenshot of ${activeSheet.sheet_name}`}
+                          style={{ maxWidth: 300, border: '1px solid var(--border, #ccc)' }}
+                        />
+                      </figure>
+                      <figure>
+                        <figcaption className="faint">Target render</figcaption>
+                        <img
+                          src={`data:${captures.target.media_type};base64,${captures.target.content_base64}`}
+                          alt={`Target render of ${activeSheet.sheet_name}`}
+                          style={{ maxWidth: 300, border: '1px solid var(--border, #ccc)' }}
+                        />
+                      </figure>
+                    </div>
+                  ) : (
+                    <p className="empty">
+                      No captured images for this sheet — the source adapter may not support
+                      screenshots.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -259,22 +371,33 @@ export function ParityDashboard({ api, identity }: Props): JSX.Element {
           )}
         </div>
         <footer className="statusbar">
+          {visualParityNotice && <span>{visualParityNotice}</span>}
           {runNotice && <span>{runNotice}</span>}
           <span className="spacer" />
           <button type="button" className="btn primary" disabled={busy || !workbookId.trim()} onClick={() => void load(workbookId)}>
             {busy ? 'Loading…' : 'Load'}
           </button>
           {canRun ? (
-            <button
-              type="button"
-              className="btn"
-              disabled={!loadedWorkbookId || runBusy}
-              onClick={() => void runParity()}
-            >
-              {runBusy ? 'Running…' : 'Re-run parity'}
-            </button>
+            <>
+              <button
+                type="button"
+                className="btn"
+                disabled={!loadedWorkbookId || runBusy}
+                onClick={() => void runParity()}
+              >
+                {runBusy ? 'Running…' : 'Re-run parity'}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={!loadedWorkbookId || visualParityBusy}
+                onClick={() => void runVisualParity()}
+              >
+                {visualParityBusy ? 'Scoring…' : 'Score visuals'}
+              </button>
+            </>
           ) : (
-            <span className="faint">Running parity is the Parity Engineer&rsquo;s.</span>
+            <span className="faint">Running parity and scoring visuals are the Parity Engineer&rsquo;s.</span>
           )}
         </footer>
       </section>

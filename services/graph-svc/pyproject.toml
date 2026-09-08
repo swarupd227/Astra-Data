@@ -30,6 +30,11 @@ dependencies = [
     # ResultSet's own columns/rows into bytes -- a second dependency this codebase does
     # not otherwise need.
     "pyarrow>=17,<19",
+    # §10.5's own perceptual image comparison (story S7.6.1). Pillow decodes whatever
+    # media type a capture/render actually returns and computes a real, deterministic
+    # average-hash similarity -- graph-svc's own need, the identical "this story needs
+    # it, added here rather than a shared package" precedent pyarrow already set.
+    "Pillow>=10,<12",
 ]
 
 [project.optional-dependencies]
@@ -98,6 +103,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "pyarrow.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "PIL.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

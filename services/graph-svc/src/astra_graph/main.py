@@ -48,6 +48,7 @@ from .api import (
     tolerance_charter_router,
     trains_router,
     verdicts_router,
+    visual_parity_router,
 )
 from .api.graphql import build_router as build_graphql_router
 from .api.routes_families import ClusteringStatus
@@ -104,6 +105,7 @@ from .trains import TrainPlanner
 from .verdicts import VerdictsService
 from .versions import HistoricalGraphReader
 from .visual_mapping import PostgresVisualMappingRulesetStore
+from .visual_parity import VisualParityService
 from .writes import GraphWriter
 
 logger = logging.getLogger(__name__)
@@ -309,6 +311,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.verdicts = VerdictsService(
         pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
     )
+    # Story S7.6.1, opening F7.6: the advisory §10.5 visual score, over the same source/
+    # target adapters S7.3.1 already wired above -- never a gate, see visual_parity.py's
+    # own docstring.
+    app.state.visual_parity = VisualParityService(
+        pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
+        source_adapter=app.state.source_adapter, target_adapter=app.state.target_adapter,
+    )
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(
         quality=quality_store,
@@ -392,6 +401,7 @@ def create_app() -> FastAPI:
     app.include_router(case_derivation_router)
     app.include_router(case_execution_router)
     app.include_router(verdicts_router)
+    app.include_router(visual_parity_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

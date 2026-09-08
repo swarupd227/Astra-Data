@@ -554,6 +554,22 @@ NODE_TYPES: tuple[NodeType, ...] = (
                     "a URL field, or left unsupported with Appendix B.2's own guidance "
                     "(story S6.1.3). Always present once composed (an empty list either "
                     "way means 'none found', not 'not looked for')."),
+            _p("structural_score", T.FLOAT, note="§10.5 (story S7.6.1): a 0-1 structural "
+                    "visual-similarity score against this visual's own source Worksheet "
+                    "(mark type, encodings, axes, sort, reference lines). Advisory only -- "
+                    "never read by any verdict or gate."),
+            _p("structural_score_breakdown", T.JSON, note="The five weighted component "
+                    "scores `structural_score` was computed from, for evidence."),
+            _p("image_score", T.FLOAT, note="§10.5: a 0-1 perceptual similarity between "
+                    "the source screenshot and the target's own rendered export, absent "
+                    "when either image could not be captured/rendered. Advisory only."),
+            _p("visual_score_computed_at", T.TIMESTAMP,
+               note="When the two scores above were last computed."),
+            _p("source_screenshot_ref", T.STRING, note="§10.5's own 'side-by-side images' "
+                    "-- the stored source-side capture this run's own image_score (if any) "
+                    "was computed from."),
+            _p("target_render_ref", T.STRING, note="The stored target-side render this "
+                    "run's own image_score (if any) was computed from."),
         ),
     ),
     NodeType(
@@ -1285,5 +1301,26 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "back to each verdict's own `ParityCase` just to show the label would cost "
                "a real query for no real benefit, since `ParityCase.sampled` remains the "
                "single source of truth this property is denormalised from.",
+    ),
+    SpecDeviation(
+        element="Visual.structural_score, Visual.structural_score_breakdown, "
+                "Visual.image_score, Visual.visual_score_computed_at, "
+                "Visual.source_screenshot_ref, Visual.target_render_ref",
+        reason="Section 4.1.1's own node table declares none of these -- `Visual` as "
+               "specified carries the §8.8 mapping facts (page, type, encodings, layout, "
+               "interactivity) with no similarity score or captured image of any kind. "
+               "§10.5 itself names the facts plainly: 'a visual parity score per sheet... "
+               "the score is shown next to the structural score', and backlog story "
+               "S7.6.1's own acceptance criteria requires both scores 'shown on the Parity "
+               "Dashboard and the G3 card' plus 'side-by-side images'.",
+        detail="Stored on `Visual` rather than `ParityCase`/`Verdict` because the score is "
+               "a structural fact about one sheet's own mapping, not about a specific "
+               "grain/measure/filter combination a parity case represents -- the same "
+               "'store it on the node the fact is actually about' reasoning "
+               "`ParityCase.sampled` already applied in the opposite direction (a run-time "
+               "fact, stored on the case it describes). The two ref properties are the "
+               "AC's own 'side-by-side images', pointing at real stored artefacts. "
+               "Advisory throughout, per §10.5's own words: nothing here is ever read by "
+               "`diff_result_sets` or any verdict.",
     ),
 )

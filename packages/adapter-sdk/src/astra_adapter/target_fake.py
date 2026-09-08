@@ -38,11 +38,22 @@ deterministic synthetic rows (never a clock, never randomness — the same "thre
 one case agree" requirement §6.3 checks on the source side applies here too), derived
 from the case and the query text, clearly disclosed as fixture data via ``adapter_name``/
 ``detail`` rather than passed off as a real query result.
+
+**``render_visual`` (story S7.6.1) is the one stand-in that deliberately does *not*
+follow ``evaluate``'s own "useful synthetic data" precedent.** ``fake/source.py``'s own
+``capture_visual`` already drew this line for the source side: *"the fake has nothing to
+render, and inventing a picture would make [the] perceptual comparison score noise as
+similarity"* — a synthetic image cannot exercise §10.5's own comparison the way
+synthetic rows can exercise a diff, since an image's whole meaning is its actual visual
+appearance. This returns the identical one-pixel PNG ``capture_visual`` does, for the
+identical reason, disclosed via ``adapter_name`` (``VisualCapture`` carries no free-form
+``detail`` field the way ``ResultSet`` does) rather than a fabricated render.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import logging
 from pathlib import Path
@@ -51,7 +62,16 @@ from dulwich import porcelain
 from dulwich.object_store import iter_tree_contents
 from dulwich.repo import Repo
 
-from .proof import Column, ColumnRole, ExecutionOutcome, ExecutionStrategy, ParityCase, ResultSet
+from .proof import (
+    Column,
+    ColumnRole,
+    ExecutionOutcome,
+    ExecutionStrategy,
+    ParityCase,
+    ResultSet,
+    VisualCapture,
+    VisualCase,
+)
 from .target_contract import (
     TARGET_INTERFACE_VERSION,
     CommitResult,
@@ -60,6 +80,12 @@ from .target_contract import (
     TargetAdapterError,
     TargetManifest,
     TmdlBundle,
+)
+
+#: A one-pixel PNG -- the identical placeholder ``fake/source.py``'s own
+#: ``capture_visual`` uses, for the identical reason (see this module's own docstring).
+_ONE_PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
 )
 
 logger = logging.getLogger(__name__)
@@ -242,6 +268,24 @@ class FixtureTargetAdapter:
                     "configured to run this query; see FixtureTargetAdapter's own docstring"
                 ),
             },
+        )
+
+    # --------------------------------------------------------------------- render_visual
+
+    async def render_visual(self, *, visual_case: VisualCase, workspace: str) -> VisualCapture:
+        """The one-pixel placeholder, not a fabricated render -- see this module's own
+        docstring on why ``render_visual`` breaks from ``evaluate``'s own "useful
+        synthetic data" precedent."""
+        return VisualCapture(
+            case_id=visual_case.id,
+            image=_ONE_PIXEL_PNG,
+            width=visual_case.width,
+            height=visual_case.height,
+            interface_version=TARGET_INTERFACE_VERSION,
+            adapter_name="fixture-target",
+            adapter_version="0.1.0",
+            captured_at=None,
+            media_type="image/png",
         )
 
 
