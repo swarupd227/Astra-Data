@@ -683,6 +683,28 @@ NODE_TYPES: tuple[NodeType, ...] = (
                     "verified against a system this platform cannot reach' footing "
                     "`ArtefactRecord.content_hash` already has for a caller-supplied "
                     "artefact. Absent while state is OPEN."),
+            _p("classification_signals", T.JSON,
+               note="§11.1's own deterministic taxonomy (story S8.1.1): the specific diff "
+                    "signals that fired -- which rule matched, and the measured facts "
+                    "behind it (e.g. missing/extra key counts, the failing cells' own kind "
+                    "and count, the relative-delta spread). The AC's own 'the class and "
+                    "the signals that produced it are recorded'; `class` already carries "
+                    "the class itself, this carries why."),
+            _p("artefact_ref", T.STRING,
+               note="The CalculatedField/Field this case's own failing measure resolves "
+                    "to (story S8.1.1) -- what 'grouped by artefact' groups ON. Absent for "
+                    "VISUAL_REDESIGN (`visual_ref` already names the Visual) and for a "
+                    "case whose own evidence could not be pinned to one measure (a pure "
+                    "key-set mismatch with no failing cell to name one), where the "
+                    "grouping key falls back to the sheet instead -- a real, disclosed "
+                    "narrower case, not a broken reference."),
+            _p("case_refs", T.STRING_LIST,
+               note="Every live ParityCase id this one exception covers (story S8.1.1) -- "
+                    "'grouped by artefact so one measure used by many sheets is repaired "
+                    "once' literally: one ExceptionCase per (artefact, failure class), not "
+                    "one per failing case. A later classification pass that finds another "
+                    "case failing the same way merges its id in rather than opening a "
+                    "second exception."),
         ),
     ),
     # --------------------------------------------------------------------- platform
@@ -1254,6 +1276,43 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "pass/fail/inconclusive counts -- the identical 'evidence_ref names a real "
                "artefact' shape the parity evidence bundle (S7.4.1) already established, "
                "not a second, REGRESSION-only property.",
+    ),
+    SpecDeviation(
+        element="ExceptionCase.classification_signals",
+        reason="Section 4.1.1's own seven-property ExceptionCase table declares no such "
+               "property. Backlog story S8.1.1's own acceptance criteria requires it "
+               "explicitly: 'the class and the signals that produced it are recorded on "
+               "the ExceptionCase or repair record' -- no repair record exists anywhere "
+               "in this codebase (confirmed by direct research: E8 is entirely unbuilt "
+               "before this story), so the fact is recorded on the one real work-item "
+               "mechanism this platform has instead, the same choice VISUAL_REDESIGN and "
+               "REGRESSION already made for their own class-specific facts.",
+        detail="A JSON snapshot of which §11.1 rule fired and the measured evidence "
+               "behind it (e.g. missing/extra key counts, failing-cell kind and count, "
+               "relative-delta spread) -- taken when the case opens, the same 'a snapshot, "
+               "not a live read' discipline `mapping_reason`/`placeholder_location` "
+               "(S6.2.1) already established, so a later re-diff cannot quietly rewrite "
+               "what a still-open case says its own evidence was.",
+    ),
+    SpecDeviation(
+        element="ExceptionCase.artefact_ref, ExceptionCase.case_refs",
+        reason="Section 4.1.1's own seven-property table declares neither. Backlog story "
+               "S8.1.1's own acceptance criteria requires grouping ('cases are grouped by "
+               "artefact so one measure used by many sheets is repaired once') that "
+               "`mu_ref`/`evidence_ref` alone cannot express: `mu_ref` names a whole "
+               "workbook, not one of its many measures, and `evidence_ref` names one "
+               "case's own evidence artefact, not the several cases a shared artefact's "
+               "own failure spans. This narrows `visual_ref`'s own note on this node ('every "
+               "other failure class... `mu_ref` and `evidence_ref` already identify "
+               "without a second reference property', S6.2.1) -- true when nothing yet "
+               "grouped failures by the artefact actually at fault; no longer true once "
+               "this story does.",
+        detail="`artefact_ref` is the real `CalculatedField`/`Field` id a failing case's "
+               "own evidence resolves to, the same name-to-id resolution "
+               "`case_derivation._worksheet_field_index` already performs for deriving "
+               "cases in the first place. `case_refs` is the live `ParityCase` ids grouped "
+               "into this one exception -- one `ExceptionCase` per (artefact, class) pair, "
+               "not one per failing case, the literal reading of 'repaired once'.",
     ),
     SpecDeviation(
         element="ReportDefinition.documentation_artefact_ref, "

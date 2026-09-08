@@ -2485,6 +2485,67 @@ lifespan alongside `HarvestScheduler`, gated identically.
 See [ADR 0059](../../docs/adr/0059-section-10-6-regression-a-second-scheduler-that-re-executes-before-it-re-diffs.md)
 for the full reasoning.
 
+## §11.1 Failure classification (story S8.1.1, opens F8.1/E8)
+
+`classification.py`: pure `classify_failure` + graph-coupled `classify_run`/
+`ClassificationService` -- the first story to open an `ExceptionCase` for a plain
+first-pass parity FAIL at all. Confirmed directly: `run_parity_for_workbook` (S7.4.1)
+writes `Verdict(result="FAIL")` and nothing has ever read it since; the only three prior
+`ExceptionCase` writers (`visual_redesign.py`, `regression.py`, `generation.py`) each
+open one for a different moment, never this one.
+
+**Eleven classes, each implementing §11.1's own literal "signal in the evidence"
+column**, checked in a disclosed priority order (no order is given in the spec): a real
+`SOURCE_DRIFT` event overrides everything else (checked first, via the identical event
+outbox `regression.py`'s own drift check already polls); then key-set signals
+(`KEY_MISSING`/`SORT_LIMIT`, unambiguous); then two AST-informed classes (`LOD_SCOPE`/
+`TABLE_CALC`, a real fact about the failing measure's own formula, resolved via
+`case_derivation._worksheet_field_index`, imported directly -- the identical
+cross-epic-private-helper exception `verdicts.py` already established); then the
+cell-level classes (`NULL_HANDLING`, `DATE_GRAIN`, `TYPE_COERCION`, `AGGREGATION`,
+`FILTER_CONTEXT`, most-certain-signal first) down to `UNKNOWN`.
+
+**Two classes are facts about the formula, not the diff -- supplied as real, optional
+extra signals rather than left dead branches.** `_contains_lod`/`_contains_table_calc`
+walk a `CalculatedField.formula_ast` the identical way `classify.py`'s own §9.1
+classifier already walks one (`kind == "AGGREGATE"` and `name in
+{"FIXED","INCLUDE","EXCLUDE"}` for LOD -- that module's own `_LOD_NAMES` constant,
+mirrored; `kind == "FUNCTION"` and `detail["family"]` starting `"table_calc"` for a
+table calculation -- the grammar's own already-computed family tag, not an invented
+function-name list).
+
+**Grouping needed two new properties `mu_ref`/`evidence_ref` alone could not give it.**
+`artefact_ref` (the real `CalculatedField`/`Field` id a failing case's own evidence
+resolves to) and `case_refs` (every live `ParityCase` id one exception covers) --
+grouping key is (artefact, class); a case with no failing cells to pin a measure to
+falls back to (sheet, class) rather than staying ungrouped. A third property,
+`classification_signals` (JSON), carries the AC's own "the class and the signals that
+produced it" -- `class` already carries the class, this carries why. A second
+classification pass merges into an already-OPEN exception at the same (mu_ref,
+artefact_ref, class) rather than duplicating it -- "repaired once" read across passes,
+not only within one.
+
+**Classification precision is read as plain accuracy over a labelled fixture set** --
+the first precision-bound test this codebase has for a deterministic classifier
+(`classify.py`'s own §9.1 C1-C4 classifier has none to follow). 61 hand-labelled cases
+(`tests/classification_fixtures.py`, mirroring `diff_fixtures.py`'s own convention),
+including one genuine, disclosed miss (a boolean-string coercion the algorithm's own
+numeric-formatting-only heuristic does not catch) kept rather than relabelled to inflate
+the score. Measured: 60/61 = 0.984, comfortably above the AC's own 0.90 floor.
+
+New route: `POST /v1/workbooks/{id}:classify-failures` (`MigrationEngineerDep`, the AC's
+own persona) -- in its own `routes_failure_classification.py`, named to avoid colliding
+with the pre-existing, unrelated `routes_classification.py` (S5.1.1's own C1-C4
+calculation classifier). No new read route: `GET /v1/exceptions` (S6.2.1) already lists
+every live `ExceptionCase`, filterable by `mu_ref`/`state`. Ontology: `ExceptionCase`
+gains `classification_signals`/`artefact_ref`/`case_refs`; schema version 30 -> 31, two
+new declared `SpecDeviation`s, no migration file. **No console screen** -- the Exception
+Desk (queue, case page, decisions) is F8.3's own real, later, unbuilt scope; this
+story's own AC does not ask for one.
+
+See [ADR 0060](../../docs/adr/0060-section-11-1-failure-classification-priority-ordered-signals-and-two-ast-informed-classes.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

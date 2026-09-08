@@ -894,6 +894,27 @@
           "required": false,
           "server_managed": false,
           "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "classification_signals",
+          "required": false,
+          "server_managed": false,
+          "type": "json"
+        },
+        {
+          "enum": null,
+          "name": "artefact_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "case_refs",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
         }
       ],
       "side": "target"
@@ -2380,5 +2401,5 @@
       "side": "source"
     }
   },
-  "schema_version": 30
+  "schema_version": 31
 }

@@ -29,6 +29,7 @@ from .api import (
     cypher_router,
     estate_router,
     exceptions_router,
+    failure_classification_router,
     families_router,
     g2_router,
     gateway_router,
@@ -61,6 +62,7 @@ from .calibration import PostgresCalibrationStore
 from .cartographer import Cartographer
 from .case_derivation import CaseDerivationService, PostgresParitySuiteStore
 from .case_execution import CaseExecutionService
+from .classification import ClassificationService
 from .classify import ClassificationEngine
 from .compositor import Compositor
 from .config import settings
@@ -336,6 +338,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         pool, graph_name=config.graph_name, store=app.state.regression_schedule_store,
         case_derivation=app.state.case_derivation, charter_store=app.state.tolerance_charter_store,
     )
+    # Story S8.1.1, opening F8.1/E8: §11.1 failure classification -- the first story to
+    # open an ExceptionCase for a plain first-pass parity FAIL at all. See
+    # classification.py's own docstring.
+    app.state.classification = ClassificationService(
+        pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
+    )
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(
         quality=quality_store,
@@ -444,6 +452,7 @@ def create_app() -> FastAPI:
     app.include_router(verdicts_router)
     app.include_router(visual_parity_router)
     app.include_router(regression_router)
+    app.include_router(failure_classification_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 
