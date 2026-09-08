@@ -40,7 +40,13 @@ SPEC_EDGE_TYPES = {
 
 
 def test_every_specification_node_type_is_declared() -> None:
-    assert set(NODE_INDEX) == SPEC_NODE_TYPES
+    """A subset check, not equality, since story S8.2.1 added the first node type this
+    codebase has ever declared with no §4.1.1 table entry at all (`MenderPass` -- a real,
+    declared `SpecDeviation`, not an omission; §8.10/§11.2/the glossary all describe a
+    "Mender pass" in prose, just never in §4.1.1's own table the way `Pattern`/
+    `ExceptionCase` already are). The claim this test actually proves -- "nothing §4.1.1
+    names is missing" -- still holds; it no longer also claims nothing else exists."""
+    assert SPEC_NODE_TYPES <= set(NODE_INDEX)
 
 
 def test_every_specification_edge_type_is_declared() -> None:

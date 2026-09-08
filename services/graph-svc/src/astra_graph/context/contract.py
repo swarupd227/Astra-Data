@@ -83,12 +83,26 @@ class ContractName(str, Enum):
     S6.2.2).** Report documentation is rendered entirely from already-composed graph
     facts by a deterministic template — never a model call — so there is no inference
     boundary to police here either.
+
+    **MENDER_REPAIR is a "name only" entry too (story S8.2.1) — but a genuinely
+    different reason from the other three.** Unlike `MODELLER_FAMILY`/
+    `TRANSPILER_C4_REDESIGN`/`COMPOSITOR_REPORT_DOC` (which never call a model at all),
+    a Mender repair pass 2/3 genuinely does cross the inference boundary
+    (`gateway.MENDER_REPAIR`, §18.3's own concern). It is still "name only" because
+    building the fragment-validated `ContextContract`/resolution-plan machinery this
+    module's own docstring describes is a real, separate undertaking this story does not
+    attempt — the identical choice `generation.py`'s own `GenerationRequest` already
+    made for `TRANSPILER_CALC`: a bespoke request dataclass with its own `context_hash()`,
+    never routed through `ContextAssembler`, despite `TRANSPILER_CALC` having a real
+    contract registered in `CONTRACTS` for an unrelated caller. `mender.RepairContext`
+    follows the identical bespoke shape.
     """
 
     TRANSPILER_CALC = "transpiler_calc"
     MODELLER_FAMILY = "modeller_family"
     TRANSPILER_C4_REDESIGN = "transpiler_c4_redesign"
     COMPOSITOR_REPORT_DOC = "compositor_report_doc"
+    MENDER_REPAIR = "mender_repair"
 
 
 class ContractDefinitionError(Exception):

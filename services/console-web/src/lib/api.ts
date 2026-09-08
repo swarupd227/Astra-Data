@@ -1040,9 +1040,13 @@ export interface ParityRunTrendEntry {
 }
 
 export interface MenderPassesInfo {
-  /** Always `false` today — E8 (the Mender) is unbuilt; see `detail`. */
+  /** `false` until at least one ExceptionCase for this workbook has closed through the
+   *  Mender (story S8.2.1); see `detail`. `true` once `closed_count`/`mean_passes_to_pass`
+   *  are real. */
   available: boolean;
-  detail: string;
+  detail?: string;
+  closed_count?: number;
+  mean_passes_to_pass?: number;
 }
 
 export interface ParityDashboardResponse {

@@ -248,7 +248,7 @@ async def test_ontology_is_served_as_data(client) -> None:
     response = await client.get("/v1/ontology")
     assert response.status_code == 200
     body = response.json()
-    assert len(body["nodes"]) == 28
+    assert len(body["nodes"]) == 29
     assert len(body["edges"]) == 15
     workbook = next(n for n in body["nodes"] if n["label"] == "Workbook")
     assert {"id", "side", "created_by", "created_at"} <= {

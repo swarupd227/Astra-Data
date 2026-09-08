@@ -36,6 +36,7 @@ from .api import (
     generation_router,
     harvest_router,
     lineage_router,
+    mender_router,
     modeller_router,
     ownership_router,
     patterns_router,
@@ -95,6 +96,7 @@ from .harvest_setup import (
 )
 from .lineage import LineageReader
 from .logging_setup import configure_logging
+from .mender import MenderService, PostgresMenderConfigStore
 from .modeller import Modeller
 from .ontology import SCHEMA_VERSION
 from .provenance import ContextVerifier, PostgresProvenanceStore
@@ -344,6 +346,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.classification = ClassificationService(
         pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
     )
+    # Story S8.2.1, continuing F8.2/E8: the Mender's own bounded repair loop -- pattern
+    # first (S5.5.x's own library, reused read-only), model repair otherwise, at most
+    # `mender_config`'s own per-graph pass budget (default 3, §11.2). `MENDER_REPAIR` is
+    # registered on the Model Gateway above but stays permanently unroutable in this
+    # deployment, the same disclosed posture `TRANSPILE_C3` has always had -- see
+    # mender.py's own docstring.
+    app.state.mender_config_store = PostgresMenderConfigStore(pool, graph_name=config.graph_name)
+    app.state.mender = MenderService(
+        pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
+        provenance_store=app.state.provenance_store, gateway=app.state.gateway,
+        target_adapter=app.state.target_adapter, config_store=app.state.mender_config_store,
+        charter_store=app.state.tolerance_charter_store,
+    )
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(
         quality=quality_store,
@@ -453,6 +468,7 @@ def create_app() -> FastAPI:
     app.include_router(visual_parity_router)
     app.include_router(regression_router)
     app.include_router(failure_classification_router)
+    app.include_router(mender_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

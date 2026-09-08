@@ -934,7 +934,7 @@ export function parityDashboardResponse(
       runs: [parityRunTrendEntry()],
       mender_passes: {
         available: false,
-        detail: "the Mender is E8's own unbuilt scope; no Mender pass has ever been recorded",
+        detail: 'no ExceptionCase for this workbook has closed through the Mender yet',
       },
     },
     ...overrides,

@@ -705,6 +705,50 @@ NODE_TYPES: tuple[NodeType, ...] = (
                     "one per failing case. A later classification pass that finds another "
                     "case failing the same way merges its id in rather than opening a "
                     "second exception."),
+            _p("passes_consumed", T.INT,
+               note="How many Mender passes this exception has actually consumed (story "
+                    "S8.2.1) -- a point-in-time snapshot for cheap display, the identical "
+                    "footing `Pattern.pass_count`/`.failure_count` already have; the real, "
+                    "queryable history is the live `MenderPass` nodes naming this case."),
+        ),
+    ),
+    NodeType(
+        label="MenderPass",
+        side=Side.TARGET,
+        spec_ref="§8.10, §11.2",
+        note="One bounded iteration of classify -> fix -> re-prove (glossary: 'Mender "
+             "pass'), story S8.2.1. The real record behind 'every pass is in evidence' -- "
+             "an `ExceptionCase`'s own pass history a future Exception Desk case page "
+             "(F8.3) reads directly, not a JSON blob buried in one property.",
+        properties=(
+            _p("exception_case_ref", T.STRING, required=True),
+            _p("pass_number", T.INT, required=True),
+            _p("strategy", T.ENUM, required=True,
+               enum=("PATTERN", "MODEL", "MODEL_WIDENED", "ESCALATE_IMMEDIATE"),
+               note="§11.2/backlog S8.2.1: pass 1 is always PATTERN; pass 2 is MODEL "
+                    "(narrow context); pass 3 is MODEL_WIDENED (the widened context "
+                    "contract the AC names). ESCALATE_IMMEDIATE is this story's own "
+                    "disclosed addition for the AC's own 'any KEY_MISSING' rule, which "
+                    "the spec says never enters the loop as a report-side repair at all."),
+            _p("pattern_ref", T.STRING, note="The ACTIVE Pattern applied, pass 1 only."),
+            _p("measure_ref", T.STRING,
+               note="The new Measure this pass produced, when it produced one -- absent "
+                    "for a pass that never got that far (no pattern match, an unroutable "
+                    "gateway, a schema/parse failure)."),
+            _p("result", T.ENUM, required=True,
+               enum=("PROVED", "STILL_FAILING", "REGRESSED", "NO_PATTERN_MATCH",
+                     "MODEL_UNAVAILABLE", "SCHEMA_ERROR", "PARSE_ERROR", "KEY_MISSING_MODEL_DEFECT")),
+            _p("cases_reproved", T.STRING_LIST,
+               note="Which of this exception's own `case_refs` were actually re-run this "
+                    "pass and now pass -- 'the affected cases only' (§11.2), never the "
+                    "whole workbook."),
+            _p("cases_still_failing", T.STRING_LIST),
+            _p("evidence_ref", T.STRING,
+               note="A stored artefact with this pass's own full detail -- the repair "
+                    "context sent, the model's own raw response where one was made, the "
+                    "rendered/generated DAX, and each re-proved case's own fresh diff."),
+            _p("started_at", T.TIMESTAMP, required=True),
+            _p("finished_at", T.TIMESTAMP, required=True),
         ),
     ),
     # --------------------------------------------------------------------- platform
@@ -1313,6 +1357,36 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "cases in the first place. `case_refs` is the live `ParityCase` ids grouped "
                "into this one exception -- one `ExceptionCase` per (artefact, class) pair, "
                "not one per failing case, the literal reading of 'repaired once'.",
+    ),
+    SpecDeviation(
+        element="ExceptionCase.passes_consumed",
+        reason="Section 4.1.1's own seven-property table declares no such property. "
+               "Backlog story S8.2.1's own acceptance criteria requires 'passes consumed "
+               "per MU is stored and reported (mean passes to pass)'; the real, queryable "
+               "history is the live `MenderPass` nodes naming this case, but a cheap, "
+               "point-in-time count on the case itself avoids walking that history for "
+               "every dashboard read -- the identical footing `Pattern.pass_count`/"
+               "`.failure_count` (S5.5.1) already have for the same 'a snapshot, not the "
+               "source of truth' reason.",
+        detail="Updated after every Mender pass, win or lose, so it always reflects how "
+               "many passes this exception has actually consumed -- 0 while still "
+               "unattempted, the real count on exhaustion or on a real proof PASS.",
+    ),
+    SpecDeviation(
+        element="MenderPass",
+        reason="Section 4.1.1's own node table declares no `MenderPass` -- confirmed by "
+               "direct research, only `ExceptionCase` is declared for §11's own work-item "
+               "concerns. The glossary defines 'Mender pass' as a real, named concept "
+               "('one bounded iteration of classify -> fix -> re-prove') and §11.2/§8.10 "
+               "describe it at length; backlog story S8.2.1's own acceptance criteria "
+               "requires 'every pass is in evidence' and a future Exception Desk case page "
+               "(F8.3) to show 'Mender pass history with diffs' -- a real, addressable "
+               "record per pass, not a JSON blob folded into `ExceptionCase` itself.",
+        detail="One `MenderPass` per attempted pass, `exception_case_ref`-linked, carrying "
+               "its own strategy, result, which of the exception's own cases it re-proved, "
+               "and a stored evidence artefact -- the same node-per-real-event shape "
+               "`ArtefactRecord`/`ProvenanceRecord` already established for their own "
+               "platform-side concerns beyond the source/target estate §4.1.1 catalogues.",
     ),
     SpecDeviation(
         element="ReportDefinition.documentation_artefact_ref, "

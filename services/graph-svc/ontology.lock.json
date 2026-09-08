@@ -915,6 +915,13 @@
           "required": false,
           "server_managed": false,
           "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "passes_consumed",
+          "required": false,
+          "server_managed": false,
+          "type": "int"
         }
       ],
       "side": "target"
@@ -1155,6 +1162,102 @@
           "required": false,
           "server_managed": false,
           "type": "string"
+        }
+      ],
+      "side": "target"
+    },
+    "MenderPass": {
+      "properties": [
+        {
+          "enum": null,
+          "name": "exception_case_ref",
+          "required": true,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "pass_number",
+          "required": true,
+          "server_managed": false,
+          "type": "int"
+        },
+        {
+          "enum": [
+            "PATTERN",
+            "MODEL",
+            "MODEL_WIDENED",
+            "ESCALATE_IMMEDIATE"
+          ],
+          "name": "strategy",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "pattern_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "measure_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": [
+            "PROVED",
+            "STILL_FAILING",
+            "REGRESSED",
+            "NO_PATTERN_MATCH",
+            "MODEL_UNAVAILABLE",
+            "SCHEMA_ERROR",
+            "PARSE_ERROR",
+            "KEY_MISSING_MODEL_DEFECT"
+          ],
+          "name": "result",
+          "required": true,
+          "server_managed": false,
+          "type": "enum"
+        },
+        {
+          "enum": null,
+          "name": "cases_reproved",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "cases_still_failing",
+          "required": false,
+          "server_managed": false,
+          "type": "string_list"
+        },
+        {
+          "enum": null,
+          "name": "evidence_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "started_at",
+          "required": true,
+          "server_managed": false,
+          "type": "timestamp"
+        },
+        {
+          "enum": null,
+          "name": "finished_at",
+          "required": true,
+          "server_managed": false,
+          "type": "timestamp"
         }
       ],
       "side": "target"
@@ -2401,5 +2504,5 @@
       "side": "source"
     }
   },
-  "schema_version": 31
+  "schema_version": 32
 }

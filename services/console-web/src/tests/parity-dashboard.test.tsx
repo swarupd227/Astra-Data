@@ -16,7 +16,14 @@ import { describe, expect, it } from 'vitest';
 import { App, surfaceFromPath } from '../App';
 import { ApiError, type Identity } from '../lib/api';
 import { ParityDashboard } from '../parity/ParityDashboard';
-import { fakeApi, parityDashboardResponse, parityRunResponse, sheetParityStats, verdictRow } from './fixtures';
+import {
+  fakeApi,
+  parityDashboardResponse,
+  parityRunResponse,
+  parityRunTrendEntry,
+  sheetParityStats,
+  verdictRow,
+} from './fixtures';
 
 const PARITY: Identity = { principal: 'user:parity@artizent.example', roles: ['parity_engineer'] };
 const REPORT_OWNER: Identity = { principal: 'user:owner@client.example', roles: ['client_report_owner'] };
@@ -78,6 +85,24 @@ describe('reading the dashboard', () => {
     await load(user);
 
     expect(await screen.findByText(/Mender passes: not yet available/)).toBeInTheDocument();
+  });
+
+  it('shows the real mean passes-to-pass once a case has closed through the Mender', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    api.parityDashboard = async () =>
+      parityDashboardResponse({
+        trend: {
+          runs: [parityRunTrendEntry()],
+          mender_passes: { available: true, closed_count: 3, mean_passes_to_pass: 2 },
+        },
+      });
+    renderScreen(REPORT_OWNER, api);
+    await load(user);
+
+    expect(
+      await screen.findByText('Mender passes: mean 2.00 to pass, over 3 closed cases.'),
+    ).toBeInTheDocument();
   });
 
   it('surfaces a read failure', async () => {

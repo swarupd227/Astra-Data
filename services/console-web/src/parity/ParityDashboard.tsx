@@ -364,9 +364,17 @@ export function ParityDashboard({ api, identity }: Props): JSX.Element {
                   ))}
                 </tbody>
               </table>
-              <p className="faint" title={dashboard.trend.mender_passes.detail}>
-                Mender passes: not yet available (the Mender is E8&rsquo;s own unbuilt scope).
-              </p>
+              {dashboard.trend.mender_passes.available ? (
+                <p className="faint">
+                  Mender passes: mean {dashboard.trend.mender_passes.mean_passes_to_pass?.toFixed(2)} to pass,
+                  over {dashboard.trend.mender_passes.closed_count} closed case
+                  {dashboard.trend.mender_passes.closed_count === 1 ? '' : 's'}.
+                </p>
+              ) : (
+                <p className="faint" title={dashboard.trend.mender_passes.detail}>
+                  Mender passes: not yet available.
+                </p>
+              )}
             </>
           )}
         </div>

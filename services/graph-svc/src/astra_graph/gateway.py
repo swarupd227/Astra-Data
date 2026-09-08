@@ -85,6 +85,17 @@ TRANSPILE_C3: TaskClass = "transpile_c3"
 #: has under `TRANSPILE_C3` itself.
 TRANSPILE_C3_SMALL_MODEL: TaskClass = "transpile_c3_small_model"
 
+#: Story S8.2.1, §8.10: "asks the reasoning model for a corrected artefact" -- pass 2/3
+#: of the Mender's own bounded repair loop (`mender.py`). Registered here, never routable
+#: in this deployment today: `POST /v1/model-gateway:run-eval` (S5.3.2) only ever runs
+#: `generation.run_transpile_c3_eval`, hard-coded to `TRANSPILE_C3` -- no eval set exists
+#: for this task class, so `routable_providers` always returns empty and every model-
+#: repair pass really does raise `GatewayRoutingError`, the identical disclosed-absent
+#: footing `TRANSPILE_C3_SMALL_MODEL` already has, for the same real reason (no story in
+#: this backlog builds the eval set this task class would need to ever clear
+#: `ROUTABLE_THRESHOLD`).
+MENDER_REPAIR: TaskClass = "mender_repair"
+
 #: §16.6's own "Class 3 proof rate >= 0.80" target and the AC's own literal "0.80" —
 #: confirmed, by research, to be the same number this gate uses.
 ROUTABLE_THRESHOLD = 0.80

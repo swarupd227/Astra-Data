@@ -2546,6 +2546,83 @@ story's own AC does not ask for one.
 See [ADR 0060](../../docs/adr/0060-section-11-1-failure-classification-priority-ordered-signals-and-two-ast-informed-classes.md)
 for the full reasoning.
 
+## §11.2 The bounded repair loop (story S8.2.1, continues F8.2/E8)
+
+`mender.py`: `mend_exception`/`MenderService` -- pattern first (pass 1), model repair
+otherwise (pass 2 narrow, pass 3 widened), re-proving only the cases an `ExceptionCase`
+itself covers. **Pass 1 reuses only the safe, pure pieces of the Pattern Library, never
+`patterns.apply_active_pattern` itself** -- that function also reclassifies the source
+`CalculatedField.class` to C2, a Transpiler concern this repair has no business touching;
+`apply_pattern_repair` calls `find_matching_pattern`/`render_target`/`dax_sanity_check`
+verbatim and writes the corrected `Measure` under the Mender's own attribution. **Every
+repair writes a brand-new `Measure`, never an in-place edit** -- the identical convention
+`generation.py`/`patterns.py` already both established; a "revert" (§11.2's own "the
+artefact is reverted first") is a fresh write of the prior DAX, not an undo.
+
+**Re-proving re-executes the target side only** -- the source has not changed, so
+re-diffing it again would be wasted work and risk a spurious `SOURCE_DRIFT` finding from
+nothing a repair actually touched. It writes real `Verdict` nodes for exactly the cases
+touched, but never a new `ParityRun`: the Parity Dashboard's own per-sheet counts assume
+the *latest* `ParityRun` covers the whole live case set (`parity_dashboard.py`'s own
+disclosed assumption), a real thing this story deliberately does not revisit -- the
+Mender's own re-proof stays a parallel, real fact until the next whole-workbook
+`:run-parity`.
+
+**`MENDER_REPAIR` is a real, registered Model Gateway task class, but permanently
+unroutable in this deployment today** -- the identical disclosed-absent footing
+`TRANSPILE_C3_SMALL_MODEL` already has, since `POST /v1/model-gateway:run-eval` is
+hard-coded to the Transpiler's own eval set. A real `GatewayRoutingError` is therefore the
+honest, expected result of every model-repair pass here; the loop breaks immediately
+rather than spending a further pass repeating the identical failure. No
+`ContextContract`/`ContextAssembler` registration exists for it either -- `RepairContext`
+is a bespoke dataclass with its own `context_hash()`, the identical "name only" choice
+`generation.GenerationRequest` already made for `TRANSPILER_CALC`.
+
+**The loop's own three stop conditions, each following §11.2's own literal words.** A pass
+that produces no change in the failing set ends the loop early (but only once a repair was
+actually re-proved -- a pass that never produced a measure at all always falls through to
+the next strategy instead); `UNKNOWN` escalates after exactly one model diagnosis, never
+spending a widened third pass repeating it; `KEY_MISSING` never enters the loop as a
+report-side repair at all -- it escalates immediately, before any pass is attempted, with
+one `MenderPass(strategy="ESCALATE_IMMEDIATE")` written so "every pass is in evidence"
+covers the decision not to attempt one too. Revert-on-regression is scoped to other live
+cases sharing the *same artefact* in the *same workbook*, not the whole workbook -- §11.2's
+own "a measure used by several sheets" already names the scope; a regression's own revert
+leaves the pass's originally-failing set unchanged, so the "no change" rule ends the loop
+that same pass rather than retrying against evidence already known stale.
+
+**"Configurable per tenant" is a new, real, Postgres-backed, versioned store** (migration
+`v0030`, `public.mender_config`) -- "the graph is the tenant" the same way every other
+per-tenant store in this codebase already reads it; a bare module constant would not
+satisfy "configurable" literally. **`MenderPass` is a new, real node type**, not a JSON
+blob on `ExceptionCase` -- `exception_case_ref`, `pass_number`, `strategy`, `result`,
+`pattern_ref`/`measure_ref`, `cases_reproved`/`cases_still_failing`, `evidence_ref`,
+`started_at`/`finished_at`, so a future Exception Desk case page (F8.3) can read a full
+pass history directly. `ExceptionCase` gains `passes_consumed` (a point-in-time snapshot,
+the identical footing `Pattern.pass_count` already has). `MenderPass` is the first
+whole-node-type `SpecDeviation` this codebase has ever needed -- genuinely absent from
+spec §4.1.1's own node table (§8.10/§11.2/the glossary describe it only in prose), unlike
+every prior node-type addition.
+
+**Pattern matching stays AST-shape-only, not failure-class-aware** -- `Pattern.class` is
+the Transpiler's own C1-C4 taxonomy; no property on `Pattern` carries a §11.1 failure
+class. A real, narrower reading of the AC's own "matches the failure class and AST shape"
+than its words literally promise; S8.2.3 (not this story) is what patternises a successful
+repair keyed by (failure class, AST shape).
+
+New route: `POST /v1/exceptions/{case_id}:mend` (`ParityEngineerDep`, the AC's own
+persona). No new read route: `GET /v1/exceptions` (S6.2.1) already carries
+`passes_consumed` through its generic per-node view. Ontology: `ExceptionCase` gains
+`passes_consumed`; new `MenderPass` node type; schema version 31 -> 32. New migrations:
+`v0030_mender_config.py`; `v0031_ensure_current_labels.py` -- a real, previously-latent
+migration gap this story's own new node type surfaced (only `v0001` had ever created AGE
+vlabels; every purely additive change since correctly needed no migration of its own, but
+that reasoning does not cover a whole new node type landing against a graph already past
+`v0001` -- see the migration's own docstring and ADR 0061's own decision 15).
+
+See [ADR 0061](../../docs/adr/0061-the-bounded-repair-loop-a-pattern-first-three-pass-mender-with-real-evidence-per-pass.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

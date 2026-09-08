@@ -192,13 +192,27 @@ def test_pass_rate_is_none_for_a_run_with_no_verdicts() -> None:
     assert result["trend"]["runs"][0]["pass_rate"] is None
 
 
-def test_mender_passes_is_always_disclosed_unavailable() -> None:
+def test_mender_passes_is_disclosed_unavailable_with_no_closed_case() -> None:
     runs = dict([_run("r1", started="t", finished="t", charter_version="1", verdict_ids=[])])
     result = aggregate_dashboard(
         workbook_id=WORKBOOK, runs=runs, verdicts={}, cases={}, sheets={}, waived_case_ids=set(),
     )
     assert result["trend"]["mender_passes"]["available"] is False
-    assert "E8" in result["trend"]["mender_passes"]["detail"]
+    assert "Mender" in result["trend"]["mender_passes"]["detail"]
+
+
+def test_mender_passes_reports_the_real_mean_over_closed_cases_only() -> None:
+    """story S8.2.1: `passes_consumed` on cases that closed through the Mender -- an
+    open or escalated case's own budget spend is deliberately not part of this mean
+    (the AC's own literal 'mean passes to pass')."""
+    runs = dict([_run("r1", started="t", finished="t", charter_version="1", verdict_ids=[])])
+    result = aggregate_dashboard(
+        workbook_id=WORKBOOK, runs=runs, verdicts={}, cases={}, sheets={}, waived_case_ids=set(),
+        mender_pass_counts=(1, 2, 3),
+    )
+    assert result["trend"]["mender_passes"] == {
+        "available": True, "closed_count": 3, "mean_passes_to_pass": 2.0,
+    }
 
 
 def test_multiple_sheets_are_each_aggregated_and_sorted_by_name() -> None:

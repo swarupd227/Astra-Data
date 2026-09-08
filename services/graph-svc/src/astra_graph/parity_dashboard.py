@@ -42,13 +42,15 @@ scope (§11.3) -- the same "build the real mechanism, disclose it is honestly un
 today" posture this codebase has already applied to `Field -> ModelTable` `MAPS_TO` six
 times over.
 
-**"Mender passes" is disclosed absent, not estimated.** Confirmed by direct research
-(grepped the whole codebase, checked the backlog): the Mender is a fully specified E8
-concept (§8.10, a "Mender pass" is glossary-defined as "one bounded iteration of
-classify -> fix -> re-prove") that no story has built any part of yet -- no
-`MenderPass`-shaped node, property, or event exists anywhere. Rather than inventing a
-placeholder metric, the trend's own `mender_passes` field states plainly that E8 has not
-recorded one yet.
+**"Mender passes" is real as of story S8.2.1** -- `mender.py`'s own bounded repair loop
+now writes a real `passes_consumed` on every `ExceptionCase` it touches, closing this
+module's own prior placeholder. `mean_passes_to_pass` is computed over this workbook's own
+`ExceptionCase(state="CLOSED")` records only (`passes_consumed` on a still-OPEN or
+escalated case is a fact about the loop's own budget having been reached or exhausted, not
+about how many passes it actually took *to pass* -- the AC's own literal phrase). Honestly
+`{"available": False, ...}` when no case for this workbook has ever closed through the
+Mender yet, the identical "build the real mechanism, disclose it is unpopulated until
+something real has happened" posture `waived_count` already has just above.
 
 **Current per-sheet counts (cases run/pass/fail/inconclusive) come from the *latest*
 `ParityRun`'s own verdicts, not a "most recent verdict per case" scan across every
@@ -127,6 +129,29 @@ async def _waived_case_ids(conn: asyncpg.Connection, graph: str, case_ids: set[s
     }
 
 
+async def _closed_exception_case_pass_counts(
+    conn: asyncpg.Connection, graph: str, workbook_id: str
+) -> tuple[int, ...]:
+    """`passes_consumed` from every `ExceptionCase(mu_ref=workbook_id, state="CLOSED")`
+    the Mender (story S8.2.1) has ever actually closed -- an escalated or still-OPEN
+    case's own `passes_consumed` names how much of the loop's own budget was spent, not
+    how many passes it took *to pass* (the AC's own literal "mean passes to pass"), so
+    it is deliberately excluded here."""
+    rows = await conn.fetch(
+        f"""SELECT id FROM {NODE_INDEX_TABLE}
+         WHERE graph = $1 AND kind = 'node' AND label = 'ExceptionCase' AND retired_at IS NULL""",
+        graph,
+    )
+    cases = await hydrate(conn, graph, "ExceptionCase", [row["id"] for row in rows])
+    return tuple(
+        int(props["passes_consumed"])
+        for props in cases.values()
+        if props.get("mu_ref") == workbook_id
+        and props.get("state") == "CLOSED"
+        and props.get("passes_consumed") is not None
+    )
+
+
 def aggregate_dashboard(
     *,
     workbook_id: str,
@@ -136,6 +161,7 @@ def aggregate_dashboard(
     sheets: dict[str, dict[str, Any]],
     waived_case_ids: set[str],
     visuals_by_sheet: dict[str, dict[str, Any]] | None = None,
+    mender_pass_counts: tuple[int, ...] = (),
 ) -> dict[str, Any]:
     """The pure aggregation step -- no database, every input already hydrated. This is
     what lets the per-sheet/first-pass-rate/trend logic be tested directly, the same
@@ -241,10 +267,18 @@ def aggregate_dashboard(
         "sheets": sheets_out,
         "trend": {
             "runs": run_trend,
-            "mender_passes": {
-                "available": False,
-                "detail": "the Mender is E8's own unbuilt scope; no Mender pass has ever been recorded",
-            },
+            "mender_passes": (
+                {
+                    "available": True,
+                    "closed_count": len(mender_pass_counts),
+                    "mean_passes_to_pass": sum(mender_pass_counts) / len(mender_pass_counts),
+                }
+                if mender_pass_counts
+                else {
+                    "available": False,
+                    "detail": "no ExceptionCase for this workbook has closed through the Mender yet",
+                }
+            ),
         },
     }
 
@@ -277,10 +311,12 @@ async def parity_dashboard(
 
         waived_case_ids = await _waived_case_ids(conn, graph_name, set(cases))
         visuals_by_sheet = await _visuals_by_sheet(conn, graph_name, set(sheet_ids))
+        mender_pass_counts = await _closed_exception_case_pass_counts(conn, graph_name, workbook_id)
 
     return aggregate_dashboard(
         workbook_id=workbook_id, runs=runs, verdicts=all_verdicts, cases=cases,
         sheets=sheets, waived_case_ids=waived_case_ids, visuals_by_sheet=visuals_by_sheet,
+        mender_pass_counts=mender_pass_counts,
     )
 
 
