@@ -2623,6 +2623,73 @@ that reasoning does not cover a whole new node type landing against a graph alre
 See [ADR 0061](../../docs/adr/0061-the-bounded-repair-loop-a-pattern-first-three-pass-mender-with-real-evidence-per-pass.md)
 for the full reasoning.
 
+## Routing a model defect to the Foundry (story S8.2.2, continues F8.2/E8)
+
+`foundry_routing.py`: `detect_model_defect`/`route_to_foundry`, checked at the very top
+of `mend_exception`, before S8.2.1's own unconditional KEY_MISSING escalation and before
+any repair pass. **Neither AC trigger is a signal `classification.py` already
+computes** -- KEY_MISSING's own signal is `{missing_keys, extra_keys}` (counts);
+AGGREGATION's is `{totals_fail, row_count_within_tolerance, ...}`; neither carries any
+model-side fact. Both checks here are new, real, and built only from real graph facts,
+never a live target connection this platform does not have.
+
+**"A missing dimension member" is read as: a grain field with no real `Field ->
+ModelTable` binding at all** -- the strongest real evidence this platform's graph can
+give (it has never harvested member-level *data*, only schema), reusing
+`case_execution._table_map_for_sheet` verbatim. A dimension the model never wired to a
+table cannot carry *any* of that dimension's own members on the target side -- a real,
+structural, model-level absence, not a report-side repair. **"A grain mismatch at the
+model" is read as: the case's own grain names a dimension the family's own real
+candidate grain does not** -- `ModelFamily.grain`'s own comma-joined field-name list
+(`cartographer.candidate_grain`), parsed back the identical way
+`cartographer._family_summary` already does on read, compared as a real field-name set
+against `ParityCase.grain` (both drawn from the identical `rows_shelf`/`cols_shelf`
+vocabulary, confirmed apples to apples).
+
+**Resolving "the family" is a new reverse lookup** -- `ExceptionCase.mu_ref` names a
+workbook; every existing family read goes family -> members, never the other way.
+`_family_for_workbook` walks the real `IN_FAMILY` edge backwards; `None`, honestly, when
+no Cartographer run has ever clustered this workbook -- nothing real to check against,
+so the case falls through to S8.2.1's own existing behaviour for its own class.
+
+**"Opens a Foundry change request" reuses `model_lifecycle.request_new_version`
+verbatim** -- S4.3.3's own already-shipped mechanism, whose own docstring already
+anticipated this exact caller. Only succeeds when the family is `PUBLISHED`; when it is
+not (a change is already in flight, or nothing has ever published), no second, colliding
+request is opened -- the exception is still marked BLOCKED, honestly disclosed
+(`ALREADY_IN_FOUNDRY`) as joining what is already in progress. A real race (another
+caller moves the family off `PUBLISHED` mid-call) is caught and folded into the identical
+honest outcome rather than left to crash the caller.
+
+**"Sets the MU BLOCKED on the family" is `ExceptionCase.state = "BLOCKED"`** -- a real,
+literal write, not a proxy (unlike ADR 0041's own disclosed absence-based proxy):
+`state` is a plain, unconstrained STRING with no enum, so `"BLOCKED"` is written
+directly, the identical property S8.2.1's own `"OPEN"`/`"CLOSED"` already established the
+convention for. `ExceptionCase.decision = "MODEL_DEFECT_FOUNDRY"` reuses an existing,
+previously-unpopulated property and sets the vocabulary backlog story S8.3.1 (Exception
+Desk, not yet built) will need for its own identical manual decision.
+
+**The Mender never edits TMDL directly in R1 -- confirmed by direct grep, not merely
+asserted.** `mender.py` imports nothing TMDL-related anywhere; `route_to_foundry` calls
+`request_new_version` alone, which itself never emits TMDL either -- only
+`build.build_family` (a separate, later, Semantic-Model-Engineer-triggered action) does.
+The backlog's own §7.3/§6.3 confirm this AC draws a real boundary against a named,
+already-discussed, explicitly-deferred R1.1 capability ("Mender TMDL edits under L2"),
+not a restatement of something no design ever considered.
+
+**No new route, no new role, no console change.** The existing `POST /v1/exceptions/
+{case_id}:mend` (`ParityEngineerDep`) already covers it -- routing is checked
+automatically the moment a Parity Engineer runs the Mender on a qualifying case; the
+AC's own "model engineer" persona is who acts *next*, through the existing, already-gated
+`SemanticModelEngineerDep` surface. `GET /v1/exceptions` (S6.2.1) already serves every
+new property with zero route changes. Ontology: `ExceptionCase` gains `family_ref`/
+`foundry_request_ref`; `MenderPass.strategy` gains `ROUTE_TO_FOUNDRY`; `MenderPass.result`
+gains `ROUTED_TO_FOUNDRY`/`ALREADY_IN_FOUNDRY`; schema version 32 -> 33, one new declared
+`SpecDeviation`, no migration file (additive only).
+
+See [ADR 0062](../../docs/adr/0062-routing-a-model-defect-to-the-foundry-real-graph-evidence-two-narrow-triggers.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

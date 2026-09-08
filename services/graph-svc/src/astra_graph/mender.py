@@ -110,13 +110,16 @@ not every case in the workbook regardless of artefact, which would need re-diffi
 everything after every pass for a check the spec's own wording ("a measure used by
 several sheets") already scopes to the artefact itself.
 
-**KEY_MISSING never enters the loop at all -- §11.2's own literal words.** "Any
-KEY_MISSING (which is a model defect, not a report defect)" escalates immediately, with
+**KEY_MISSING never enters the repair loop at all -- §11.2's own literal words.** "Any
+KEY_MISSING (which is a model defect, not a report defect)" escalates immediately, never
+attempted as a report-side repair. Story S8.2.2 (`foundry_routing.py`) checks first
+whether either KEY_MISSING or AGGREGATION carries real, confirmable graph evidence of a
+model-level defect and, when it does, routes it to the Foundry for real (a `MenderPass
+(strategy="ROUTE_TO_FOUNDRY")`) rather than only escalating. A KEY_MISSING case S8.2.2's
+own check cannot confirm evidence for falls back to this story's own original behaviour:
 one `MenderPass(strategy="ESCALATE_IMMEDIATE")` written for a complete evidence trail
 even though no repair was attempted -- consistent with "every pass is in evidence"
-covering the *decision* not to attempt one, not only the attempts themselves. Routing the
-model defect to the Foundry for real is S8.2.2's own later, explicit scope (F8.2); this
-story only makes the escalation itself real.
+covering the *decision* not to attempt one, not only the attempts themselves.
 
 **Pattern matching is AST-shape-only today, not failure-class-aware.** `Pattern.class`
 (§4.3) is the Transpiler's own C1-C4 taxonomy, not §11.1's -- confirmed directly, no
@@ -157,6 +160,7 @@ from .context.canonical import context_hash
 from .context.contract import ContractName
 from .context.signature import capture_identifiers
 from .diff import diff_result_sets
+from .foundry_routing import detect_model_defect, route_to_foundry
 from .gateway import MENDER_REPAIR, Gateway, GatewayRoutingError
 from .graph.queries import EDGE_INDEX_TABLE, NODE_INDEX_TABLE
 from .ids import new_ulid
@@ -944,14 +948,56 @@ async def mend_exception(
     case_refs = tuple(exception_properties.get("case_refs") or ())
     artefact_ref = exception_properties.get("artefact_ref")
 
-    # §11.2's own literal escalation rule -- never even attempted as a report-side repair.
+    # Story S8.2.2: a real model defect (KEY_MISSING with graph evidence of a missing
+    # dimension member, or AGGREGATION with a grain mismatch at the model) is routed to
+    # the Foundry before any repair pass is ever attempted -- checked ahead of the (now
+    # fallback-only) unconditional KEY_MISSING escalation below, see foundry_routing.py's
+    # own docstring for the full reasoning.
+    model_defect = await detect_model_defect(
+        pool, graph_name, failure_class=failure_class, workbook_id=workbook_id, case_refs=case_refs,
+    )
+    if model_defect is not None:
+        started_at = datetime.now(UTC)
+        route_result = await route_to_foundry(
+            pool, graph_name, writer, exception_case_id=exception_case_id,
+            evidence=model_defect, principal=principal,
+        )
+        evidence_artefact = await artefact_store.store(
+            kind=EVIDENCE_KIND, mu_ref=workbook_id, case_id=(case_refs[0] if case_refs else exception_case_id),
+            content=json.dumps({
+                "model_defect": model_defect.as_dict(), "route_result": route_result,
+            }, default=str).encode("utf-8"),
+            media_type=EVIDENCE_MEDIA_TYPE, created_by=principal.value,
+        )
+        outcome = MenderPassOutcome(
+            pass_number=1, strategy="ROUTE_TO_FOUNDRY", result=route_result["outcome"],
+            pattern_ref=None, measure_id=None, cases_reproved=(), cases_still_failing=case_refs,
+            evidence={"routed_without_a_repair_attempt": True},
+            started_at=_iso(started_at), finished_at=_iso(datetime.now(UTC)),
+        )
+        await _write_mender_pass(
+            pool, graph_name, writer, exception_case_id=exception_case_id,
+            outcome=outcome, evidence_ref=evidence_artefact.id, principal=principal,
+        )
+        await writer.set_node_properties(exception_case_id, {"passes_consumed": 1}, principal=principal)
+        return {
+            "exception_case_id": exception_case_id, "outcome": "routed_to_foundry",
+            "route_result": route_result, "passes_consumed": 1, "passes": [outcome.as_dict()],
+        }
+
+    # §11.2's own literal escalation rule -- the fallback for a KEY_MISSING case S8.2.2's
+    # own model-defect check (above) could not confirm real graph evidence for; never
+    # even attempted as a report-side repair either way.
     if failure_class in _ESCALATE_WITHOUT_REPAIR:
         started_at = datetime.now(UTC)
         evidence_artefact = await artefact_store.store(
             kind=EVIDENCE_KIND, mu_ref=workbook_id, case_id=(case_refs[0] if case_refs else exception_case_id),
             content=json.dumps({
                 "reason": "KEY_MISSING is a model defect, not a report defect (§11.2) -- "
-                          "routing to the Foundry is S8.2.2's own later scope",
+                          "no real graph evidence of a missing dimension member could be "
+                          "confirmed for this case (foundry_routing.py, story S8.2.2), so "
+                          "it escalates without a repair attempt instead of routing to "
+                          "the Foundry",
             }).encode("utf-8"),
             media_type=EVIDENCE_MEDIA_TYPE, created_by=principal.value,
         )

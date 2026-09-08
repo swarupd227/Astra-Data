@@ -922,6 +922,20 @@
           "required": false,
           "server_managed": false,
           "type": "int"
+        },
+        {
+          "enum": null,
+          "name": "family_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "foundry_request_ref",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
         }
       ],
       "side": "target"
@@ -1187,7 +1201,8 @@
             "PATTERN",
             "MODEL",
             "MODEL_WIDENED",
-            "ESCALATE_IMMEDIATE"
+            "ESCALATE_IMMEDIATE",
+            "ROUTE_TO_FOUNDRY"
           ],
           "name": "strategy",
           "required": true,
@@ -1217,7 +1232,9 @@
             "MODEL_UNAVAILABLE",
             "SCHEMA_ERROR",
             "PARSE_ERROR",
-            "KEY_MISSING_MODEL_DEFECT"
+            "KEY_MISSING_MODEL_DEFECT",
+            "ROUTED_TO_FOUNDRY",
+            "ALREADY_IN_FOUNDRY"
           ],
           "name": "result",
           "required": true,
@@ -2504,5 +2521,5 @@
       "side": "source"
     }
   },
-  "schema_version": 32
+  "schema_version": 33
 }

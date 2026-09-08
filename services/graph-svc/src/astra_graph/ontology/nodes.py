@@ -710,6 +710,19 @@ NODE_TYPES: tuple[NodeType, ...] = (
                     "S8.2.1) -- a point-in-time snapshot for cheap display, the identical "
                     "footing `Pattern.pass_count`/`.failure_count` already have; the real, "
                     "queryable history is the live `MenderPass` nodes naming this case."),
+            _p("family_ref", T.STRING,
+               note="The ModelFamily this exception's own MU belongs to (story S8.2.2), "
+                    "resolved via the workbook's own real `IN_FAMILY` edge -- written only "
+                    "once a real model defect routes this case to the Foundry; absent for "
+                    "every report-side class, and for a model-defect class routed before "
+                    "any family clustering has ever run for this workbook."),
+            _p("foundry_request_ref", T.STRING,
+               note="The new, DRAFT `SemanticModel` id `model_lifecycle.request_new_version` "
+                    "opened for this exception's own real model defect (story S8.2.2) -- "
+                    "'opens a Foundry change request', literally. Absent when the family was "
+                    "not `PUBLISHED` at the moment of routing (a change is already in flight, "
+                    "or the family has never published a version): the exception is still "
+                    "marked BLOCKED on the family, disclosed rather than a fabricated ref."),
         ),
     ),
     NodeType(
@@ -724,20 +737,31 @@ NODE_TYPES: tuple[NodeType, ...] = (
             _p("exception_case_ref", T.STRING, required=True),
             _p("pass_number", T.INT, required=True),
             _p("strategy", T.ENUM, required=True,
-               enum=("PATTERN", "MODEL", "MODEL_WIDENED", "ESCALATE_IMMEDIATE"),
+               enum=("PATTERN", "MODEL", "MODEL_WIDENED", "ESCALATE_IMMEDIATE", "ROUTE_TO_FOUNDRY"),
                note="§11.2/backlog S8.2.1: pass 1 is always PATTERN; pass 2 is MODEL "
                     "(narrow context); pass 3 is MODEL_WIDENED (the widened context "
-                    "contract the AC names). ESCALATE_IMMEDIATE is this story's own "
-                    "disclosed addition for the AC's own 'any KEY_MISSING' rule, which "
-                    "the spec says never enters the loop as a report-side repair at all."),
+                    "contract the AC names). ESCALATE_IMMEDIATE is S8.2.1's own disclosed "
+                    "addition for the AC's own 'any KEY_MISSING' rule, which the spec says "
+                    "never enters the loop as a report-side repair at all. ROUTE_TO_FOUNDRY "
+                    "is story S8.2.2's own addition -- checked ahead of every other "
+                    "strategy, for the narrower, evidenced subset of KEY_MISSING/"
+                    "AGGREGATION that is a real model defect, not a report one."),
             _p("pattern_ref", T.STRING, note="The ACTIVE Pattern applied, pass 1 only."),
             _p("measure_ref", T.STRING,
                note="The new Measure this pass produced, when it produced one -- absent "
                     "for a pass that never got that far (no pattern match, an unroutable "
-                    "gateway, a schema/parse failure)."),
+                    "gateway, a schema/parse failure, or a real model defect routed to the "
+                    "Foundry instead -- the Mender never edits TMDL directly in R1, so a "
+                    "ROUTE_TO_FOUNDRY pass never produces a Measure)."),
             _p("result", T.ENUM, required=True,
                enum=("PROVED", "STILL_FAILING", "REGRESSED", "NO_PATTERN_MATCH",
-                     "MODEL_UNAVAILABLE", "SCHEMA_ERROR", "PARSE_ERROR", "KEY_MISSING_MODEL_DEFECT")),
+                     "MODEL_UNAVAILABLE", "SCHEMA_ERROR", "PARSE_ERROR", "KEY_MISSING_MODEL_DEFECT",
+                     "ROUTED_TO_FOUNDRY", "ALREADY_IN_FOUNDRY"),
+               note="`ROUTED_TO_FOUNDRY` (story S8.2.2): a real change request was opened "
+                    "(`MenderPass.evidence_ref` carries it). `ALREADY_IN_FOUNDRY`: the "
+                    "family was not `PUBLISHED` at the moment of routing, so no new change "
+                    "request was opened, but the exception is still marked BLOCKED on the "
+                    "family -- a real, disclosed distinction, not a silent no-op."),
             _p("cases_reproved", T.STRING_LIST,
                note="Which of this exception's own `case_refs` were actually re-run this "
                     "pass and now pass -- 'the affected cases only' (§11.2), never the "
@@ -1387,6 +1411,21 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "and a stored evidence artefact -- the same node-per-real-event shape "
                "`ArtefactRecord`/`ProvenanceRecord` already established for their own "
                "platform-side concerns beyond the source/target estate §4.1.1 catalogues.",
+    ),
+    SpecDeviation(
+        element="ExceptionCase.family_ref, ExceptionCase.foundry_request_ref",
+        reason="Section 4.1.1's own seven-property table declares neither. Backlog story "
+               "S8.2.2's own acceptance criteria requires a real model defect to open 'a "
+               "Foundry change request' and 'set the MU BLOCKED on the family' -- "
+               "`family_ref` is the real `ModelFamily` this exception's own MU belongs to "
+               "(resolved via `IN_FAMILY`, the only real link this platform has from a "
+               "workbook to a family); `foundry_request_ref` is the real change-request "
+               "`SemanticModel` id `model_lifecycle.request_new_version` (S4.3.3) opened, "
+               "when one was opened for real.",
+        detail="Both written only once `foundry_routing.route_to_foundry` runs -- absent "
+               "for every report-side class, and `foundry_request_ref` specifically absent "
+               "when the family was not `PUBLISHED` at routing time (see `ExceptionCase."
+               "foundry_request_ref`'s own note).",
     ),
     SpecDeviation(
         element="ReportDefinition.documentation_artefact_ref, "
