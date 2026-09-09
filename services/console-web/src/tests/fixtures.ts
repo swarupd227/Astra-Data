@@ -20,6 +20,9 @@ import type {
   DesignDocument,
   EstateQuery,
   EstateResponse,
+  ExceptionCaseDetail,
+  ExceptionQueueEntry,
+  ExceptionQueueResponse,
   FailingCellRow,
   FamiliesResponse,
   FamilyRecord,
@@ -1053,6 +1056,74 @@ export function regressionMonitorResponse(
   return { workbooks, count: workbooks.length, ...overrides };
 }
 
+export function exceptionQueueEntry(overrides: Partial<ExceptionQueueEntry> = {}): ExceptionQueueEntry {
+  return {
+    id: 'exc_1',
+    mu_ref: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    class: 'AGGREGATION',
+    passes_consumed: 1,
+    assignee: null,
+    state: 'OPEN',
+    train_id: 'trn_one',
+    train_sequence: 1,
+    site: 'RQA',
+    created_at: '2027-06-01T09:00:00.000Z',
+    age_seconds: 3600,
+    ...overrides,
+  };
+}
+
+export function exceptionQueueResponse(
+  overrides: Partial<ExceptionQueueResponse> = {},
+): ExceptionQueueResponse {
+  const entries = overrides.entries ?? [exceptionQueueEntry()];
+  return { entries, count: entries.length, ...overrides };
+}
+
+export function exceptionCaseDetail(overrides: Partial<ExceptionCaseDetail> = {}): ExceptionCaseDetail {
+  return {
+    id: 'exc_1',
+    mu_ref: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    class: 'AGGREGATION',
+    state: 'OPEN',
+    passes_consumed: 1,
+    assignee: null,
+    decision: null,
+    train_id: 'trn_one',
+    train_sequence: 1,
+    site: 'RQA',
+    created_at: '2027-06-01T09:00:00.000Z',
+    evidence: {
+      failing_cells: [
+        {
+          case_ref: 'case_1', grain_key: ['EMEA'], measure: 'Margin',
+          expected: 100.0, candidate: 101.2, delta: 1.2,
+        },
+      ],
+      missing_keys: [['Desk-9', 'case_1']],
+      extra_keys: [['Desk-8', 'case_1']],
+      filter_ctx: { kind: 'default' },
+      param_values: { case_1: { AsOf: '2027-06-01' } },
+    },
+    artefact: {
+      calc_id: 'calc_1',
+      calc_name: 'Margin Calc',
+      source_formula: 'SUM([Margin])',
+      measure_id: 'msr_1',
+      current_dax: 'SUM([WrongField])',
+      current_m_query: null,
+    },
+    mender_passes: [
+      {
+        id: 'mp_1', pass_number: 1, strategy: 'PATTERN', result: 'STILL_FAILING',
+        measure_ref: 'msr_0', cases_reproved: [], cases_still_failing: ['case_1'],
+        evidence_ref: 'af_1', started_at: '2027-06-01T09:00:00.000Z', finished_at: '2027-06-01T09:00:01.000Z',
+      },
+    ],
+    ...overrides,
+  };
+}
+
 export const RAISED_ISSUE: ConstructIssue = {
   id: 'gi_01M1',
   state: 'OPEN',
@@ -1093,6 +1164,7 @@ export function fakeApi(
   initialParityDashboard: ParityDashboardResponse | null = parityDashboardResponse(),
   initialParityRun: ParityRunResponse | null = parityRunResponse(),
   initialRegressionMonitor: RegressionMonitorResponse = regressionMonitorResponse({ workbooks: [] }),
+  initialExceptionCases: ExceptionCaseDetail[] = [],
 ): FakeApi {
   const calls: FakeApi['calls'] = { estate: [], workbook: [], lineage: [], quality: 0 };
   const recorded: FakeApi['recorded'] = [];
@@ -1102,6 +1174,12 @@ export function fakeApi(
   const parityRunState: ParityRunResponse | null = initialParityRun;
   const regressionMonitorRows = initialRegressionMonitor.workbooks.map((row) => ({ ...row }));
   let regressionScheduleSeq = regressionMonitorRows.length;
+  const exceptionCaseRows = initialExceptionCases.map((c) => ({ ...c }));
+  const findExceptionCase = (exceptionCaseId: string): ExceptionCaseDetail => {
+    const found = exceptionCaseRows.find((c) => c.id === exceptionCaseId);
+    if (!found) throw new ApiError(404, 'not_found', `no ExceptionCase '${exceptionCaseId}'`);
+    return found;
+  };
   let g1Approved = false;
   const programmeRows = programmes.programmes.map((row) => ({ ...row }));
   const trainRows = trains.trains.map((train) => ({
@@ -2029,6 +2107,80 @@ export function fakeApi(
       }
       recorded.push({ kind: 'EXPORT_REGRESSION_SUITE', id: workbookId, reason: '' });
       return { id: `af_export_${workbookId}`, kind: 'regression_export', mu_ref: workbookId, size_bytes: 4096 };
+    },
+    async exceptionQueue(filters, _identity) {
+      const entries = exceptionCaseRows
+        .filter((c) => c.state === 'OPEN' || c.state === 'BLOCKED')
+        .filter((c) => !filters.train || c.train_id === filters.train)
+        .filter((c) => !filters.failureClass || c.class === filters.failureClass)
+        .filter((c) => !filters.site || c.site === filters.site)
+        .filter((c) => !filters.assignee || c.assignee === filters.assignee)
+        .map((c) => exceptionQueueEntry({
+          id: c.id, mu_ref: c.mu_ref, class: c.class, passes_consumed: c.passes_consumed,
+          assignee: c.assignee, state: c.state, train_id: c.train_id, train_sequence: c.train_sequence,
+          site: c.site, created_at: c.created_at, age_seconds: 3600,
+        }));
+      return { entries, count: entries.length };
+    },
+    async exceptionCase(exceptionCaseId, _identity) {
+      return { ...findExceptionCase(exceptionCaseId) };
+    },
+    async bulkAssignExceptions(exceptionCaseIds, assignee, identity) {
+      maybeFail();
+      if (!identity.roles.includes('migration_engineer')) {
+        throw new ApiError(403, 'forbidden', 'bulk assign is the Migration Engineer\'s action');
+      }
+      const updated: string[] = [];
+      for (const id of exceptionCaseIds) {
+        const row = exceptionCaseRows.find((c) => c.id === id);
+        if (!row) continue;
+        row.assignee = assignee;
+        updated.push(id);
+      }
+      recorded.push({ kind: 'BULK_ASSIGN_EXCEPTIONS', id: updated.join(','), reason: assignee });
+      return { assignee, updated, count: updated.length };
+    },
+    async patchException(exceptionCaseId, dax, rationale, _workspace, _identity) {
+      maybeFail();
+      const row = findExceptionCase(exceptionCaseId);
+      row.decision = 'PATCHED';
+      row.artefact = { ...row.artefact, current_dax: dax };
+      row.state = 'CLOSED';
+      recorded.push({ kind: 'PATCH_EXCEPTION', id: exceptionCaseId, reason: rationale });
+      return {
+        exception_case_id: exceptionCaseId, gate_decision_id: 'gd_patch_1', measure_id: 'msr_new',
+        outcome: 'closed', cases_reproved: row.evidence.failing_cells.map((c) => c.case_ref), cases_still_failing: [],
+      };
+    },
+    async redesignException(exceptionCaseId, route, rationale, _identity, desktopCommitHash) {
+      maybeFail();
+      const row = findExceptionCase(exceptionCaseId);
+      row.decision = route === 'desktop' ? 'REDESIGN_DESKTOP' : 'REDESIGN_FOUNDRY';
+      row.state = route === 'desktop' ? 'CLOSED' : row.state;
+      recorded.push({ kind: 'REDESIGN_EXCEPTION', id: exceptionCaseId, reason: rationale });
+      return {
+        exception_case_id: exceptionCaseId, gate_decision_id: 'gd_redesign_1', route,
+        detail: route === 'desktop' ? { desktop_commit_hash: desktopCommitHash ?? null } : { route_result: 'ROUTED_TO_FOUNDRY' },
+      };
+    },
+    async decideModelDefect(exceptionCaseId, rationale, _identity) {
+      maybeFail();
+      const row = findExceptionCase(exceptionCaseId);
+      row.decision = 'MODEL_DEFECT_FOUNDRY';
+      row.state = 'BLOCKED';
+      recorded.push({ kind: 'DECIDE_MODEL_DEFECT', id: exceptionCaseId, reason: rationale });
+      return { exception_case_id: exceptionCaseId, gate_decision_id: 'gd_model_defect_1', route_result: { result: 'ROUTED_TO_FOUNDRY' } };
+    },
+    async decideSourceDefect(exceptionCaseId, rationale, resolution, _identity, ownerSignOff) {
+      maybeFail();
+      const row = findExceptionCase(exceptionCaseId);
+      row.decision = `SOURCE_DEFECT_${resolution}`;
+      row.state = 'CLOSED';
+      recorded.push({ kind: 'DECIDE_SOURCE_DEFECT', id: exceptionCaseId, reason: rationale });
+      return {
+        exception_case_id: exceptionCaseId, gate_decision_id: 'gd_source_defect_1', resolution,
+        owner_sign_off: ownerSignOff ?? null, notified: true,
+      };
     },
   };
 }

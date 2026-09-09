@@ -72,6 +72,7 @@ from .context import ContextAssembler
 from .errors import AstraGraphError
 from .estate import EstateReader
 from .events import source_for
+from .exception_desk import ExceptionDeskService
 from .g2 import PostgresQuestionStore
 from .g2_reminders import LocalNotificationChannel, PostgresReminderStore
 from .gateway import build_gateway
@@ -357,6 +358,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
         provenance_store=app.state.provenance_store, gateway=app.state.gateway,
         target_adapter=app.state.target_adapter, config_store=app.state.mender_config_store,
+        charter_store=app.state.tolerance_charter_store,
+    )
+    # Story S8.3.1, opening F8.3/continuing E8: the Exception Desk -- a real read over
+    # the ExceptionCase nodes S8.1.1/S8.2.1/S8.2.2 already write, plus four real,
+    # GateDecision-recording decisions. See exception_desk.py's own docstring.
+    app.state.exception_desk = ExceptionDeskService(
+        pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
+        provenance_store=app.state.provenance_store, target_adapter=app.state.target_adapter,
         charter_store=app.state.tolerance_charter_store,
     )
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)

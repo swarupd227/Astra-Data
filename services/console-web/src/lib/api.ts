@@ -1182,6 +1182,135 @@ export interface VisualCapturePair {
   target: { media_type: string; content_base64: string };
 }
 
+// ------------------------------------------------------------- S8.3.1: the Exception Desk
+
+/** One queue row (§11.3, §15.3.4) — every live OPEN/BLOCKED `ExceptionCase`, enriched with
+ * its real train position, site and age. `train_id`/`train_sequence` are `null` for a
+ * workbook the Train Planner has never sequenced (it sorts last). */
+export interface ExceptionQueueEntry {
+  id: string;
+  mu_ref: string;
+  class: string | null;
+  passes_consumed: number | null;
+  assignee: string | null;
+  state: string;
+  train_id: string | null;
+  train_sequence: number | null;
+  site: string | null;
+  created_at: string | null;
+  age_seconds: number | null;
+}
+
+export interface ExceptionQueueResponse {
+  entries: ExceptionQueueEntry[];
+  count: number;
+}
+
+export interface ExceptionQueueFilters {
+  train?: string | null;
+  failureClass?: string | null;
+  site?: string | null;
+  assignee?: string | null;
+}
+
+export interface ExceptionCaseFailingCell {
+  case_ref: string;
+  grain_key: unknown[];
+  measure: string;
+  kind?: string;
+  expected: unknown;
+  candidate: unknown;
+  delta: number | null;
+  reason?: string;
+}
+
+/** §10.3's own full evidence bundle, a wider read than the Mender's own repair-request
+ * evidence — this case page's own `missing_keys`/`extra_keys` (the AC's own "key diffs")
+ * and every case's own real `param_values` are read nowhere else. */
+export interface ExceptionCaseEvidence {
+  failing_cells: ExceptionCaseFailingCell[];
+  missing_keys: unknown[][];
+  extra_keys: unknown[][];
+  filter_ctx: Record<string, unknown>;
+  param_values: Record<string, Record<string, unknown>>;
+}
+
+export interface ExceptionCaseArtefact {
+  calc_id: string | null;
+  calc_name: string | null;
+  source_formula: string | null;
+  measure_id: string | null;
+  current_dax: string | null;
+  current_m_query: string | null;
+}
+
+export interface MenderPassRow {
+  id: string;
+  pass_number: number;
+  strategy: string;
+  result: string;
+  measure_ref: string | null;
+  cases_reproved: string[];
+  cases_still_failing: string[];
+  evidence_ref: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface ExceptionCaseDetail {
+  id: string;
+  mu_ref: string;
+  class: string | null;
+  state: string;
+  passes_consumed: number | null;
+  assignee: string | null;
+  decision: string | null;
+  train_id: string | null;
+  train_sequence: number | null;
+  site: string | null;
+  created_at: string | null;
+  evidence: ExceptionCaseEvidence;
+  artefact: ExceptionCaseArtefact;
+  mender_passes: MenderPassRow[];
+  [key: string]: unknown;
+}
+
+export interface BulkAssignExceptionsResult {
+  assignee: string;
+  updated: string[];
+  count: number;
+}
+
+export interface PatchExceptionResult {
+  exception_case_id: string;
+  gate_decision_id: string;
+  measure_id: string;
+  outcome: 'closed' | 'still_failing';
+  cases_reproved: string[];
+  cases_still_failing: string[];
+}
+
+export interface RedesignExceptionResult {
+  exception_case_id: string;
+  gate_decision_id: string;
+  route: 'desktop' | 'foundry';
+  detail: Record<string, unknown>;
+}
+
+export interface ModelDefectDecisionResult {
+  exception_case_id: string;
+  gate_decision_id: string;
+  route_result: Record<string, unknown>;
+}
+
+export interface SourceDefectDecisionResult {
+  exception_case_id: string;
+  gate_decision_id: string;
+  resolution: 'REPRODUCE' | 'FIX_WITH_SIGN_OFF';
+  owner_sign_off: string | null;
+  notified: boolean;
+}
+
 export interface Api {
   estate(query: EstateQuery, identity: Identity): Promise<EstateResponse>;
   workbook(id: string, identity: Identity): Promise<WorkbookDetail>;
@@ -1329,6 +1458,39 @@ export interface Api {
     cadence?: { every_minutes: number } | { daily_at: string },
   ): Promise<RegressionScheduleRecord>;
   exportRegressionSuite(workbookId: string, identity: Identity): Promise<RegressionExportRecord>;
+  exceptionQueue(filters: ExceptionQueueFilters, identity: Identity): Promise<ExceptionQueueResponse>;
+  exceptionCase(exceptionCaseId: string, identity: Identity): Promise<ExceptionCaseDetail>;
+  bulkAssignExceptions(
+    exceptionCaseIds: string[],
+    assignee: string,
+    identity: Identity,
+  ): Promise<BulkAssignExceptionsResult>;
+  patchException(
+    exceptionCaseId: string,
+    dax: string,
+    rationale: string,
+    workspace: string,
+    identity: Identity,
+  ): Promise<PatchExceptionResult>;
+  redesignException(
+    exceptionCaseId: string,
+    route: 'desktop' | 'foundry',
+    rationale: string,
+    identity: Identity,
+    desktopCommitHash?: string,
+  ): Promise<RedesignExceptionResult>;
+  decideModelDefect(
+    exceptionCaseId: string,
+    rationale: string,
+    identity: Identity,
+  ): Promise<ModelDefectDecisionResult>;
+  decideSourceDefect(
+    exceptionCaseId: string,
+    rationale: string,
+    resolution: 'REPRODUCE' | 'FIX_WITH_SIGN_OFF',
+    identity: Identity,
+    ownerSignOff?: string,
+  ): Promise<SourceDefectDecisionResult>;
 }
 
 export function createApi(base = ''): Api {
@@ -1647,6 +1809,56 @@ export function createApi(base = ''): Api {
         {},
         identity,
       )) as RegressionExportRecord;
+    },
+    async exceptionQueue(filters, identity) {
+      const params = new URLSearchParams();
+      if (filters.train) params.set('train', filters.train);
+      if (filters.failureClass) params.set('class', filters.failureClass);
+      if (filters.site) params.set('site', filters.site);
+      if (filters.assignee) params.set('assignee', filters.assignee);
+      const rendered = params.toString();
+      return (await get(
+        `/v1/exception-desk${rendered ? `?${rendered}` : ''}`,
+        identity,
+      )) as ExceptionQueueResponse;
+    },
+    async exceptionCase(exceptionCaseId, identity) {
+      return (await get(`/v1/exceptions/${exceptionCaseId}`, identity)) as ExceptionCaseDetail;
+    },
+    async bulkAssignExceptions(exceptionCaseIds, assignee, identity) {
+      return (await post(
+        '/v1/exceptions:bulk-assign',
+        { exception_case_ids: exceptionCaseIds, assignee },
+        identity,
+      )) as BulkAssignExceptionsResult;
+    },
+    async patchException(exceptionCaseId, dax, rationale, workspace, identity) {
+      return (await post(
+        `/v1/exceptions/${exceptionCaseId}:patch`,
+        { dax, rationale, workspace },
+        identity,
+      )) as PatchExceptionResult;
+    },
+    async redesignException(exceptionCaseId, route, rationale, identity, desktopCommitHash) {
+      return (await post(
+        `/v1/exceptions/${exceptionCaseId}:redesign`,
+        { route, rationale, desktop_commit_hash: desktopCommitHash ?? null },
+        identity,
+      )) as RedesignExceptionResult;
+    },
+    async decideModelDefect(exceptionCaseId, rationale, identity) {
+      return (await post(
+        `/v1/exceptions/${exceptionCaseId}:decide-model-defect`,
+        { rationale },
+        identity,
+      )) as ModelDefectDecisionResult;
+    },
+    async decideSourceDefect(exceptionCaseId, rationale, resolution, identity, ownerSignOff) {
+      return (await post(
+        `/v1/exceptions/${exceptionCaseId}:decide-source-defect`,
+        { rationale, resolution, owner_sign_off: ownerSignOff ?? null },
+        identity,
+      )) as SourceDefectDecisionResult;
     },
   };
 }

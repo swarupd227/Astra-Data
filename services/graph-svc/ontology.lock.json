@@ -1048,7 +1048,11 @@
             "APPROVED",
             "REJECTED",
             "CHANGES_REQUESTED",
-            "WAIVED"
+            "WAIVED",
+            "PATCHED",
+            "REDESIGN",
+            "MODEL_DEFECT",
+            "SOURCE_DEFECT"
           ],
           "name": "decision",
           "required": true,
@@ -2542,5 +2546,5 @@
       "side": "source"
     }
   },
-  "schema_version": 34
+  "schema_version": 35
 }

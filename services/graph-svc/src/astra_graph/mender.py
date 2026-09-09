@@ -593,11 +593,18 @@ async def _write_repaired_measure(
     tokens_out: int | None,
     confidence: float | None,
     principal: Principal,
+    retire_reason: str = "superseded by a Mender repair",
 ) -> str:
     """A brand-new `Measure`, never an in-place edit -- see this module's own docstring.
     Re-points `MAPS_TO` from `calc_id` (when one resolved) to the new measure; the prior
     edge is retired the identical way `visual_redesign`/`report_deploy` already retire a
-    superseded relationship rather than leaving two live `MAPS_TO` edges disagreeing."""
+    superseded relationship rather than leaving two live `MAPS_TO` edges disagreeing.
+
+    `retire_reason` (story S8.3.1) lets a second, non-Mender caller
+    (`exception_desk.decide_patch`, a Migration Engineer's own hand-edit) leave a real,
+    accurate audit trail on the retired edge rather than inheriting a reason that would
+    wrongly claim the Mender did it -- defaults to the original text, so every existing
+    Mender call site is unchanged."""
     measure_id = new_ulid()
     provenance_id = f"prov_{new_ulid()}"
     await writer.write_nodes(
@@ -616,7 +623,7 @@ async def _write_repaired_measure(
                 graph_name, calc_id,
             )
         for row in existing:
-            await writer.retire_edge(str(row["id"]), reason="superseded by a Mender repair", principal=principal)
+            await writer.retire_edge(str(row["id"]), reason=retire_reason, principal=principal)
         await writer.write_edge(
             EdgeWrite(type="MAPS_TO", from_id=calc_id, to_id=measure_id, properties={"pattern_ref": pattern_ref}),
             principal=principal,

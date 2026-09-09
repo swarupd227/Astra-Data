@@ -16,6 +16,7 @@ import { useMemo, useState } from 'react';
 import { Admin } from './admin/Admin';
 import { ToleranceCharter } from './charter/ToleranceCharter';
 import { EstateExplorer } from './estate/EstateExplorer';
+import { ExceptionDesk } from './exceptions/ExceptionDesk';
 import { ModelProposal } from './g2/ModelProposal';
 import { createApi, type Identity } from './lib/api';
 import { LineageView } from './lineage/LineageView';
@@ -49,7 +50,9 @@ import { WaveBoard } from './trains/WaveBoard';
  * identical reason, not an Admin sub-screen. The Regression Monitor (S7.7.1, closing
  * F7.7/E7) is its own top-level entry too — the AC's own literal "Regression Monitor
  * screen", not a Parity Dashboard tab: it lists every released workbook at once, the
- * opposite shape from the Parity Dashboard's own one-workbook-at-a-time search. */
+ * opposite shape from the Parity Dashboard's own one-workbook-at-a-time search. The
+ * Exception Desk (S8.3.1, opening F8.3) is its own top-level entry too — §11.3's own
+ * named screen, "the Migration Engineer's work queue", not a tab on any of the above. */
 export const SURFACES = [
   { key: 'estate', label: 'Estate Explorer' },
   { key: 'lineage', label: 'Lineage View' },
@@ -63,6 +66,7 @@ export const SURFACES = [
   { key: 'charter', label: 'Tolerance Charter' },
   { key: 'parity', label: 'Parity Dashboard' },
   { key: 'regression', label: 'Regression Monitor' },
+  { key: 'exceptions', label: 'Exception Desk' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -201,6 +205,7 @@ export function App({
       {surface === 'charter' && <ToleranceCharter api={api} identity={identity} />}
       {surface === 'parity' && <ParityDashboard api={api} identity={identity} />}
       {surface === 'regression' && <RegressionMonitor api={api} identity={identity} />}
+      {surface === 'exceptions' && <ExceptionDesk api={api} identity={identity} />}
     </div>
   );
 }

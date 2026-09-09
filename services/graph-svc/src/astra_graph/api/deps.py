@@ -305,6 +305,24 @@ def require_parity_dashboard_reader(roles: RoleSetDep) -> RoleSet:
 
 ParityDashboardReaderDep = Annotated[RoleSet, Depends(require_parity_dashboard_reader)]
 
+
+def require_exception_desk_reader(roles: RoleSetDep) -> RoleSet:
+    """Gate the Exception Desk's own queue and case page on "any Artizent role, or the
+    report owner specifically" (story S8.3.1's own "every decision... is visible to the
+    report owner") — the identical shape `require_c4_redesign_reader`/`require_parity_
+    dashboard_reader` already set for the same client role, given its own name and
+    error message here rather than reused directly so a refused request names the real
+    screen, not a different one that happens to share its condition."""
+    if not (roles.is_artizent() or Role.CLIENT_REPORT_OWNER in roles.roles):
+        raise ForbiddenError(
+            f"the Exception Desk is open to Artizent roles and the report owner; "
+            f"declare one in {ROLES_HEADER}"
+        )
+    return roles
+
+
+ExceptionDeskReaderDep = Annotated[RoleSet, Depends(require_exception_desk_reader)]
+
 DOMAIN_SCOPE_HEADER = "X-Astra-Domain-Scope"
 
 

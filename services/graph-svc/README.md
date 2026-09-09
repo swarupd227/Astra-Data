@@ -2736,6 +2736,138 @@ widened; schema version 33 -> 34, one new declared `SpecDeviation`, no migration
 See [ADR 0063](../../docs/adr/0063-a-repair-made-once-becomes-a-rule-failure-class-keyed-generalisation.md)
 for the full reasoning.
 
+## The Exception Desk (story S8.3.1, opens F8.3, continues E8)
+
+§11.3 itself, verbatim: "Escalated cases become ExceptionCases and appear in the
+Exception Desk, which is the Migration Engineer's work queue. There is no separate
+defect tracker... The engineer's decision is one of: patch (edit the artefact; re-prove),
+redesign (Class 4; agree with the report owner; finish in Desktop; re-prove the rest of
+the report; waiver the redesigned visual's case with justification), model defect (route
+to the Foundry as a change to the family; the MU returns to BLOCKED), or source defect
+(the Tableau report was wrong; record, inform the owner, and either reproduce the defect
+faithfully or fix it with the owner's written agreement -- the choice is a G3 matter).
+Every decision is a record and every patch is a Pattern candidate."
+
+**"The queue" is a real, enriching read over `ExceptionCase` -- no new store**, matching
+§11.3's own "there is no separate defect tracker." `exception_desk.queue` reads every
+live OPEN/BLOCKED case and enriches it with real train position (a new reverse
+`workbook --IN_TRAIN--> train` lookup, the first this codebase has needed), site
+(`case_execution._resolve_site`, reused verbatim) and age (real wall-clock time since
+`created_at`), then orders by train sequence, oldest-first within a sequence bucket --
+a real, disclosed choice §11.3 does not itself state.
+
+**The case page's own evidence is a second, wider read than the Mender's own repair
+evidence.** `_gather_case_evidence` additionally carries the real key-set diff
+(`missing_keys`/`extra_keys`, the AC's own "key diffs") and each case's own real
+`ParityCase.param_values` -- assembled here rather than widening
+`mender._gather_parity_evidence` for a caller (a repair request) that has no use for
+either. The artefact pane and Mender pass history reuse the Mender's own resolution
+helpers and the already-declared `MenderPass` nodes directly -- S8.2.1's own docstring
+had already named this exact future reader.
+
+**Every decision writes a real `GateDecision(gate="G3")` -- the first real G3 write this
+codebase has ever made, deliberately, not by accident.** No real G3 gate *workflow*
+exists anywhere (confirmed independently, again, by `redesign.py`, `diff.py`,
+`patterns.py` and `nodes.py`'s own prior `SpecDeviation`s, all naming S9.1.1/S9.1.2 as
+the story that eventually builds it) -- but `GateDecision.gate` already legally allows
+`"G3"`, and a real, evidenced *record* of an Exception Desk decision is not the same
+claim as "a G3 gate now exists to approve or reject against." `nodes.py`'s own
+`SpecDeviation` for `ExceptionCase.artefact_ref`/`case_refs` (S8.1.1) had already named
+S8.3.1 as the story that builds "a `GateDecision`-shaped record, visible to the report
+owner by construction" -- this module is that promise kept. `GateDecision.decision`
+gains four new, additive values (`PATCHED`, `REDESIGN`, `MODEL_DEFECT`, `SOURCE_DEFECT`)
+rather than forcing these four real, distinct choices into the existing
+`APPROVED`/`REJECTED`/`CHANGES_REQUESTED`/`WAIVED` set, built for a different workflow
+(G1/G2 model-design approval).
+
+**"Patch (edit in place)" still never mutates a Measure in place** -- every existing
+`Measure` writer (`generation.py`, `mender.py`, `patterns.py`, `rules.py`) writes a
+brand-new node; `decide_patch` reuses `mender._write_repaired_measure` verbatim, widened
+with one new optional `retire_reason` keyword so the retired `MAPS_TO` edge's own audit
+trail says a human patched it, attributed `AgentMode.HUMAN` -- confirmed by direct grep to
+be the first real write this declared-since-§8.1 mode has ever had. A patch closes the
+case only when every one of its own cases re-proves PASS (`mender.reprove_cases`, reused
+verbatim); a still-failing patch stays OPEN but still writes its own real `GateDecision`.
+
+**Redesign implements both of the backlog's own named alternatives.** "Open in Desktop
+with the MU link" cannot carry a real MU *link* -- the same "no MU page exists" gap ADR
+0048 already found for the identical words in S6.2.1's own AC -- so it is made real the
+only way this codebase already has: a real Desktop commit hash, recorded via the
+identical `closed_by`/`closed_at`/`desktop_commit_hash` shape
+`visual_redesign.close_redesign_exception` established, generalised here to any class.
+"Route to Foundry" reuses `foundry_routing.route_to_foundry` directly (S8.2.2's own
+mechanism), called with a human-asserted `ModelDefectEvidence` rather than a re-run of
+the automated detection -- a human's own judgement that a fix belongs in the model is
+itself real evidence. "Model defect" is the identical `route_to_foundry` call redesign's
+own Foundry sub-path uses; the only real difference is *why* (`GateDecision.decision`:
+`MODEL_DEFECT` vs `REDESIGN`).
+
+**Source defect reuses the identical `NotificationChannel` shape `regression.py` already
+established** -- a real, honest local log, no outward channel configured anywhere this
+platform has ever been deployed. The fix-with-sign-off path requires a real, non-blank
+sign-off text -- "the owner's written agreement" taken literally, refused without one.
+
+**"Rationale of at least one sentence" is set higher than any existing precedent**
+(`MIN_RATIONALE_LENGTH = 20`, against `g2.MIN_RATIONALE_LENGTH = 8` and
+`model_lifecycle.MIN_CHANGE_REQUEST_REASON = 10`), disclosed as deliberately higher since
+"a sentence" is a fuller bar than "a reason" alone. **Visibility "to the report owner"**
+reuses the established Artizent-plus-report-owner shape under its own name,
+`require_exception_desk_reader`/`ExceptionDeskReaderDep`, rather than reusing
+`ParityDashboardReaderDep` directly, so a refused request names the real screen.
+
+New module `exception_desk.py`: `queue`, `case_detail`, `bulk_assign`, `decide_patch`,
+`decide_redesign_desktop`, `decide_redesign_foundry`, `decide_model_defect`,
+`decide_source_defect`, `NotificationChannel`/`LocalNotificationChannel`,
+`ExceptionDeskService` (bound to `app.state.exception_desk`, the identical "pre-bound
+object on app.state" shape `MenderService` already set). `mender._write_repaired_measure`
+gains one new, optional `retire_reason` keyword (default unchanged) -- its only other
+change this story makes. New routes: `GET /v1/exception-desk` (the queue), `GET
+/v1/exceptions/{case_id}` (the case page), `POST /v1/exceptions:bulk-assign`, `POST
+/v1/exceptions/{case_id}:patch`, `POST /v1/exceptions/{case_id}:redesign`, `POST
+/v1/exceptions/{case_id}:decide-model-defect`, `POST
+/v1/exceptions/{case_id}:decide-source-defect` -- reading gated on the new
+`ExceptionDeskReaderDep`, deciding on the existing `MigrationEngineerDep`. Ontology:
+`GateDecision.decision` gains `PATCHED`/`REDESIGN`/`MODEL_DEFECT`/`SOURCE_DEFECT`; schema
+version 34 -> 35, one new declared `SpecDeviation`, no migration file (additive only).
+
+The console's own new Exception Desk surface (`services/console-web/src/exceptions/
+ExceptionDesk.tsx`) is its own top-level entry, following ParityDashboard.tsx's own
+click-to-drill-in pattern: a filterable queue (train/class/site/assignee) with real
+checkbox-driven bulk assign, and a case page showing evidence (failing cells, key diffs,
+filter context, parameter values), artefact (current DAX/M alongside the source calc)
+and Mender pass history, plus all four decision forms -- every decision and bulk assign
+hidden, not disabled, for anyone but the Migration Engineer, the identical convention
+`RegressionMonitor.tsx`'s own "Schedule" button and `ParityDashboard.tsx`'s own "Re-run
+parity" already set.
+
+Verified: 11 new pure unit tests (`_age_seconds`, `_clean_rationale`,
+`PatchResult`/`RedesignResult` round-trips, `LocalNotificationChannel`'s own real log);
+24 new integration tests against real PostgreSQL + Apache AGE (the queue really
+enriching, filtering and ordering real cases by real train sequence, site and age; the
+case page really assembling real evidence, artefact and Mender pass history; bulk assign
+really driving `assignee` for the first time; a real patch closing on a real re-proved
+PASS and staying open on a real re-proved FAIL, both recording a real decision;
+redesign really closing with a real Desktop commit hash and really routing to the
+Foundry; model defect routing the same way; source defect really notifying and really
+requiring a real sign-off for the fix path; every decision's own real
+`GateDecision(gate="G3")`; the new routes' own real role gates, including the report
+owner's own real read access and a clean 400 for an unknown case); 16 new console tests
+(the queue's own AC columns, filters, bulk assign gated to the Migration Engineer, the
+case page's three panes, the rationale-length gate on the decision button, all four
+decisions, and a decision refusal surfaced from the API); the full existing graph-svc
+suite (2,049 passed, up from 2,015, one already-known, unrelated
+`test_integration_g2_reminders.py` failure -- confirmed date-boundary-triggered this
+run, a working-day SLA threshold in that test's own 6-calendar-day backdate colliding
+with this run's own weekday, and confirmed unrelated to this story by a clean `git diff`
+on that test's own files) and console-web suite (251 passed, up from 235) both green
+alongside them; `ruff`/`mypy` clean. Live-smoke-tested against the real Docker stack: the queue, case page and
+a real redesign-to-Desktop decision all exercised through the console in a browser
+against the real running graph-svc, closing a real live `ExceptionCase` and recording a
+real `GateDecision`, confirmed by a direct API read afterwards.
+
+See [ADR 0064](../../docs/adr/0064-the-exception-desk-a-real-queue-and-four-real-g3-decisions.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

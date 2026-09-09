@@ -852,7 +852,15 @@ NODE_TYPES: tuple[NodeType, ...] = (
             _p("gate", T.ENUM, required=True, enum=("G1", "G2", "G3", "G4")),
             _p("subject_ref", T.STRING, required=True),
             _p("decision", T.ENUM, required=True,
-               enum=("APPROVED", "REJECTED", "CHANGES_REQUESTED", "WAIVED")),
+               enum=("APPROVED", "REJECTED", "CHANGES_REQUESTED", "WAIVED",
+                     "PATCHED", "REDESIGN", "MODEL_DEFECT", "SOURCE_DEFECT"),
+               note="The last four values are story S8.3.1's own addition -- the "
+                    "Exception Desk's own four decision types (§11.3), each recorded "
+                    "as a real `GateDecision(gate='G3')` even though no real G3 gate "
+                    "workflow exists yet (S9.1.1/S9.1.2's own later, unbuilt scope) -- "
+                    "'the choice is a G3 matter' (§11.3's own words for the source-"
+                    "defect decision) read as 'this is what G3 will one day read', not "
+                    "'this story builds G3'."),
             _p("approver", T.STRING, required=True,
                note="A gate decision without a named approver is not a decision (spec P4)."),
             _p("rationale", T.TEXT),
@@ -1264,6 +1272,21 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "state, but a shape match with no (or a different) failure_class still "
                "matches as a fallback -- unchanged from S8.2.1's own AST-shape-only "
                "behaviour for every pattern that predates this property.",
+    ),
+    SpecDeviation(
+        element="GateDecision.decision (PATCHED, REDESIGN, MODEL_DEFECT, SOURCE_DEFECT)",
+        reason="Section 4.1.1's own node table gives GateDecision no enum values at all "
+               "(§13.3's own worked example only shows 'approved'); the four existing "
+               "values this codebase already declared (APPROVED/REJECTED/CHANGES_"
+               "REQUESTED/WAIVED) were themselves built for the G1/G2 model-design "
+               "workflow (S4.2.1/S4.2.2), not for 'which of four remediation paths an "
+               "engineer chose for a parity exception' -- backlog story S8.3.1's own "
+               "acceptance criteria requires exactly four new decision types the "
+               "existing values would have to be forced into rather than honestly named.",
+        detail="Every Exception Desk decision (`exception_desk.py`) writes a real "
+               "`GateDecision(gate='G3', subject_ref=<ExceptionCase id>)` regardless of "
+               "which of the four this is -- see `GateDecision.decision`'s own note for "
+               "why `gate='G3'` is used even though no real G3 gate workflow exists yet.",
     ),
     SpecDeviation(
         element="Visual.layout",
