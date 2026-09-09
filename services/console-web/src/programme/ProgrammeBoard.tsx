@@ -35,6 +35,13 @@
  * (§9.2/§9.5) — with an "Apply rules" action for the platform engineer (the persona that
  * story's own acceptance criteria names) that reports how many fields it converted. See
  * ADR 0036.
+ *
+ * A sixth pane, since S8.3.2, is exception ageing and the Mender close rate — every real
+ * live `ExceptionCase`, grouped by its §11.1 class and a real age band, alongside "failing
+ * MUs closed without an ExceptionCase / failing MUs" (§16.6/§25's own R1 floor, >= 0.70),
+ * read as "closed without ever needing a human Exception Desk decision" — no failure is
+ * ever resolved without a real `ExceptionCase` existing (S8.1.1 opens one for every FAIL).
+ * Read-only, no action of its own — see `exception_ageing.py`'s own docstring.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -43,6 +50,7 @@ import type {
   AwaitingG2Review,
   Api,
   ClassMix,
+  ExceptionAgeingResponse,
   Identity,
   ProgrammeRecord,
   RuleCoverage,
@@ -186,6 +194,7 @@ export function ProgrammeBoard({ api, identity }: Props): JSX.Element {
       <G2ReviewsPane api={api} identity={identity} />
       <ClassMixPane api={api} identity={identity} />
       <RuleCoveragePane api={api} identity={identity} />
+      <ExceptionAgeingPane api={api} identity={identity} />
     </div>
   );
 }
@@ -652,6 +661,110 @@ function RuleCoveragePane({ api, identity }: Props): JSX.Element {
           </button>
         ) : (
           <span className="faint">Applying the rules engine is the platform engineer&rsquo;s action.</span>
+        )}
+      </footer>
+    </section>
+  );
+}
+
+// ------------------------------------------------- exception ageing & close rate (S8.3.2)
+
+function closeRatePillClass(meetsTarget: boolean | null): string {
+  if (meetsTarget === null) return 'pill idle';
+  return meetsTarget ? 'pill ok' : 'pill bad';
+}
+
+function ExceptionAgeingPane({ api, identity }: Props): JSX.Element {
+  const [ageing, setAgeing] = useState<ExceptionAgeingResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setLoading(true);
+    api
+      .exceptionAgeing(identity)
+      .then((response) => {
+        if (!live) return;
+        setAgeing(response);
+        setError(null);
+      })
+      .catch((caught: unknown) => {
+        if (!live) return;
+        setError(caught instanceof ApiError ? caught.message : 'Exception ageing could not be read.');
+      })
+      .finally(() => live && setLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [api, identity]);
+
+  const classes = Array.from(
+    new Set((ageing?.open_by_class_and_age_band ?? []).map((entry) => entry.class)),
+  ).sort((a, b) => a.localeCompare(b));
+  const countFor = (failureClass: string, ageBand: string): number =>
+    ageing?.open_by_class_and_age_band.find(
+      (entry) => entry.class === failureClass && entry.age_band === ageBand,
+    )?.count ?? 0;
+  const rate = ageing?.mender_close_rate ?? null;
+
+  return (
+    <section className="pane" aria-label="Exception ageing">
+      <header className="pane-header">
+        <h2>Exception ageing</h2>
+        {rate && (
+          <span className={closeRatePillClass(rate.meets_target)}>
+            {rate.rate === null ? 'no failures yet' : `${Math.round(rate.rate * 100)}% Mender close rate`}
+          </span>
+        )}
+      </header>
+      <div className="pane-body">
+        {error ? (
+          <div className="banner">{error}</div>
+        ) : loading && !ageing ? (
+          <p className="empty">Reading exception ageing…</p>
+        ) : !ageing || ageing.total_open === 0 ? (
+          <p className="empty">No open or blocked exception right now.</p>
+        ) : (
+          <table className="estate">
+            <caption className="visually-hidden">
+              Open exceptions by §11.1 class and age band
+            </caption>
+            <thead>
+              <tr>
+                <th>Class</th>
+                {ageing.age_bands.map((band) => (
+                  <th key={band.key}>{band.label}</th>
+                ))}
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {classes.map((failureClass) => {
+                const total = ageing.age_bands.reduce(
+                  (sum, band) => sum + countFor(failureClass, band.key), 0,
+                );
+                return (
+                  <tr key={failureClass}>
+                    <td>{failureClass}</td>
+                    {ageing.age_bands.map((band) => (
+                      <td key={band.key} className="numeric">{countFor(failureClass, band.key)}</td>
+                    ))}
+                    <td className="numeric">{total}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <footer className="statusbar">
+        {rate && (
+          <span className="muted">
+            {rate.total_failures === 0
+              ? 'No failure has ever opened an ExceptionCase yet.'
+              : `${rate.mender_closed} of ${rate.total_failures} failures closed without an Exception Desk decision · target ${Math.round(rate.target * 100)}%`}
+          </span>
         )}
       </footer>
     </section>

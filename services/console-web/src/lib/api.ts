@@ -1311,6 +1311,39 @@ export interface SourceDefectDecisionResult {
   notified: boolean;
 }
 
+// ------------------------------------------------------- S8.3.2: exception ageing tile
+
+export interface ExceptionAgeingEntry {
+  class: string;
+  age_band: string;
+  age_band_label: string;
+  count: number;
+}
+
+export interface AgeBand {
+  key: string;
+  label: string;
+}
+
+/** §16.6/§25's own literal "Mender close rate" -- a Mender-only close (no human
+ * Exception Desk decision) over every real failure, `VISUAL_REDESIGN` excluded (it is
+ * never something the Mender can repair). `rate`/`meets_target` are `null` when no
+ * eligible failure exists yet, an honest disclosed-absent rather than a misleading 0. */
+export interface MenderCloseRateSummary {
+  mender_closed: number;
+  total_failures: number;
+  rate: number | null;
+  target: number;
+  meets_target: boolean | null;
+}
+
+export interface ExceptionAgeingResponse {
+  open_by_class_and_age_band: ExceptionAgeingEntry[];
+  age_bands: AgeBand[];
+  total_open: number;
+  mender_close_rate: MenderCloseRateSummary;
+}
+
 export interface Api {
   estate(query: EstateQuery, identity: Identity): Promise<EstateResponse>;
   workbook(id: string, identity: Identity): Promise<WorkbookDetail>;
@@ -1491,6 +1524,7 @@ export interface Api {
     identity: Identity,
     ownerSignOff?: string,
   ): Promise<SourceDefectDecisionResult>;
+  exceptionAgeing(identity: Identity): Promise<ExceptionAgeingResponse>;
 }
 
 export function createApi(base = ''): Api {
@@ -1859,6 +1893,9 @@ export function createApi(base = ''): Api {
         { rationale, resolution, owner_sign_off: ownerSignOff ?? null },
         identity,
       )) as SourceDefectDecisionResult;
+    },
+    async exceptionAgeing(identity) {
+      return (await get('/v1/exceptions:ageing', identity)) as ExceptionAgeingResponse;
     },
   };
 }

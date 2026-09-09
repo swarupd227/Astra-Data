@@ -1,5 +1,6 @@
-"""Redesign flags as work items -- story S6.2.1 -- and the Exception Desk itself --
-story S8.3.1, opening F8.3.
+"""Redesign flags as work items -- story S6.2.1 -- the Exception Desk itself -- story
+S8.3.1, opening F8.3 -- and its own Programme Board tile -- story S8.3.2, continuing
+F8.3.
 
     "Redesign flags create ExceptionCases of class VISUAL_REDESIGN routed to the Exception
     Desk with the source screenshot, the mapping reason and the placeholder location."
@@ -22,6 +23,14 @@ real, dedicated `app.state.exception_desk` (`ExceptionDeskService`, the identica
 "pre-bound object on app.state" shape `MenderService` already set) instead -- see
 `_exception_desk`'s own docstring. `list_exceptions`/`close_exception`/`get_proving_
 readiness` are untouched, still reading `_compositor` exactly as S6.2.1 left them.
+
+**S8.3.2's own `exceptions:ageing` route reads `_compositor`, not `_exception_desk`** --
+`exception_ageing.exception_ageing` needs only `pool`/`graph_name`, so it is called
+directly rather than adding a needless method to `ExceptionDeskService`. Gated
+`ArtizentDep`, the identical broad-read posture every other read-only Programme Board
+pane already has (`GET /v1/programmes`, `GET /v1/families:awaiting-g2`,
+`GET /v1/calculations:class-mix`) -- this tile has no action of its own to gate more
+narrowly.
 """
 
 from __future__ import annotations
@@ -33,6 +42,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..compositor import Compositor
 from ..errors import ElementNotFoundError, InvalidRequestError
+from ..exception_ageing import exception_ageing
 from ..exception_desk import ExceptionDeskError, ExceptionDeskService
 from ..graph.queries import NODE_INDEX_TABLE
 from ..lineage import hydrate
@@ -305,6 +315,19 @@ async def decide_source_defect_exception(
         )
     except (ElementNotFoundError, ExceptionDeskError) as exc:
         raise InvalidRequestError(str(exc)) from exc
+
+
+# ------------------------------------------------- S8.3.2: ageing and the Mender close rate
+
+
+@router.get(
+    "/v1/exceptions:ageing",
+    tags=["exceptions"],
+    summary="Programme Board tile: open exceptions by class and age band, and the Mender close rate (§16.6, §25)",
+)
+async def exceptions_ageing(request: Request, principal: PrincipalDep, roles: ArtizentDep) -> dict[str, Any]:
+    engine = _compositor(request)
+    return await exception_ageing(engine.pool, engine.graph_name)
 
 
 __all__ = ["router"]

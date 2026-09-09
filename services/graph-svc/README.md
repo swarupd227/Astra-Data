@@ -2868,6 +2868,80 @@ real `GateDecision`, confirmed by a direct API read afterwards.
 See [ADR 0064](../../docs/adr/0064-the-exception-desk-a-real-queue-and-four-real-g3-decisions.md)
 for the full reasoning.
 
+## Exception ageing and the Mender close rate (story S8.3.2, continues F8.3/E8)
+
+§16.6's own Accuracy metrics table, verbatim: "Mender close rate | Failing MUs closed
+without an ExceptionCase / failing MUs | >= 0.70 | Parity Dashboard." §25 repeats the
+identical target under "Accuracy of repair; size of the human residue."
+
+**"Failures closed without an ExceptionCase" cannot be built literally.** Confirmed,
+again: `classify_run` (S8.1.1) opens a real `ExceptionCase` for every FAIL it reads, so
+no live failure is ever resolved without one existing. Read as "closed without ever
+needing a human decision at the Exception Desk" instead -- the honest reading both
+§16.6's own routing ("Parity Dashboard") and §25's own "size of the human residue"
+wording point to.
+
+**The real signal is `closed_by IS NULL`, not `decision IS NULL`.**
+`mender.mend_exception`'s own success-close write sets only `state`/`passes_consumed` --
+`closed_by`/`closed_at` are left null. Every human-driven close sets them for real,
+including S6.2.1's own older `visual_redesign.close_redesign_exception` (confirmed by
+direct read: it sets `closed_by`/`closed_at`/`desktop_commit_hash`, never `decision`) --
+so a naive `decision IS NULL` check would have wrongly counted a real, human-closed
+`VISUAL_REDESIGN` case as Mender-closed, proven directly by its own test.
+
+**`VISUAL_REDESIGN` is excluded from the close-rate ratio, both numerator and
+denominator, but not from the ageing breakdown.** It is a real `ExceptionCase` but not a
+real *failure* -- opened by composition finding an unmapped/flagged visual, never a
+parity diff; the Mender has no artefact to repair against one and never attempts to.
+Counting it would understate the real repair-accuracy signal the metric exists to give.
+The open-exceptions-by-class-and-age-band breakdown is deliberately not narrowed the
+same way -- it is honestly about every real kind of residue sitting in the queue.
+
+**Age bands are a new, invented, disclosed bucketing** (under 1 day / 1-3 days / 3-7
+days / 7+ days) -- the same "a real, defensible, disclosed number" footing
+`estate.USAGE_BANDS` already set for view-count banding; `estate.Band`/`estate._band_of`
+are reused verbatim (cross-epic private reuse) rather than reinventing an identical
+bucketing shape. Age itself reuses `exception_desk._age_seconds` verbatim.
+
+**The tile is one estate-wide aggregate, not scoped to a programme or workbook** --
+`ExceptionCase` carries no `programme_ref`, and every other read-only Programme Board
+pane this session has built (G2 cycle time, calculation class mix, rule coverage) is
+estate-wide too.
+
+`aggregate_ageing`/`exception_ageing` keep the "pure core, graph-coupled shell" split
+`parity_dashboard.py` already drew. New route `GET /v1/exceptions:ageing` reads
+`_compositor` directly (no new `ExceptionDeskService` method needed) and is gated
+`ArtizentDep`, the identical broad-read posture every other read-only Programme Board
+route already has. No ontology change, no migration. New console pane,
+`ExceptionAgeingPane`, the Programme Board's sixth, read-only, no action of its own.
+
+**A real bug found and fixed in this story's own first integration-test draft, not in
+production code.** A `Pool` created and closed inside `_run_off_loop`'s own throwaway
+thread/event loop proved genuinely unstable on this platform -- an intermittent
+`RuntimeError: Event loop is closed` from a `Pool.close()`-scheduled callback still
+pending when that loop tears down, and a correspondingly intermittent test hang. Fixed
+by matching `test_integration_exception_desk.py`'s own proven convention: a single raw
+`asyncpg.connect()` for schema setup/teardown, and a plain `async def` fixture (no
+`_run_off_loop`) for the pool the test body itself uses.
+
+Verified: 9 new pure unit tests (grouping, age-band labels, the `closed_by`-not-
+`decision` distinction proven directly against the scenario that would break a naive
+check, the `VISUAL_REDESIGN` exclusion, an honestly-`None` rate with no eligible
+failures, meeting and missing the R1 target); 7 new integration tests against real
+PostgreSQL + Apache AGE (real cases really grouped by class and age band; a real
+Mender-style close really counted; a real Exception Desk decision's own `closed_by`
+really excluding it; a real `VISUAL_REDESIGN` case really excluded from both sides of
+the ratio; an honestly-empty estate; the new route's own real role gate, including a
+real refusal for a client role); 4 new console tests (the grid, the honest "no failures
+yet" state, the R1-target pill in both directions, a read failure); the full existing
+graph-svc suite (2,065 passed, up from 2,049, one already-known, unrelated
+`test_integration_g2_reminders.py` failure, the same date-boundary trigger S8.3.1
+already found and confirmed unrelated) and console-web suite (255 passed, up from 251)
+both green alongside them; `ruff`/`mypy` clean.
+
+See [ADR 0065](../../docs/adr/0065-exception-ageing-and-the-mender-close-rate-a-closed-by-signal-not-decision.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

@@ -16,6 +16,7 @@ import {
   awaitingG2Response,
   awaitingG2Review,
   classMix,
+  exceptionAgeingResponse,
   fakeApi,
   programmesResponse,
   ruleCoverage,
@@ -367,6 +368,71 @@ describe('rule coverage (S5.2.1)', () => {
     render(<ProgrammeBoard api={api} identity={PM} />);
 
     expect(await screen.findByText(/rule coverage is not available/)).toBeInTheDocument();
+  });
+});
+
+describe('exception ageing (S8.3.2)', () => {
+  it('shows open exceptions by class and age band, and the Mender close rate', async () => {
+    const api = fakeApi();
+    api.exceptionAgeing = async () =>
+      exceptionAgeingResponse({
+        open_by_class_and_age_band: [
+          { class: 'AGGREGATION', age_band: 'under_1d', age_band_label: 'under 1 day', count: 2 },
+          { class: 'AGGREGATION', age_band: '3_7d', age_band_label: '3-7 days', count: 1 },
+          { class: 'KEY_MISSING', age_band: '7d_plus', age_band_label: '7+ days', count: 1 },
+        ],
+        total_open: 4,
+        mender_close_rate: { mender_closed: 7, total_failures: 10, rate: 0.7, target: 0.7, meets_target: true },
+      });
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    const pane = await screen.findByRole('region', { name: 'Exception ageing' });
+    expect(within(pane).getByText('70% Mender close rate')).toBeInTheDocument();
+    const aggRow = within(pane).getByText('AGGREGATION').closest('tr')!;
+    expect(within(aggRow).getByText('2')).toBeInTheDocument();
+    expect(within(aggRow).getByText('1')).toBeInTheDocument();
+    expect(within(aggRow).getByText('3')).toBeInTheDocument();
+    expect(
+      within(pane).getByText('7 of 10 failures closed without an Exception Desk decision · target 70%'),
+    ).toBeInTheDocument();
+  });
+
+  it('says no failures have opened an ExceptionCase yet, honestly, rather than 0%', async () => {
+    const api = fakeApi();
+    api.exceptionAgeing = async () =>
+      exceptionAgeingResponse({
+        open_by_class_and_age_band: [],
+        total_open: 0,
+        mender_close_rate: { mender_closed: 0, total_failures: 0, rate: null, target: 0.7, meets_target: null },
+      });
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    const pane = await screen.findByRole('region', { name: 'Exception ageing' });
+    expect(within(pane).getByText('no failures yet')).toBeInTheDocument();
+    expect(within(pane).getByText('No open or blocked exception right now.')).toBeInTheDocument();
+    expect(within(pane).getByText('No failure has ever opened an ExceptionCase yet.')).toBeInTheDocument();
+  });
+
+  it('shows a bad pill when the Mender close rate misses the R1 target', async () => {
+    const api = fakeApi();
+    api.exceptionAgeing = async () =>
+      exceptionAgeingResponse({
+        mender_close_rate: { mender_closed: 4, total_failures: 10, rate: 0.4, target: 0.7, meets_target: false },
+      });
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    const pane = await screen.findByRole('region', { name: 'Exception ageing' });
+    expect(within(pane).getByText('40% Mender close rate')).toHaveClass('pill', 'bad');
+  });
+
+  it('surfaces a read failure', async () => {
+    const api = fakeApi();
+    api.exceptionAgeing = async () => {
+      throw new ApiError(403, 'forbidden', 'this endpoint is available to Artizent roles');
+    };
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    expect(await screen.findByText(/this endpoint is available to Artizent roles/)).toBeInTheDocument();
   });
 });
 

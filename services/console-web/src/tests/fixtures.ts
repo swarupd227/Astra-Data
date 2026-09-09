@@ -20,6 +20,7 @@ import type {
   DesignDocument,
   EstateQuery,
   EstateResponse,
+  ExceptionAgeingResponse,
   ExceptionCaseDetail,
   ExceptionQueueEntry,
   ExceptionQueueResponse,
@@ -1124,6 +1125,28 @@ export function exceptionCaseDetail(overrides: Partial<ExceptionCaseDetail> = {}
   };
 }
 
+export function exceptionAgeingResponse(
+  overrides: Partial<ExceptionAgeingResponse> = {},
+): ExceptionAgeingResponse {
+  return {
+    open_by_class_and_age_band: [
+      { class: 'AGGREGATION', age_band: 'under_1d', age_band_label: 'under 1 day', count: 2 },
+      { class: 'KEY_MISSING', age_band: '7d_plus', age_band_label: '7+ days', count: 1 },
+    ],
+    age_bands: [
+      { key: 'under_1d', label: 'under 1 day' },
+      { key: '1_3d', label: '1-3 days' },
+      { key: '3_7d', label: '3-7 days' },
+      { key: '7d_plus', label: '7+ days' },
+    ],
+    total_open: 3,
+    mender_close_rate: {
+      mender_closed: 7, total_failures: 10, rate: 0.7, target: 0.7, meets_target: true,
+    },
+    ...overrides,
+  };
+}
+
 export const RAISED_ISSUE: ConstructIssue = {
   id: 'gi_01M1',
   state: 'OPEN',
@@ -2181,6 +2204,9 @@ export function fakeApi(
         exception_case_id: exceptionCaseId, gate_decision_id: 'gd_source_defect_1', resolution,
         owner_sign_off: ownerSignOff ?? null, notified: true,
       };
+    },
+    async exceptionAgeing(_identity) {
+      return exceptionAgeingResponse();
     },
   };
 }
