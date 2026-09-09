@@ -155,6 +155,17 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 
 /*
+ * A single stacked column, the identical anatomy at every width (story S9.1.1's own
+ * "renders identically on desktop and mobile") -- `.workspace`'s own three-column grid
+ * above was built for the Estate Explorer's tree/list/detail layout; a one-pane G3 card
+ * has no columns to split into.
+ */
+.g3-card-workspace {
+  grid-template-columns: minmax(0, 1fr);
+  overflow-y: auto;
+}
+
+/*
  * Reflow before the table is crushed. Three fixed-ish panes at 900px leave the centre —
  * the one the screen is for — about 270 pixels, which is narrower than either of the
  * panes framing it. §15.6 does not put the Estate Explorer on a phone, but a laptop at

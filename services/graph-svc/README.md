@@ -2942,6 +2942,125 @@ both green alongside them; `ruff`/`mypy` clean.
 See [ADR 0065](../../docs/adr/0065-exception-ageing-and-the-mender-close-rate-a-closed-by-signal-not-decision.md)
 for the full reasoning.
 
+## The G3 gate card (story S9.1.1, opens F9.1, opens E9)
+
+§13.1's own G3 row, verbatim: "Migration Unit | Client report owner; countersigned by
+Migration Engineer | Passing ParityRun (or waived cases with justification); visual
+review record | Invoice trigger; release permitted." §15.5's own worked example closes:
+"Identical anatomy on desktop and mobile, and mirrored into Teams as an adaptive card.
+Approve and Request Changes require a reason of at least one sentence."
+
+**The workbook id is the real G3 subject -- no real Migration Unit exists to be one.**
+Confirmed, again, directly against `migration_units.py`'s own docstring: "this is a
+port, not an implementation." Every G3-adjacent story since S8.1.1 has used the
+workbook id as the real MU proxy (`ExceptionCase.mu_ref`, ADR 0060); this module writes
+`GateDecision(gate="G3", subject_ref=<workbook_id>)`, the identical subject.
+
+**Approve/Request changes reuse `g2.approve`/`.request_changes`'s own proven shape
+verbatim** -- approver + countersigner, both recorded on one `GateDecision`, no new
+enum values needed (`APPROVED`/`CHANGES_REQUESTED` already legal since S4.2.1).
+Countersigner is a plain, unverified name string, the identical "the approver types who
+countersigned, not a second authenticated action" convention `g2.approve`'s own
+`countersigned_by` already established.
+
+**"Approving records that the owner saw them" is a real, frozen JSON snapshot of the
+card's own rendered anatomy at approval time**, stored via `ArtefactStore` and named by
+the decision's own `evidence_ref` -- the waivers (or their honest absence) the owner saw
+are embedded in that snapshot, the identical "`evidence_ref` points at a real stored
+JSON artefact" shape `Verdict.evidence_ref` already has (S7.4.1).
+
+**"Waivers and their justification" reads the real, live `GateDecision(decision=
+"WAIVED")` query -- honestly empty today.** Confirmed, again, directly: no story has
+ever written one (`parity_dashboard.py`'s own identical S7.4.2 finding, still true
+after S8.3.1, which writes `PATCHED`/`REDESIGN`/`MODEL_DEFECT`/`SOURCE_DEFECT`, never
+`WAIVED`).
+
+**"Human review status" is a new, disclosed-absent property, `Visual.reviewed_by`/
+`.reviewed_at`** -- no action anywhere in this codebase writes it yet, the identical
+real-but-empty posture the waiver query already has.
+
+**"Changes (C4 decisions, redesigns)" reads two real, distinct facts, both scoped to
+the workbook's own live ExceptionCases.** "Redesigns" is `GateDecision(gate="G3",
+decision="REDESIGN")` rows whose `subject_ref` names one of the workbook's own cases --
+S8.3.1's own Exception Desk decision. "C4 decisions" is the real `CalculatedField.
+redesign_decision` (+ reason/by/at) flag on whichever calculated field each such case's
+own `artefact_ref` resolves to (`mender._resolve_calculated_field`, reused verbatim) --
+S5.4.1's own disclosed MU-BLOCKED proxy. Scoped to calc fields with a live case pointing
+at them, not every calculated field the workbook has ever had -- a real, disclosed
+narrowing.
+
+**"Next (promotion, parallel window)" is informational text, never an executed
+pipeline.** E9's own goal names it plainly: "accepted reports are promoted through the
+*client's* pipeline" -- promotion is the client's own deployment mechanism, external to
+this codebase, the same way `migration_units.py` already disclosed the whole §3.2 state
+machine belongs to the control plane. Approving this card never triggers a real
+promotion; it records a real `GateDecision` and states, as prose, §14.4's own literal
+default (`DEFAULT_PARALLEL_WINDOW_WEEKS = 4`).
+
+**"Ask a question" is a new, minimal platform table, deliberately without a thread/
+answer mechanism.** `public.g3_question` (`v0032_g3_questions.py`) is the identical "not
+an estate-graph node" footing `g2_question` (S4.2.1) already has, but without
+`g2_question`'s own thread/answer columns -- this story's own AC names one button,
+asking, not a resolution workflow.
+
+**"Renders identically on desktop, mobile and as a Teams adaptive card" is one
+component plus a real Adaptive Card 1.5 JSON export.** One React component, one
+single-column CSS layout at every width (`.g3-card-workspace`), guarantees identical
+anatomy structurally rather than maintaining two renderings in sync. `to_adaptive_card`
+is a real, schema-correct document -- this platform has no live Teams bot/webhook
+(confirmed, none exists anywhere), so this is a real, disclosed output a future
+integration can post as-is, the same "build the real check even with nothing to call it
+yet" posture S5.3.3's own calibration report already took.
+
+**Reading the card is broader than deciding it.** `G3CardReaderDep` (Artizent or the
+report owner) mirrors `require_exception_desk_reader`/`require_c4_redesign_reader`
+exactly; `G3ApproverDep` (the report owner alone) gates every action. "The report owner
+role *for that report*" still checks the bare role, not a per-report binding -- confirmed,
+still true, no property anywhere links a `client_report_owner` principal to a specific
+workbook (ADR 0059's own finding, unchanged).
+
+New routes: `GET /v1/workbooks/{id}:g3-card` (`?format=adaptive_card`), `POST
+/v1/workbooks/{id}:approve-g3`, `POST /v1/workbooks/{id}:request-changes-g3`, `POST
+/v1/workbooks/{id}:ask-g3-question`, `GET /v1/workbooks/{id}/g3-questions`. Ontology:
+`Visual.reviewed_by`/`.reviewed_at`, schema version 35 -> 36, one new declared
+`SpecDeviation`. New migration `v0032_g3_questions.py` (additive Postgres table, not an
+ontology change). New console-web top-level surface, `G3Card.tsx` -- a single-workbook
+search (the identical shape `ParityDashboard.tsx` already set), gated to the report
+owner for every decision, plus a "Preview as Teams adaptive card" action showing the
+real exported JSON.
+
+**A real, pre-existing CSS bug found and flagged, not fixed here**: every multi-pane
+screen since S3.1.3 (Programme Board, Parity Dashboard, Regression Monitor, Exception
+Desk) inherits `.workspace`'s three-column grid (built for the Estate Explorer) with no
+override of its own, so their panes render side-by-side instead of stacked -- confirmed
+with a real screenshot, not just text extraction. Out of this story's own scope;
+flagged as a separate follow-up task rather than folded in here.
+
+Verified: 16 new pure unit tests (`_clean_rationale`, `_visual_summary`'s own
+averaging/honest-absence/real-review-listing, `to_adaptive_card`'s own real Adaptive
+Card shape and fact set, both result dataclasses' round-trips); 22 new integration
+tests against real PostgreSQL + Apache AGE (real pages/visuals counted from a real
+`ReportDefinition`/`Visual`s, honestly zero before composition; a real `ParityRun`'s own
+cases/charter/sampled flag; a real waiver and its justification; a real averaged visual
+score and a real human review; a real C4 decision and a real redesign, both correctly
+scoped; a real approved `ModelFamily`; Approve really writing a real countersigned
+`GateDecision` with a real snapshot artefact recording the waivers the owner saw;
+refusing a blank countersigner and a short rationale; Request changes writing its own
+real record; Ask a question writing and listing a real question; the new routes' own
+real role gates, the report owner deciding, an Artizent role only reading, an unrelated
+client role refused); 13 new console tests (all five sections, a real waiver, the
+honest "No waivers" state, a read failure, decide controls hidden for anyone but the
+report owner, the rationale-and-countersigner gate on Approve, all three decisions, a
+decision refusal, the adaptive card export, the new surface); the full existing
+graph-svc suite (2,103 passed, up from 2,065, one already-known, unrelated
+`test_integration_g2_reminders.py` failure, the same date-boundary trigger
+S8.3.1/S8.3.2 already found and confirmed unrelated) and console-web suite (268
+passed, up from 255) both green alongside them; `ruff`/`mypy` clean;
+`ontology_check.py --spec`/`--generated` and `migration_check.py` all pass.
+
+See [ADR 0066](../../docs/adr/0066-the-g3-gate-card-workbook-id-as-subject-a-real-adaptive-card-export.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

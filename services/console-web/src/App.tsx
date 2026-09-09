@@ -18,6 +18,7 @@ import { ToleranceCharter } from './charter/ToleranceCharter';
 import { EstateExplorer } from './estate/EstateExplorer';
 import { ExceptionDesk } from './exceptions/ExceptionDesk';
 import { ModelProposal } from './g2/ModelProposal';
+import { G3Card } from './g3/G3Card';
 import { createApi, type Identity } from './lib/api';
 import { LineageView } from './lineage/LineageView';
 import { ModelDetail } from './modeller/ModelDetail';
@@ -52,7 +53,10 @@ import { WaveBoard } from './trains/WaveBoard';
  * screen", not a Parity Dashboard tab: it lists every released workbook at once, the
  * opposite shape from the Parity Dashboard's own one-workbook-at-a-time search. The
  * Exception Desk (S8.3.1, opening F8.3) is its own top-level entry too — §11.3's own
- * named screen, "the Migration Engineer's work queue", not a tab on any of the above. */
+ * named screen, "the Migration Engineer's work queue", not a tab on any of the above.
+ * The G3 gate card (S9.1.1, opening F9.1/E9) is a third — §15.5's own named screen, one
+ * workbook's own real acceptance decision at a time, the identical single-workbook
+ * search shape the Parity Dashboard already set. */
 export const SURFACES = [
   { key: 'estate', label: 'Estate Explorer' },
   { key: 'lineage', label: 'Lineage View' },
@@ -67,6 +71,7 @@ export const SURFACES = [
   { key: 'parity', label: 'Parity Dashboard' },
   { key: 'regression', label: 'Regression Monitor' },
   { key: 'exceptions', label: 'Exception Desk' },
+  { key: 'g3', label: 'G3 Acceptance' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -206,6 +211,7 @@ export function App({
       {surface === 'parity' && <ParityDashboard api={api} identity={identity} />}
       {surface === 'regression' && <RegressionMonitor api={api} identity={identity} />}
       {surface === 'exceptions' && <ExceptionDesk api={api} identity={identity} />}
+      {surface === 'g3' && <G3Card api={api} identity={identity} />}
     </div>
   );
 }

@@ -323,6 +323,43 @@ def require_exception_desk_reader(roles: RoleSetDep) -> RoleSet:
 
 ExceptionDeskReaderDep = Annotated[RoleSet, Depends(require_exception_desk_reader)]
 
+
+def require_g3_card_reader(roles: RoleSetDep) -> RoleSet:
+    """Gate the G3 card on "any Artizent role, or the report owner specifically" —
+    the identical shape `require_exception_desk_reader`/`require_c4_redesign_reader`
+    already set for the same client role (story S9.1.1). Reading the card and deciding
+    against it are two different weights — see `require_g3_approver` for the narrower
+    one."""
+    if not (roles.is_artizent() or Role.CLIENT_REPORT_OWNER in roles.roles):
+        raise ForbiddenError(
+            f"the G3 gate card is open to Artizent roles and the report owner; "
+            f"declare one in {ROLES_HEADER}"
+        )
+    return roles
+
+
+G3CardReaderDep = Annotated[RoleSet, Depends(require_g3_card_reader)]
+
+
+def require_g3_approver(roles: RoleSetDep) -> RoleSet:
+    """Gate Approve/Request changes/Ask a question on the report owner alone (story
+    S9.1.1's own literal "Approve requires the report owner role") — narrower than
+    `G3CardReaderDep`, which also lets Artizent roles read the same card while
+    preparing it. There is no real per-report ownership binding to check "the report
+    owner role *for that report*" against (confirmed, still true: no property anywhere
+    links a client_report_owner principal to a specific workbook) — this checks the
+    bare role, the same disclosed gap every other client-role gate in this codebase
+    already has."""
+    if Role.CLIENT_REPORT_OWNER not in roles.roles:
+        raise ForbiddenError(
+            f"deciding a G3 card is the report owner's action; declare "
+            f"'{Role.CLIENT_REPORT_OWNER.value}' in {ROLES_HEADER}"
+        )
+    return roles
+
+
+G3ApproverDep = Annotated[RoleSet, Depends(require_g3_approver)]
+
 DOMAIN_SCOPE_HEADER = "X-Astra-Domain-Scope"
 
 

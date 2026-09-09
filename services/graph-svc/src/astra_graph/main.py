@@ -32,6 +32,7 @@ from .api import (
     failure_classification_router,
     families_router,
     g2_router,
+    g3_router,
     gateway_router,
     generation_router,
     harvest_router,
@@ -75,6 +76,7 @@ from .events import source_for
 from .exception_desk import ExceptionDeskService
 from .g2 import PostgresQuestionStore
 from .g2_reminders import LocalNotificationChannel, PostgresReminderStore
+from .g3_card import G3CardService
 from .gateway import build_gateway
 from .generation import GenerationEngine
 from .grammar import LocalIssueTracker, PostgresIssueStore
@@ -368,6 +370,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         provenance_store=app.state.provenance_store, target_adapter=app.state.target_adapter,
         charter_store=app.state.tolerance_charter_store,
     )
+    # Story S9.1.1, opening F9.1/E9: the G3 gate card -- a real read over the Parity
+    # Dashboard, the latest ParityRun, live ExceptionCases/GateDecisions and a workbook's
+    # own ReportDefinition/Visuals, plus Approve/Request changes/Ask a question. See
+    # g3_card.py's own docstring.
+    app.state.g3_card = G3CardService(
+        pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
+    )
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(
         quality=quality_store,
@@ -459,6 +468,7 @@ def create_app() -> FastAPI:
     app.include_router(artefacts_router)
     app.include_router(families_router)
     app.include_router(g2_router)
+    app.include_router(g3_router)
     app.include_router(trains_router)
     app.include_router(modeller_router)
     app.include_router(conformance_router)

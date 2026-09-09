@@ -571,6 +571,11 @@ NODE_TYPES: tuple[NodeType, ...] = (
                     "was computed from."),
             _p("target_render_ref", T.STRING, note="The stored target-side render this "
                     "run's own image_score (if any) was computed from."),
+            _p("reviewed_by", T.STRING, note="§15.5's own G3 card anatomy names 'human "
+                    "review status' (story S9.1.1) -- absent until a real human-review "
+                    "workflow writes it; no story yet does. `structural_score`/`image_score` "
+                    "stay the only automated facts this node carries."),
+            _p("reviewed_at", T.TIMESTAMP),
         ),
     ),
     NodeType(
@@ -1569,5 +1574,19 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "AC's own 'side-by-side images', pointing at real stored artefacts. "
                "Advisory throughout, per §10.5's own words: nothing here is ever read by "
                "`diff_result_sets` or any verdict.",
+    ),
+    SpecDeviation(
+        element="Visual.reviewed_by, Visual.reviewed_at",
+        reason="Section 4.1.1's own node table declares neither. §15.5's own G3 card "
+               "anatomy names a real fact the card shows -- 'reviewed by S. Iyer 14 Jan' -- "
+               "alongside the structural score; backlog story S9.1.1's own acceptance "
+               "criteria asks for 'visual (structural score, human review status)' on the "
+               "card. No action anywhere in this codebase writes a human review yet -- the "
+               "identical disclosed-absent posture `parity_dashboard.py`'s own waived-count "
+               "query already has (real, queryable, honestly empty until a later story "
+               "drives it).",
+        detail="A real human review is a fact about one visual's own mapping, the same "
+               "'store it on the node the fact is actually about' reasoning the score "
+               "properties immediately above already applied.",
     ),
 )

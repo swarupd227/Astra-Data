@@ -29,6 +29,8 @@ import type {
   FamilyRecord,
   FamilyTransition,
   G2Question,
+  G3Card,
+  G3Question,
   Identity,
   LineageQuery,
   LineageResponse,
@@ -1147,6 +1149,39 @@ export function exceptionAgeingResponse(
   };
 }
 
+export function g3Card(overrides: Partial<G3Card> = {}): G3Card {
+  return {
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    what: { name: 'Daily VaR', site: 'RQA', pages: 2, visuals: 6 },
+    proof: {
+      cases_run: 41, cases_pass: 41, charter_version: '3', sampled: false,
+      passes_the_charter: true, waivers: [],
+    },
+    visual: { structural_score: 0.96, image_score: 0.91, reviewed: [], human_review_status: 'not yet reviewed' },
+    changes: {
+      c4_decisions: [], redesigns: [],
+      model: { family_id: 'fam_risk', name: 'mf_risk_positions', state: 'APPROVED', approved_at: '2027-01-09T00:00:00.000Z' },
+    },
+    next: {
+      on_approval: 'promote to test, then a parallel run before your sign-off',
+      parallel_window_weeks: 4,
+    },
+    latest_decision: null,
+    ...overrides,
+  };
+}
+
+export function g3Question(overrides: Partial<G3Question> = {}): G3Question {
+  return {
+    id: 'g3q_1',
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    question: 'Why was the table-calc visual redesigned?',
+    asked_by: 'user:owner@client.example',
+    asked_at: '2027-01-14T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
 export const RAISED_ISSUE: ConstructIssue = {
   id: 'gi_01M1',
   state: 'OPEN',
@@ -1203,6 +1238,8 @@ export function fakeApi(
     if (!found) throw new ApiError(404, 'not_found', `no ExceptionCase '${exceptionCaseId}'`);
     return found;
   };
+  const g3CardState = new Map<string, G3Card>();
+  const g3QuestionRows: G3Question[] = [];
   let g1Approved = false;
   const programmeRows = programmes.programmes.map((row) => ({ ...row }));
   const trainRows = trains.trains.map((train) => ({
@@ -2207,6 +2244,50 @@ export function fakeApi(
     },
     async exceptionAgeing(_identity) {
       return exceptionAgeingResponse();
+    },
+    async g3Card(workbookId, _identity, format) {
+      const current = g3CardState.get(workbookId) ?? g3Card({ workbook_id: workbookId });
+      if (format === 'adaptive_card') {
+        return { type: 'AdaptiveCard', version: '1.5', body: [], actions: [] } as unknown as G3Card;
+      }
+      return current;
+    },
+    async approveG3(workbookId, rationale, countersignedBy, identity) {
+      maybeFail();
+      recorded.push({ kind: 'APPROVE_G3', id: workbookId, reason: rationale });
+      const current = g3CardState.get(workbookId) ?? g3Card({ workbook_id: workbookId });
+      g3CardState.set(workbookId, {
+        ...current,
+        latest_decision: {
+          decision: 'APPROVED', approver: identity.principal, countersigner: countersignedBy,
+          timestamp: '2027-06-01T09:00:00.000Z', rationale,
+        },
+      });
+      return { workbook_id: workbookId, gate_decision_id: 'gd_g3_1', decision: 'APPROVED' };
+    },
+    async requestChangesG3(workbookId, rationale, identity) {
+      maybeFail();
+      recorded.push({ kind: 'REQUEST_CHANGES_G3', id: workbookId, reason: rationale });
+      const current = g3CardState.get(workbookId) ?? g3Card({ workbook_id: workbookId });
+      g3CardState.set(workbookId, {
+        ...current,
+        latest_decision: {
+          decision: 'CHANGES_REQUESTED', approver: identity.principal, countersigner: null,
+          timestamp: '2027-06-01T09:00:00.000Z', rationale,
+        },
+      });
+      return { workbook_id: workbookId, gate_decision_id: 'gd_g3_2', decision: 'CHANGES_REQUESTED' };
+    },
+    async askG3Question(workbookId, question, identity) {
+      maybeFail();
+      recorded.push({ kind: 'ASK_G3_QUESTION', id: workbookId, reason: question });
+      const created = g3Question({ id: `g3q_${g3QuestionRows.length + 1}`, workbook_id: workbookId, question, asked_by: identity.principal });
+      g3QuestionRows.push(created);
+      return created;
+    },
+    async g3Questions(workbookId, _identity) {
+      const rows = g3QuestionRows.filter((q) => q.workbook_id === workbookId);
+      return { questions: rows, count: rows.length };
     },
   };
 }

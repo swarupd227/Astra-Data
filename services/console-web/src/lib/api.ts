@@ -1344,6 +1344,110 @@ export interface ExceptionAgeingResponse {
   mender_close_rate: MenderCloseRateSummary;
 }
 
+// ------------------------------------------------------------- S9.1.1: the G3 gate card
+
+export interface G3CardWhat {
+  name: string | null;
+  site: string | null;
+  pages: number;
+  visuals: number;
+}
+
+export interface G3CardWaiver {
+  subject_ref: string | null;
+  approver: string | null;
+  rationale: string | null;
+  timestamp: string | null;
+}
+
+export interface G3CardProof {
+  cases_run: number;
+  cases_pass: number;
+  charter_version: string | null;
+  sampled: boolean;
+  passes_the_charter: boolean;
+  waivers: G3CardWaiver[];
+}
+
+export interface G3CardVisualReview {
+  visual_id: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+}
+
+export interface G3CardVisual {
+  structural_score: number | null;
+  image_score: number | null;
+  reviewed: G3CardVisualReview[];
+  human_review_status: 'reviewed' | 'not yet reviewed';
+}
+
+export interface G3CardC4Decision {
+  calc_id: string;
+  name: string | null;
+  redesign_decision: string | null;
+  redesign_decision_reason: string | null;
+  redesign_decision_by: string | null;
+  redesign_decision_at: string | null;
+}
+
+export interface G3CardRedesign {
+  subject_ref: string | null;
+  approver: string | null;
+  rationale: string | null;
+  timestamp: string | null;
+}
+
+export interface G3CardModel {
+  family_id: string;
+  name: string | null;
+  state: string | null;
+  approved_at: string | null;
+}
+
+export interface G3CardChanges {
+  c4_decisions: G3CardC4Decision[];
+  redesigns: G3CardRedesign[];
+  model: G3CardModel | null;
+}
+
+export interface G3CardNext {
+  on_approval: string;
+  parallel_window_weeks: number;
+}
+
+export interface G3CardLatestDecision {
+  decision: string;
+  approver: string;
+  countersigner: string | null;
+  timestamp: string;
+  rationale: string | null;
+}
+
+export interface G3Card {
+  workbook_id: string;
+  what: G3CardWhat;
+  proof: G3CardProof;
+  visual: G3CardVisual;
+  changes: G3CardChanges;
+  next: G3CardNext;
+  latest_decision: G3CardLatestDecision | null;
+}
+
+export interface G3DecisionResult {
+  workbook_id: string;
+  gate_decision_id: string;
+  decision: string;
+}
+
+export interface G3Question {
+  id: string;
+  workbook_id: string;
+  question: string;
+  asked_by: string;
+  asked_at: string;
+}
+
 export interface Api {
   estate(query: EstateQuery, identity: Identity): Promise<EstateResponse>;
   workbook(id: string, identity: Identity): Promise<WorkbookDetail>;
@@ -1525,6 +1629,16 @@ export interface Api {
     ownerSignOff?: string,
   ): Promise<SourceDefectDecisionResult>;
   exceptionAgeing(identity: Identity): Promise<ExceptionAgeingResponse>;
+  g3Card(workbookId: string, identity: Identity, format?: 'adaptive_card'): Promise<G3Card>;
+  approveG3(
+    workbookId: string,
+    rationale: string,
+    countersignedBy: string,
+    identity: Identity,
+  ): Promise<G3DecisionResult>;
+  requestChangesG3(workbookId: string, rationale: string, identity: Identity): Promise<G3DecisionResult>;
+  askG3Question(workbookId: string, question: string, identity: Identity): Promise<G3Question>;
+  g3Questions(workbookId: string, identity: Identity): Promise<{ questions: G3Question[]; count: number }>;
 }
 
 export function createApi(base = ''): Api {
@@ -1896,6 +2010,37 @@ export function createApi(base = ''): Api {
     },
     async exceptionAgeing(identity) {
       return (await get('/v1/exceptions:ageing', identity)) as ExceptionAgeingResponse;
+    },
+    async g3Card(workbookId, identity, format) {
+      const query = format ? `?format=${format}` : '';
+      return (await get(`/v1/workbooks/${workbookId}:g3-card${query}`, identity)) as G3Card;
+    },
+    async approveG3(workbookId, rationale, countersignedBy, identity) {
+      return (await post(
+        `/v1/workbooks/${workbookId}:approve-g3`,
+        { rationale, countersigned_by: countersignedBy },
+        identity,
+      )) as G3DecisionResult;
+    },
+    async requestChangesG3(workbookId, rationale, identity) {
+      return (await post(
+        `/v1/workbooks/${workbookId}:request-changes-g3`,
+        { rationale },
+        identity,
+      )) as G3DecisionResult;
+    },
+    async askG3Question(workbookId, question, identity) {
+      return (await post(
+        `/v1/workbooks/${workbookId}:ask-g3-question`,
+        { question },
+        identity,
+      )) as G3Question;
+    },
+    async g3Questions(workbookId, identity) {
+      return (await get(`/v1/workbooks/${workbookId}/g3-questions`, identity)) as {
+        questions: G3Question[];
+        count: number;
+      };
     },
   };
 }

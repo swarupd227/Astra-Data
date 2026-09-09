@@ -2330,6 +2330,20 @@
           "required": false,
           "server_managed": false,
           "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "reviewed_by",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "reviewed_at",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
         }
       ],
       "side": "target"
@@ -2546,5 +2560,5 @@
       "side": "source"
     }
   },
-  "schema_version": 35
+  "schema_version": 36
 }
