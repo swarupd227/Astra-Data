@@ -155,12 +155,32 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 
 /*
- * A single stacked column, the identical anatomy at every width (story S9.1.1's own
- * "renders identically on desktop and mobile") -- `.workspace`'s own three-column grid
- * above was built for the Estate Explorer's tree/list/detail layout; a one-pane G3 card
- * has no columns to split into.
+ * A single stacked column, so each screen's own panes read top to bottom instead of
+ * falling through to `.workspace`'s own three-column grid above -- built for the Estate
+ * Explorer's tree/list/detail layout (and `quality.ParseQualityQueue`'s own identical
+ * shape), the only two screens that actually want three side-by-side panes.
+ *
+ * Every screen below instead reads one pane after another (a queue, a dashboard-plus-
+ * run, a family-count figure alongside a train/G2/class-mix/rule-coverage/exception-
+ * ageing series) with no column of its own to split into -- but each was built reusing
+ * the bare `workspace` class with no override, so two or more `.pane` children fell
+ * through to plain CSS grid auto-placement in that inherited three-column grid instead:
+ * confirmed with a real screenshot (not `get_page_text`, which reads DOM order and never
+ * shows this), e.g. the Programme Board's own "Family count" and "Projected vs. planned"
+ * panes rendering side by side in the grid's own 268px/360px tracks, most of the screen
+ * left empty. `programme-board`'s own pre-existing `.pane { max-width: 480px; }` (further
+ * below) never fixed this either -- a width cap on a grid item does nothing to the grid
+ * itself still auto-placing it into a narrow fixed column.
+ *
+ * The identical single-column override S9.1.1's own G3 card already set
+ * (`.g3-card-workspace`) is reused verbatim here, across every affected screen.
  */
-.g3-card-workspace {
+.g3-card-workspace,
+.programme-board,
+.charter-workspace,
+.parity-workspace,
+.regression-monitor,
+.exception-desk {
   grid-template-columns: minmax(0, 1fr);
   overflow-y: auto;
 }
@@ -647,10 +667,6 @@ table.estate td {
   max-height: 180px;
   overflow: auto;
 }
-
-/* -------------------------------------------------------------- programme board */
-
-.programme-board .pane { max-width: 480px; }
 
 /* Admin (S4.3.2): one full-width pane, not the generic three-column grid every other
    workspace inherits — a rules table earns the space the other two columns would waste. */
