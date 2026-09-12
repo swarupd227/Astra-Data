@@ -1472,6 +1472,62 @@ export interface AcceptanceSummary {
   total_accepted_value: number;
 }
 
+// ---------------------------------------------- S9.2.1: promotion pipeline and the Release Board
+
+export interface PromotionStep {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface PromotionRecord {
+  id: string;
+  workbook_id: string;
+  to_stage: string;
+  workspace: string;
+  state: string;
+  steps: PromotionStep[];
+  model_git_ref: string | null;
+  report_deploy_id: string | null;
+  approved_by: string | null;
+  approver_role: string | null;
+  rationale: string | null;
+  triggered_by: string;
+  started_at: string;
+  finished_at: string;
+}
+
+export interface ReleaseBoardMu {
+  workbook_id: string;
+  name: string;
+  sequence: number;
+  /** "NOT_ACCEPTED" | "ACCEPTED" | "TEST" | "PROD" -- derived, never a stored flag. */
+  stage: string;
+  next_stage: 'test' | 'prod' | null;
+  blockers: string[];
+  evidence: PromotionRecord[];
+}
+
+export interface ReleaseBoardTrain {
+  id: string;
+  name: string | null;
+  mus: ReleaseBoardMu[];
+}
+
+export interface ReleaseSiteRow {
+  site_id: string;
+  name: string;
+  released_mu_count: number;
+  total_mu_count: number;
+  parallel_run_start: string | null;
+  parallel_run_end: string | null;
+}
+
+export interface ReleaseBoard {
+  trains: ReleaseBoardTrain[];
+  sites: ReleaseSiteRow[];
+}
+
 export interface Api {
   estate(query: EstateQuery, identity: Identity): Promise<EstateResponse>;
   workbook(id: string, identity: Identity): Promise<WorkbookDetail>;
@@ -1664,6 +1720,9 @@ export interface Api {
   askG3Question(workbookId: string, question: string, identity: Identity): Promise<G3Question>;
   g3Questions(workbookId: string, identity: Identity): Promise<{ questions: G3Question[]; count: number }>;
   acceptanceSummary(identity: Identity): Promise<AcceptanceSummary>;
+  releaseBoard(identity: Identity): Promise<ReleaseBoard>;
+  promoteToTest(workbookId: string, identity: Identity): Promise<PromotionRecord>;
+  promoteToProd(workbookId: string, rationale: string, identity: Identity): Promise<PromotionRecord>;
 }
 
 export function createApi(base = ''): Api {
@@ -2069,6 +2128,19 @@ export function createApi(base = ''): Api {
     },
     async acceptanceSummary(identity) {
       return (await get('/v1/programmes:acceptance', identity)) as AcceptanceSummary;
+    },
+    async releaseBoard(identity) {
+      return (await get('/v1/release:board', identity)) as ReleaseBoard;
+    },
+    async promoteToTest(workbookId, identity) {
+      return (await post(`/v1/workbooks/${workbookId}:promote-to-test`, {}, identity)) as PromotionRecord;
+    },
+    async promoteToProd(workbookId, rationale, identity) {
+      return (await post(
+        `/v1/workbooks/${workbookId}:promote-to-prod`,
+        { rationale },
+        identity,
+      )) as PromotionRecord;
     },
   };
 }

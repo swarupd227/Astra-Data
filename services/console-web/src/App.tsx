@@ -27,6 +27,7 @@ import { PatternLibrary } from './patterns/PatternLibrary';
 import { ProgrammeBoard } from './programme/ProgrammeBoard';
 import { ParseQualityQueue } from './quality/ParseQualityQueue';
 import { RegressionMonitor } from './regression/RegressionMonitor';
+import { ReleaseBoard } from './release/ReleaseBoard';
 import { WaveBoard } from './trains/WaveBoard';
 
 /** The Estate surface's screens (§15.3.2), plus the Programme Board's own figure (S3.1.3),
@@ -56,7 +57,10 @@ import { WaveBoard } from './trains/WaveBoard';
  * named screen, "the Migration Engineer's work queue", not a tab on any of the above.
  * The G3 gate card (S9.1.1, opening F9.1/E9) is a third — §15.5's own named screen, one
  * workbook's own real acceptance decision at a time, the identical single-workbook
- * search shape the Parity Dashboard already set. */
+ * search shape the Parity Dashboard already set. The Release Board (S9.2.1, opening
+ * F9.2) is a fourth — §15.3.4's own named Delivery-surface screen, its own axis (pipeline
+ * stage and the parallel-run window) distinct from the Wave Board's §3.2 MU-state
+ * kanban. */
 export const SURFACES = [
   { key: 'estate', label: 'Estate Explorer' },
   { key: 'lineage', label: 'Lineage View' },
@@ -72,6 +76,7 @@ export const SURFACES = [
   { key: 'regression', label: 'Regression Monitor' },
   { key: 'exceptions', label: 'Exception Desk' },
   { key: 'g3', label: 'G3 Acceptance' },
+  { key: 'release', label: 'Release Board' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -212,6 +217,7 @@ export function App({
       {surface === 'regression' && <RegressionMonitor api={api} identity={identity} />}
       {surface === 'exceptions' && <ExceptionDesk api={api} identity={identity} />}
       {surface === 'g3' && <G3Card api={api} identity={identity} />}
+      {surface === 'release' && <ReleaseBoard api={api} identity={identity} />}
     </div>
   );
 }

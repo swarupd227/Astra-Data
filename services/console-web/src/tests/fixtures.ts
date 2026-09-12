@@ -48,12 +48,15 @@ import type {
   ProgrammeRecord,
   ProgrammesResponse,
   PromoteResult,
+  PromotionRecord,
   QueueResponse,
   ReclassifyResult,
   RegressionExportRecord,
   RegressionMonitorResponse,
   RegressionMonitorRow,
   RegressionScheduleRecord,
+  ReleaseBoard as ReleaseBoardData,
+  ReleaseBoardMu,
   RequestNewVersionResult,
   RuleCatalog,
   RuleCatalogEntry,
@@ -1166,6 +1169,57 @@ export function acceptanceSummary(overrides: Partial<AcceptanceSummary> = {}): A
   };
 }
 
+export function promotionRecord(overrides: Partial<PromotionRecord> = {}): PromotionRecord {
+  return {
+    id: 'promotion_1',
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    to_stage: 'test',
+    workspace: 'test',
+    state: 'SUCCEEDED',
+    steps: [
+      { name: 'report deploy', ok: true, detail: 'ok' },
+      { name: 'model deploy', ok: true, detail: 'deploy_1' },
+    ],
+    model_git_ref: 'refs/heads/main',
+    report_deploy_id: 'deploy_1',
+    approved_by: 'user:p.eng@artizent.example',
+    approver_role: 'platform_engineer',
+    rationale: null,
+    triggered_by: 'user:p.eng@artizent.example',
+    started_at: '2027-06-01T09:00:00.000Z',
+    finished_at: '2027-06-01T09:00:02.000Z',
+    ...overrides,
+  };
+}
+
+export function releaseBoardMu(overrides: Partial<ReleaseBoardMu> = {}): ReleaseBoardMu {
+  return {
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    name: 'Daily VaR',
+    sequence: 1,
+    stage: 'ACCEPTED',
+    next_stage: 'test',
+    blockers: [],
+    evidence: [],
+    ...overrides,
+  };
+}
+
+export function releaseBoard(overrides: Partial<ReleaseBoardData> = {}): ReleaseBoardData {
+  return {
+    trains: overrides.trains ?? [
+      { id: 'trn_one', name: 'Train 1', mus: [releaseBoardMu()] },
+    ],
+    sites: overrides.sites ?? [
+      {
+        site_id: 'site-rqa', name: 'RQA', released_mu_count: 0, total_mu_count: 1,
+        parallel_run_start: null, parallel_run_end: null,
+      },
+    ],
+    ...overrides,
+  };
+}
+
 export function g3Card(overrides: Partial<G3Card> = {}): G3Card {
   return {
     workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
@@ -1241,6 +1295,7 @@ export function fakeApi(
   initialRegressionMonitor: RegressionMonitorResponse = regressionMonitorResponse({ workbooks: [] }),
   initialExceptionCases: ExceptionCaseDetail[] = [],
   initialAcceptanceSummary: AcceptanceSummary = acceptanceSummary(),
+  initialReleaseBoard: ReleaseBoardData = releaseBoard(),
 ): FakeApi {
   const calls: FakeApi['calls'] = { estate: [], workbook: [], lineage: [], quality: 0 };
   const recorded: FakeApi['recorded'] = [];
@@ -1250,6 +1305,12 @@ export function fakeApi(
   const parityRunState: ParityRunResponse | null = initialParityRun;
   const regressionMonitorRows = initialRegressionMonitor.workbooks.map((row) => ({ ...row }));
   let regressionScheduleSeq = regressionMonitorRows.length;
+  let releaseBoardState: ReleaseBoardData = {
+    trains: initialReleaseBoard.trains.map((t) => ({
+      ...t, mus: t.mus.map((mu) => ({ ...mu, blockers: [...mu.blockers], evidence: [...mu.evidence] })),
+    })),
+    sites: initialReleaseBoard.sites.map((s) => ({ ...s })),
+  };
   const exceptionCaseRows = initialExceptionCases.map((c) => ({ ...c }));
   const findExceptionCase = (exceptionCaseId: string): ExceptionCaseDetail => {
     const found = exceptionCaseRows.find((c) => c.id === exceptionCaseId);
@@ -2315,6 +2376,49 @@ export function fakeApi(
     },
     async acceptanceSummary(_identity) {
       return initialAcceptanceSummary;
+    },
+    async releaseBoard(_identity) {
+      return releaseBoardState;
+    },
+    async promoteToTest(workbookId, identity) {
+      maybeFail();
+      recorded.push({ kind: 'PROMOTE_TO_TEST', id: workbookId, reason: '' });
+      const record = promotionRecord({
+        workbook_id: workbookId, to_stage: 'test', workspace: 'test',
+        approved_by: identity.principal, approver_role: 'platform_engineer', triggered_by: identity.principal,
+      });
+      releaseBoardState = {
+        ...releaseBoardState,
+        trains: releaseBoardState.trains.map((t) => ({
+          ...t,
+          mus: t.mus.map((mu) =>
+            mu.workbook_id === workbookId
+              ? { ...mu, stage: 'TEST', next_stage: 'prod', blockers: [], evidence: [...mu.evidence, record] }
+              : mu,
+          ),
+        })),
+      };
+      return record;
+    },
+    async promoteToProd(workbookId, rationale, identity) {
+      maybeFail();
+      recorded.push({ kind: 'PROMOTE_TO_PROD', id: workbookId, reason: rationale });
+      const record = promotionRecord({
+        workbook_id: workbookId, to_stage: 'prod', workspace: 'prod', rationale,
+        approved_by: identity.principal, approver_role: 'programme_manager', triggered_by: identity.principal,
+      });
+      releaseBoardState = {
+        ...releaseBoardState,
+        trains: releaseBoardState.trains.map((t) => ({
+          ...t,
+          mus: t.mus.map((mu) =>
+            mu.workbook_id === workbookId
+              ? { ...mu, stage: 'PROD', next_stage: null, blockers: [], evidence: [...mu.evidence, record] }
+              : mu,
+          ),
+        })),
+      };
+      return record;
     },
   };
 }

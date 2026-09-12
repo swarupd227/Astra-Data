@@ -3172,6 +3172,123 @@ alongside them; `ruff`/`tsc --noEmit`/`eslint` clean; `ontology_check.py`/
 See [ADR 0067](../../docs/adr/0067-mu-accepted-invoicing-the-commercial-ledger-a-real-write-not-a-download.md)
 for the full reasoning.
 
+## Promotion through the Fabric deployment pipeline (story S9.2.1, opens F9.2)
+
+§14.4 itself, verbatim: "The Steward promotes ACCEPTED MUs per train through the
+deployment pipeline, opens a parallel-running window per site (default 4 weeks,
+configurable)..." §7.2: "Deployment uses Fabric deployment pipelines; the Steward
+promotes a report and its model together..." §13.2's own MA-08/MA-09 rows: "Promote to
+test workspace | L3 | Post-G3 only" / "Promote to production | L2 | Explicit release
+approval by PM."
+
+**"The Steward" is an attributed human action here, not the automated `agent:steward`
+principal `regression.py` already declared.** Every prior Steward-shaped write in this
+codebase (`regression.py`'s scheduled re-runs, `build.py`'s post-G2-approval
+auto-build) is unattended -- promoting to test or to production is the opposite, a
+real platform engineer or programme manager performs it, the identical "the real
+human's own principal, not a borrowed identity" posture `g3_card.approve` already takes
+for the report owner.
+
+**Neither MA-08 nor MA-09 gets a new `GateDecision.gate` value.** Confirmed, again, by
+direct read of `ontology/nodes.py`: the four legal gates (`G1`-`G4`) are Charter/Model/
+Parity/Decommission -- there has never been a numbered release/promotion gate anywhere
+in the spec. `public.promotion_run` (a new platform table, the identical footing
+`build_run`/`report_deploy_run`/`commercial_ledger` already have) carries `approved_by`/
+`approver_role`/`rationale` instead, keyed `UNIQUE (graph, workbook_id, to_stage)` so a
+later attempt overwrites its own single current row for that stage.
+
+**"ACCEPTED" is checked against a real `GateDecision(gate="G3", decision="APPROVED")`,
+not the commercial ledger.** S9.1.2's own `commercial_ledger` row is a real, but
+*conditional*, side effect of G3 approval -- it can be honestly absent for an untiered
+workbook. The MU's own §3.2 state name, "ACCEPTED," is set by G3 approval itself --
+checking the ledger instead would wrongly block a genuinely accepted but untiered
+workbook from ever reaching test.
+
+**Promoting the report and the model are two separate, already-proven deploy calls --
+no new commit/deploy code.** The report half is `report_deploy.deploy_report(...,
+workspace=<stage>)` unchanged (S6.1.2's own workspace-generic contract). The model half
+copies `routes_modeller.promote`'s own exact pattern (S4.3.3): find the workbook's
+family (`foundry_routing._family_for_workbook`, cross-epic private reuse), read that
+family's latest *successful* build, and redeploy that build's own already-committed
+`git_ref` to the new workspace via `TargetAdapter.deploy` directly -- a pipeline
+promotes the *same, already-proved* artefact across stages, it does not rebuild from
+scratch at every stage. Neither `model_lifecycle.promote_family`'s own state flip nor
+`ModelFamily.state` is touched: that state machine is the *family's* own, and multiple
+workbooks can share one family.
+
+**`promotion_run` IS the release evidence bundle -- no second, duplicated snapshot via
+`ArtefactStore`.** Unlike a rendered G3 card (a *view*, needing its own frozen
+snapshot), a `promotion_run` row already is the queryable record of what happened
+(steps, workspace, git ref, approver) -- the identical "the row IS the evidence"
+footing `build_run`/`report_deploy_run` already have.
+
+**The parallel-run window is computed, never stored, on both axes the AC names.** Per
+MU: `promotion_run`'s own `finished_at` for a SUCCEEDED `to_stage="prod"` row plus
+`g3_card.DEFAULT_PARALLEL_WINDOW_WEEKS` (4, reused verbatim). Per site: the *earliest*
+prod promotion among that site's own workbooks -- a real, disclosed reading choice,
+since §14.4 never states whether a site's window is keyed to its first or its last
+released MU. No new `Site` property is added -- a second, derived copy risks
+disagreeing with `promotion_run` itself, the identical "never trust a stored counter
+over the live rows" posture `Pattern.failure_count` already established.
+
+**Blockers are real, computed facts, checked twice for two different reasons.**
+`promotion_blockers` is called once to *refuse* an actual promotion attempt
+(`promote_workbook` raises `InvalidRequestError` naming every blocker it finds), and
+again, read-only, to *show* the Release Board why a given MU cannot yet advance -- the
+identical fact, read the identical way.
+
+**Scope deliberately stops at promotion and the parallel-run window.** §14.4's fuller
+sentence -- "tracks decommission readiness... the G4 request opens automatically" --
+names real, separate future work (F9.2's own later story). The Release Board built
+here shows exactly the AC's own three nouns -- pipeline stage, blockers, evidence
+bundle -- plus the parallel-run window, not a full readiness checklist or G4.
+
+New `release.py`: `PromotionRecord`, `PromotionStep`, `PromotionStore`/
+`PostgresPromotionStore`, `promotion_blockers`, `promote_workbook`, `release_board`,
+`ReleaseService`. `events.py`: `EventType.MU_PROMOTED` (`estate.mu.promoted`), a notice
+on the identical footing `MU_ACCEPTED`/`SOURCE_DRIFT`/`PATTERN_RETIRED` already have.
+New migration `v0034_promotion_run.py` (`public.promotion_run`, additive Postgres, no
+ontology change). New routes: `GET /v1/release:board`, `GET
+/v1/workbooks/{id}:promotion-blockers`, `POST /v1/workbooks/{id}:promote-to-test`
+(`PlatformEngineerDep`, MA-08), `POST /v1/workbooks/{id}:promote-to-prod`
+(`ProgrammeManagerDep`, MA-09, required rationale). `config.py`: new
+`target_workspace_test` -- this platform's first real three-stage (dev/test/prod)
+pipeline configuration. New console-web top-level surface, `ReleaseBoard.tsx` --
+per-train MU tables with a real pipeline-stage pill, blocker count and evidence count,
+a role-gated Promote action per row, and a per-site parallel-run window panel;
+promoting to prod reuses the shared `ReasonDialog`.
+
+Verified: 10 new pure unit tests (`_current_stage`, `_window_end`, both result
+dataclasses' round-trips); 14 new integration tests against real PostgreSQL + Apache
+AGE and a real local Git repository (MA-08 promoting a real accepted workbook and
+refusing an unapproved/uncomposed/unbuilt one, overwriting its own single current row
+on a second promotion; MA-09 promoting a tested workbook with a real rationale and
+refusing one that skipped test or gave a blank rationale; `promotion_blockers` listing
+every real reason and honestly empty once every precondition is real; the Release
+Board grouping real trains with real pipeline stages, real blockers for a
+not-yet-accepted MU, a real per-site window, and an honest nothing-released state); 12
+new console tests (real pipeline stages and blocker counts, the per-site window panel,
+an honest empty state, a read failure, both promotion actions gated to their own role
+with a real API refusal surfaced, a disabled action while a real blocker remains); the
+full existing graph-svc suite (1,468 passed in the non-integration run; this story's
+own 14 integration tests confirmed passing) and console-web suite (283 passed, one
+unrelated, confirmed-flaky test that passes cleanly in isolation) both green alongside
+them; `ruff`/`mypy`/`tsc --noEmit`/`eslint` clean; no ontology drift.
+Live-smoke-tested against the real Docker stack, promoting a real workbook through
+test then production and confirming the Release Board's own panels update
+accordingly. **Two real bugs found live**: a pre-existing, out-of-scope one (two
+non-retired `IN_FAMILY` edges on one workbook, left by an earlier story's own
+re-clustering, causing `foundry_routing._family_for_workbook`'s unordered `LIMIT 1` to
+silently resolve to the stale family with no successful build -- worked around for
+verification, not fixed here, and flagged as a follow-up); and one in this story's own
+new code, fixed at the source -- `ReleaseBoard.tsx` inherited ADR 0066's own multi-pane
+CSS bug (`.workspace`'s three-column grid with no override), fixed by adding
+`.release-board` to `styles.css`'s existing single-column override list, the identical
+precedent every earlier affected screen's own fix already set.
+
+See [ADR 0068](../../docs/adr/0068-promotion-through-the-fabric-pipeline-a-new-table-not-a-new-gate.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

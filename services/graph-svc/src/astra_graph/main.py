@@ -46,6 +46,7 @@ from .api import (
     quality_router,
     redesign_router,
     regression_router,
+    release_router,
     router,
     rules_router,
     schedules_router,
@@ -112,6 +113,7 @@ from .regression import (
     RegressionScheduler,
     RegressionService,
 )
+from .release import PostgresPromotionStore, ReleaseService
 from .report_deploy import PostgresReportDeployStore
 from .retention import PostgresProgrammeStore
 from .rules import RulesEngine
@@ -260,6 +262,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.target_adapter = build_target_adapter(config)
     app.state.target_workspace = config.target_workspace
     app.state.target_workspace_published = config.target_workspace_published
+    app.state.target_workspace_test = config.target_workspace_test
     # Story S5.1.1: the Transpiler's own first piece, classification — reads Appendix B.1's
     # families straight off the AST the Tableau grammar already stamps, no new store.
     app.state.classifier = ClassificationEngine(
@@ -300,6 +303,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Story S6.1.2: commit and deploy a composed report through the same target adapter
     # `build_family` already uses — reused verbatim, no second commit/deploy mechanism.
     app.state.report_deploy_store = PostgresReportDeployStore(pool, graph_name=config.graph_name)
+    # Story S9.2.1, opening F9.2: promotion through the Fabric deployment pipeline
+    # (test, then production) -- reuses `report_deploy_store`/`build_store`/
+    # `target_adapter` verbatim, no second commit/deploy mechanism. See release.py's
+    # own docstring for why this is a new table, not a new GateDecision gate.
+    app.state.promotion_store = PostgresPromotionStore(pool, graph_name=config.graph_name)
+    app.state.release = ReleaseService(
+        pool, graph_name=config.graph_name, writer=writer, target_adapter=app.state.target_adapter,
+        report_deploy_store=app.state.report_deploy_store, build_store=app.state.build_store,
+        promotion_store=app.state.promotion_store, workspace_test=app.state.target_workspace_test,
+        workspace_prod=app.state.target_workspace_published,
+    )
     # Story S7.1.1, opening E7: the Tolerance Charter. A fresh graph builds against the
     # in-memory default (§4.4's own worked example, version 0) until a parity engineer
     # saves one of their own — the identical posture `visual_mapping_store` already has.
@@ -493,6 +507,7 @@ def create_app() -> FastAPI:
     app.include_router(verdicts_router)
     app.include_router(visual_parity_router)
     app.include_router(regression_router)
+    app.include_router(release_router)
     app.include_router(failure_classification_router)
     app.include_router(mender_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])

@@ -61,6 +61,15 @@ class Settings:
     `target_workspace` already has — real dev/test/prod pipeline configuration is E9/E12's.
     """
 
+    target_workspace_test: str = "test"
+    """The real, third pipeline stage story S9.2.1 adds — until now this platform only
+    ever configured two workspace names (`target_workspace`/`target_workspace_published`),
+    confirmed by direct read to be the honest floor `target_workspace_published`'s own
+    docstring already promised "real dev/test/prod pipeline configuration is E9/E12's" to
+    build. `release.py`'s own `promote_workbook(..., to_stage="test")` deploys here —
+    MA-08's own "post-G3 only" test-stage promotion, before MA-09's separate, explicitly
+    PM-approved promotion to `target_workspace_published`."""
+
     anthropic_model: str = "claude-sonnet-5"
     """The Model Gateway's own real Anthropic provider (story S5.3.2, §5.5): the
     reasoning-tier model `AnthropicModelCaller` calls, matching §9.4's own
@@ -126,6 +135,7 @@ def load_settings() -> Settings:
         target_git_repo_path=_env("ASTRA_TARGET_GIT_REPO_PATH", "/tmp/astra-target-repo"),
         target_workspace=_env("ASTRA_TARGET_WORKSPACE", "dev"),
         target_workspace_published=_env("ASTRA_TARGET_WORKSPACE_PUBLISHED", "prod"),
+        target_workspace_test=_env("ASTRA_TARGET_WORKSPACE_TEST", "test"),
         anthropic_model=_env("ASTRA_ANTHROPIC_MODEL", "claude-sonnet-5"),
     )
 

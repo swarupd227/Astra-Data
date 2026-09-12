@@ -84,6 +84,18 @@ class EventType(str, Enum):
     identical reason `SOURCE_DRIFT`/`PATTERN_RETIRED` already are — ADR 0003's own
     disclosed, still-live inconsistency, not a fresh one invented here."""
 
+    MU_PROMOTED = "estate.mu.promoted"
+    """S9.2.1: `release.promote_workbook` moved a Migration Unit through a real Fabric
+    deployment-pipeline stage (test or prod) — Appendix C's own `astra.data.release.
+    promoted` (`mu_id, site_id, environment, pipeline_run`), named `estate.*` for the
+    identical, already-disclosed reason `MU_ACCEPTED`/`SOURCE_DRIFT`/`PATTERN_RETIRED`
+    all are. A notice, the same footing those three already have: the real mutation is
+    `public.promotion_run`'s own row (a plain Postgres platform table, not a graph
+    write) plus whichever `NODE_UPSERTED` events the report/model deploy steps
+    themselves already raise — this event exists so a release-tracking consumer does
+    not have to poll `promotion_run` to learn a promotion just happened, the identical
+    "carry the whole claim in one place" reasoning every prior notice already gives."""
+
     @property
     def element_kind(self) -> str:
         return "edge" if self in (EventType.EDGE_UPSERTED, EventType.EDGE_RETIRED) else "node"
@@ -96,7 +108,10 @@ class EventType(str, Enum):
         silently ignore anything it does not recognise — an unknown *mutation* type is
         still a defect in the record.
         """
-        return self not in (EventType.SOURCE_DRIFT, EventType.PATTERN_RETIRED, EventType.MU_ACCEPTED)
+        return self not in (
+            EventType.SOURCE_DRIFT, EventType.PATTERN_RETIRED, EventType.MU_ACCEPTED,
+            EventType.MU_PROMOTED,
+        )
 
 
 def source_for(graph_name: str) -> str:
@@ -332,6 +347,35 @@ def mu_accepted(
             "tier": tier,
             "unit_price": unit_price,
             "gate_decision_id": gate_decision_id,
+        },
+    )
+
+
+def mu_promoted(
+    *,
+    source: str,
+    workbook_id: str,
+    to_stage: str,
+    workspace: str,
+    promotion_run_id: str,
+    principal: Principal,
+) -> PlatformEvent:
+    """A Migration Unit was promoted through a real pipeline stage (S9.2.1). Not a graph
+    mutation: it is a statement about a promotion attempt this platform just recorded —
+    a release-tracking consumer watching for `mu.promoted` should not need to separately
+    resolve which stage/workspace a `promotion_run` row landed in."""
+    return PlatformEvent(
+        type=EventType.MU_PROMOTED,
+        source=source,
+        subject=workbook_id,
+        label="Workbook",
+        principal=principal.value,
+        run_id=principal.run_id,
+        data={
+            "workbook_id": workbook_id,
+            "to_stage": to_stage,
+            "workspace": workspace,
+            "promotion_run_id": promotion_run_id,
         },
     )
 
