@@ -42,11 +42,18 @@
  * read as "closed without ever needing a human Exception Desk decision" — no failure is
  * ever resolved without a real `ExceptionCase` existing (S8.1.1 opens one for every FAIL).
  * Read-only, no action of its own — see `exception_ageing.py`'s own docstring.
+ *
+ * A seventh pane, since S9.1.2 (closing F9.1), is accepted units by tier against plan —
+ * every real row in the commercial ledger a G3 Approve has ever written, grouped by
+ * §3.2's own tier, against `invoicing.PLANNED_BY_TIER`'s own disclosed planning split of
+ * the identical 150 this board's own first pane already plans against. Read-only, no
+ * action of its own — see `invoicing.py`'s own docstring.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 
 import type {
+  AcceptanceSummary,
   AwaitingG2Review,
   Api,
   ClassMix,
@@ -195,6 +202,7 @@ export function ProgrammeBoard({ api, identity }: Props): JSX.Element {
       <ClassMixPane api={api} identity={identity} />
       <RuleCoveragePane api={api} identity={identity} />
       <ExceptionAgeingPane api={api} identity={identity} />
+      <AcceptanceByTierPane api={api} identity={identity} />
     </div>
   );
 }
@@ -764,6 +772,103 @@ function ExceptionAgeingPane({ api, identity }: Props): JSX.Element {
             {rate.total_failures === 0
               ? 'No failure has ever opened an ExceptionCase yet.'
               : `${rate.mender_closed} of ${rate.total_failures} failures closed without an Exception Desk decision · target ${Math.round(rate.target * 100)}%`}
+          </span>
+        )}
+      </footer>
+    </section>
+  );
+}
+
+// ---------------------------------------------------- accepted units by tier (S9.1.2)
+
+function deltaPillClass(delta: number): string {
+  if (delta === 0) return 'pill ok';
+  return delta > 0 ? 'pill ok' : 'pill bad';
+}
+
+function formatCurrency(value: number): string {
+  return `$${Math.round(value).toLocaleString('en-US')}`;
+}
+
+function AcceptanceByTierPane({ api, identity }: Props): JSX.Element {
+  const [summary, setSummary] = useState<AcceptanceSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setLoading(true);
+    api
+      .acceptanceSummary(identity)
+      .then((response) => {
+        if (!live) return;
+        setSummary(response);
+        setError(null);
+      })
+      .catch((caught: unknown) => {
+        if (!live) return;
+        setError(caught instanceof ApiError ? caught.message : 'Accepted units could not be read.');
+      })
+      .finally(() => live && setLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [api, identity]);
+
+  return (
+    <section className="pane" aria-label="Accepted units by tier">
+      <header className="pane-header">
+        <h2>Accepted units by tier</h2>
+        {summary && (
+          <span className="pill idle mono">
+            {summary.total_accepted} of {summary.total_planned} planned
+          </span>
+        )}
+      </header>
+      <div className="pane-body">
+        {error ? (
+          <div className="banner">{error}</div>
+        ) : loading && !summary ? (
+          <p className="empty">Reading the commercial ledger…</p>
+        ) : !summary ? null : (
+          <table className="estate">
+            <caption className="visually-hidden">
+              Every real G3 acceptance, by tier, against the planned split and each tier's own unit price
+            </caption>
+            <thead>
+              <tr>
+                <th>Tier</th>
+                <th>Accepted</th>
+                <th>Planned</th>
+                <th>Delta</th>
+                <th>Unit price</th>
+                <th>Accepted value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.by_tier.map((row) => (
+                <tr key={row.tier}>
+                  <td>{row.tier}</td>
+                  <td className="numeric">{row.accepted}</td>
+                  <td className="numeric">{row.planned}</td>
+                  <td>
+                    <span className={deltaPillClass(row.delta)}>
+                      {row.delta > 0 ? `+${row.delta}` : row.delta}
+                    </span>
+                  </td>
+                  <td className="numeric">{formatCurrency(row.unit_price)}</td>
+                  <td className="numeric">{formatCurrency(row.accepted_value)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <footer className="statusbar">
+        {summary && (
+          <span className="muted">
+            §3.1: invoicing is triggered by an MU reaching ACCEPTED — total accepted value{' '}
+            {formatCurrency(summary.total_accepted_value)}
           </span>
         )}
       </footer>

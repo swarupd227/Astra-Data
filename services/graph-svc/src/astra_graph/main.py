@@ -97,6 +97,7 @@ from .harvest_setup import (
     build_migration_unit_registry,
     build_source_adapter,
 )
+from .invoicing import PostgresUnitPriceStore
 from .lineage import LineageReader
 from .logging_setup import configure_logging
 from .mender import MenderService, PostgresMenderConfigStore
@@ -370,12 +371,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         provenance_store=app.state.provenance_store, target_adapter=app.state.target_adapter,
         charter_store=app.state.tolerance_charter_store,
     )
+    # Story S9.1.2, closing F9.1/E9: the commercial ledger -- a real, current unit price
+    # per tier, defaulting to invoicing.DEFAULT_UNIT_PRICES until a Migration Architect
+    # sets one for real. See invoicing.py's own docstring.
+    app.state.unit_price_store = PostgresUnitPriceStore(pool, graph_name=config.graph_name)
     # Story S9.1.1, opening F9.1/E9: the G3 gate card -- a real read over the Parity
     # Dashboard, the latest ParityRun, live ExceptionCases/GateDecisions and a workbook's
-    # own ReportDefinition/Visuals, plus Approve/Request changes/Ask a question. See
-    # g3_card.py's own docstring.
+    # own ReportDefinition/Visuals, plus Approve/Request changes/Ask a question. Approve
+    # also triggers S9.1.2's own invoicing.record_acceptance -- see g3_card.py's own
+    # docstring.
     app.state.g3_card = G3CardService(
         pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
+        scope_store=app.state.scope_store, unit_price_store=app.state.unit_price_store,
     )
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(

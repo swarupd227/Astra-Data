@@ -152,8 +152,24 @@ def test_adaptive_card_shows_sampled_when_the_run_was_sampled() -> None:
 
 
 def test_g3_decision_result_as_dict_round_trips() -> None:
-    result = G3DecisionResult(workbook_id="wb_1", gate_decision_id="gd_1", decision="APPROVED")
-    assert result.as_dict() == {"workbook_id": "wb_1", "gate_decision_id": "gd_1", "decision": "APPROVED"}
+    result = G3DecisionResult(
+        workbook_id="wb_1", gate_decision_id="gd_1", decision="APPROVED",
+        invoiced=True, tier="COMPLEX", unit_price=28_000.0,
+    )
+    assert result.as_dict() == {
+        "workbook_id": "wb_1", "gate_decision_id": "gd_1", "decision": "APPROVED",
+        "invoiced": True, "tier": "COMPLEX", "unit_price": 28_000.0,
+    }
+
+
+def test_g3_decision_result_defaults_to_not_invoiced() -> None:
+    """Request changes/Ask a question never invoice -- `G3DecisionResult`'s own default
+    construction (no invoicing fields passed) is what those two decisions still use."""
+    result = G3DecisionResult(workbook_id="wb_1", gate_decision_id="gd_1", decision="CHANGES_REQUESTED")
+    assert result.as_dict() == {
+        "workbook_id": "wb_1", "gate_decision_id": "gd_1", "decision": "CHANGES_REQUESTED",
+        "invoiced": False, "tier": None, "unit_price": None,
+    }
 
 
 def test_g3_question_as_dict_round_trips() -> None:

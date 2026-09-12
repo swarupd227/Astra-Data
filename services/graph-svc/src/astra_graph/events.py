@@ -71,6 +71,19 @@ class EventType(str, Enum):
     watch for, without needing to diff every Pattern upsert to notice a retirement among
     them."""
 
+    MU_ACCEPTED = "estate.mu.accepted"
+    """S9.1.2: a G3 approval (`g3_card.approve`) accepted a Migration Unit — §3.1's own
+    "invoicing under a fixed-price-per-report contract is triggered by an MU reaching
+    ACCEPTED." A notice, the same footing SOURCE_DRIFT/PATTERN_RETIRED already have: the
+    real mutation is the `GateDecision(gate="G3", decision="APPROVED")` node `g3_card.
+    approve` already writes (its own real NODE_UPSERTED event); this is the AC's own
+    literal "`mu.accepted` event... is emitted" — the one a billing-side consumer would
+    actually watch for, carrying the MU, tier and unit price directly rather than making
+    that consumer re-derive them from the `GateDecision` node and a separate tier lookup.
+    Named `estate.*`, not the spec's own `astra.data.*` Appendix C prefix, for the
+    identical reason `SOURCE_DRIFT`/`PATTERN_RETIRED` already are — ADR 0003's own
+    disclosed, still-live inconsistency, not a fresh one invented here."""
+
     @property
     def element_kind(self) -> str:
         return "edge" if self in (EventType.EDGE_UPSERTED, EventType.EDGE_RETIRED) else "node"
@@ -83,7 +96,7 @@ class EventType(str, Enum):
         silently ignore anything it does not recognise — an unknown *mutation* type is
         still a defect in the record.
         """
-        return self not in (EventType.SOURCE_DRIFT, EventType.PATTERN_RETIRED)
+        return self not in (EventType.SOURCE_DRIFT, EventType.PATTERN_RETIRED, EventType.MU_ACCEPTED)
 
 
 def source_for(graph_name: str) -> str:
@@ -288,6 +301,37 @@ def pattern_retired(
             "pattern_id": pattern_id,
             "reason": reason,
             "requeued_measure_ids": list(requeued_measure_ids),
+        },
+    )
+
+
+def mu_accepted(
+    *,
+    source: str,
+    workbook_id: str,
+    tier: str,
+    unit_price: float,
+    gate_decision_id: str,
+    principal: Principal,
+) -> PlatformEvent:
+    """A G3 approval accepted this Migration Unit (S9.1.2). Not a graph mutation: it is a
+    statement about a decision this platform just made, the same "carry the whole claim
+    in one place" reasoning `pattern_retired`/`source_drift` already give — a billing-side
+    consumer watching for `mu.accepted` should not need to separately resolve the
+    workbook's own tier or look up a price schedule to know what was actually accepted.
+    """
+    return PlatformEvent(
+        type=EventType.MU_ACCEPTED,
+        source=source,
+        subject=workbook_id,
+        label="Workbook",
+        principal=principal.value,
+        run_id=principal.run_id,
+        data={
+            "workbook_id": workbook_id,
+            "tier": tier,
+            "unit_price": unit_price,
+            "gate_decision_id": gate_decision_id,
         },
     )
 

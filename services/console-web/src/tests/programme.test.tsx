@@ -13,6 +13,7 @@ import { App, surfaceFromPath } from '../App';
 import { ApiError, type Identity } from '../lib/api';
 import { ProgrammeBoard } from '../programme/ProgrammeBoard';
 import {
+  acceptanceSummary,
   awaitingG2Response,
   awaitingG2Review,
   classMix,
@@ -428,6 +429,101 @@ describe('exception ageing (S8.3.2)', () => {
   it('surfaces a read failure', async () => {
     const api = fakeApi();
     api.exceptionAgeing = async () => {
+      throw new ApiError(403, 'forbidden', 'this endpoint is available to Artizent roles');
+    };
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    expect(await screen.findByText(/this endpoint is available to Artizent roles/)).toBeInTheDocument();
+  });
+});
+
+describe('accepted units by tier (S9.1.2)', () => {
+  it('shows real accepted units by tier against plan, with each tier\'s own unit price', async () => {
+    const api = fakeApi();
+    api.acceptanceSummary = async () =>
+      acceptanceSummary({
+        by_tier: [
+          { tier: 'SIMPLE', accepted: 70, planned: 68, delta: 2, unit_price: 8_000, accepted_value: 560_000 },
+          { tier: 'MODERATE', accepted: 12, planned: 50, delta: -38, unit_price: 15_000, accepted_value: 180_000 },
+          { tier: 'COMPLEX', accepted: 0, planned: 20, delta: -20, unit_price: 28_000, accepted_value: 0 },
+          { tier: 'REDESIGN', accepted: 0, planned: 10, delta: -10, unit_price: 40_000, accepted_value: 0 },
+        ],
+        total_accepted: 82,
+        total_planned: 148,
+        total_accepted_value: 740_000,
+      });
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    const pane = await screen.findByRole('region', { name: 'Accepted units by tier' });
+    expect(within(pane).getByText('82 of 148 planned')).toBeInTheDocument();
+    const simpleRow = within(pane).getByText('SIMPLE').closest('tr')!;
+    expect(within(simpleRow).getByText('70')).toBeInTheDocument();
+    expect(within(simpleRow).getByText('68')).toBeInTheDocument();
+    expect(within(simpleRow).getByText('+2')).toBeInTheDocument();
+    expect(within(simpleRow).getByText('$8,000')).toBeInTheDocument();
+    expect(within(simpleRow).getByText('$560,000')).toBeInTheDocument();
+    expect(within(pane).getByText(/total accepted value \$740,000/)).toBeInTheDocument();
+  });
+
+  it('is honest about a tier with nothing accepted yet, rather than hiding the row', async () => {
+    const api = fakeApi();
+    api.acceptanceSummary = async () =>
+      acceptanceSummary({
+        by_tier: [
+          { tier: 'SIMPLE', accepted: 0, planned: 70, delta: -70, unit_price: 8_000, accepted_value: 0 },
+          { tier: 'MODERATE', accepted: 0, planned: 50, delta: -50, unit_price: 15_000, accepted_value: 0 },
+          { tier: 'COMPLEX', accepted: 0, planned: 20, delta: -20, unit_price: 28_000, accepted_value: 0 },
+          { tier: 'REDESIGN', accepted: 0, planned: 10, delta: -10, unit_price: 40_000, accepted_value: 0 },
+        ],
+        total_accepted: 0,
+        total_planned: 150,
+        total_accepted_value: 0,
+      });
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    const pane = await screen.findByRole('region', { name: 'Accepted units by tier' });
+    expect(within(pane).getByText('0 of 150 planned')).toBeInTheDocument();
+    const simpleRow = within(pane).getByText('SIMPLE').closest('tr')!;
+    expect(within(simpleRow).getByText('-70')).toBeInTheDocument();
+  });
+
+  it('shows a bad pill on a tier behind plan', async () => {
+    const api = fakeApi();
+    api.acceptanceSummary = async () =>
+      acceptanceSummary({
+        by_tier: [
+          { tier: 'SIMPLE', accepted: 3, planned: 70, delta: -67, unit_price: 8_000, accepted_value: 24_000 },
+        ],
+        total_accepted: 3,
+        total_planned: 70,
+        total_accepted_value: 24_000,
+      });
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    const pane = await screen.findByRole('region', { name: 'Accepted units by tier' });
+    expect(within(pane).getByText('-67')).toHaveClass('pill', 'bad');
+  });
+
+  it('shows a good pill on a tier at or ahead of plan', async () => {
+    const api = fakeApi();
+    api.acceptanceSummary = async () =>
+      acceptanceSummary({
+        by_tier: [
+          { tier: 'SIMPLE', accepted: 75, planned: 70, delta: 5, unit_price: 8_000, accepted_value: 600_000 },
+        ],
+        total_accepted: 75,
+        total_planned: 70,
+        total_accepted_value: 600_000,
+      });
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    const pane = await screen.findByRole('region', { name: 'Accepted units by tier' });
+    expect(within(pane).getByText('+5')).toHaveClass('pill', 'ok');
+  });
+
+  it('surfaces a read failure', async () => {
+    const api = fakeApi();
+    api.acceptanceSummary = async () => {
       throw new ApiError(403, 'forbidden', 'this endpoint is available to Artizent roles');
     };
     render(<ProgrammeBoard api={api} identity={PM} />);

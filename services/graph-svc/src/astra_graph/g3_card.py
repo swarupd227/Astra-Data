@@ -92,6 +92,13 @@ story can widen it the identical additive way nothing has ever needed to widen
 screen that exists.** No dedicated "view the deployed report" screen exists anywhere in
 this codebase (confirmed); the identical "no MU page exists, point at the closest real
 thing" posture ADR 0048 already took for a redesign case's own MU link.
+
+**Story S9.1.2, closing F9.1: `approve` now also triggers `invoicing.record_acceptance`
+-- "G3 acceptance... triggers the invoicing event under the fixed-price contract."**
+Only `approve` calls it; `request_changes`/`ask_question` never do, since only a real
+APPROVED decision is a real acceptance. See `invoicing.py`'s own docstring for the full
+reasoning (tier resolution, unit prices, the commercial ledger, the double-invoice
+guard).
 """
 
 from __future__ import annotations
@@ -108,9 +115,11 @@ from .errors import ElementNotFoundError, InvalidRequestError
 from .foundry_routing import _family_for_workbook  # cross-epic private helper; see module docstring
 from .graph.queries import NODE_INDEX_TABLE
 from .ids import new_ulid
+from .invoicing import UnitPriceStore, record_acceptance
 from .lineage import hydrate
 from .mender import _resolve_calculated_field  # cross-epic private helper; see module docstring
 from .principal import Principal
+from .scope import ScopeStore
 from .writes import GraphWriter, NodeWrite
 
 GATE = "G3"
@@ -453,15 +462,28 @@ class G3DecisionResult:
     workbook_id: str
     gate_decision_id: str
     decision: str
+    invoiced: bool = False
+    tier: str | None = None
+    unit_price: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {"workbook_id": self.workbook_id, "gate_decision_id": self.gate_decision_id, "decision": self.decision}
+        return {
+            "workbook_id": self.workbook_id, "gate_decision_id": self.gate_decision_id,
+            "decision": self.decision, "invoiced": self.invoiced, "tier": self.tier,
+            "unit_price": self.unit_price,
+        }
 
 
 async def approve(
-    pool: asyncpg.Pool, graph_name: str, writer: GraphWriter, artefact_store: ArtefactStore, *,
+    pool: asyncpg.Pool, graph_name: str, writer: GraphWriter, artefact_store: ArtefactStore,
+    scope_store: ScopeStore, unit_price_store: UnitPriceStore, *,
     workbook_id: str, rationale: str, countersigned_by: str, principal: Principal,
 ) -> G3DecisionResult:
+    """"G3 acceptance" is the AC's own literal trigger for `invoicing.record_acceptance`
+    (S9.1.2) -- called only from here, only on a real APPROVED decision, never on
+    Request changes or Ask a question. See that module's own docstring for why a
+    workbook with no real tier is honestly not invoiced, and why re-approving an
+    already-accepted workbook never double-invoices it."""
     cleaned_rationale = _clean_rationale(rationale)
     cleaned_countersigner = countersigned_by.strip()
     if not cleaned_countersigner:
@@ -474,7 +496,16 @@ async def approve(
         approver_role="client_report_owner", countersigner=cleaned_countersigner,
         countersigner_role="migration_engineer", evidence_ref=snapshot_id, principal=principal,
     )
-    return G3DecisionResult(workbook_id=workbook_id, gate_decision_id=decision_id, decision="APPROVED")
+    ledger_entry = await record_acceptance(
+        pool, graph_name, writer, scope_store, unit_price_store,
+        workbook_id=workbook_id, gate_decision_id=decision_id, principal=principal,
+    )
+    return G3DecisionResult(
+        workbook_id=workbook_id, gate_decision_id=decision_id, decision="APPROVED",
+        invoiced=ledger_entry is not None,
+        tier=ledger_entry.tier if ledger_entry else None,
+        unit_price=ledger_entry.unit_price if ledger_entry else None,
+    )
 
 
 async def request_changes(
@@ -542,23 +573,28 @@ async def list_questions(pool: asyncpg.Pool, graph_name: str, *, workbook_id: st
 
 
 class G3CardService:
-    """Binds the module-level functions to one pool/graph/writer/artefact store -- the
-    identical "pre-bound object on app.state" shape `ExceptionDeskService` already takes."""
+    """Binds the module-level functions to one pool/graph/writer/artefact store/scope
+    store/unit price store -- the identical "pre-bound object on app.state" shape
+    `ExceptionDeskService` already takes. `scope_store`/`unit_price_store` are S9.1.2's
+    own addition, needed only by `approve` -- see `invoicing.py`'s own docstring."""
 
     def __init__(
         self, pool: asyncpg.Pool, *, graph_name: str, writer: GraphWriter, artefact_store: ArtefactStore,
+        scope_store: ScopeStore, unit_price_store: UnitPriceStore,
     ) -> None:
         self._pool = pool
         self._graph = graph_name
         self._writer = writer
         self._artefact_store = artefact_store
+        self._scope_store = scope_store
+        self._unit_price_store = unit_price_store
 
     async def card(self, workbook_id: str) -> dict[str, Any]:
         return await g3_card(self._pool, self._graph, workbook_id=workbook_id)
 
     async def approve(self, workbook_id: str, *, rationale: str, countersigned_by: str, principal: Principal) -> G3DecisionResult:
         return await approve(
-            self._pool, self._graph, self._writer, self._artefact_store,
+            self._pool, self._graph, self._writer, self._artefact_store, self._scope_store, self._unit_price_store,
             workbook_id=workbook_id, rationale=rationale, countersigned_by=countersigned_by, principal=principal,
         )
 

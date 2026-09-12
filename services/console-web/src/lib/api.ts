@@ -1438,6 +1438,12 @@ export interface G3DecisionResult {
   workbook_id: string;
   gate_decision_id: string;
   decision: string;
+  /** S9.1.2: whether Approve also raised a real mu.accepted invoice line -- false on
+   * Request changes/Ask a question (never invoiced) and on an Approve for a workbook
+   * with no real tier set yet (honestly skipped, not invoiced with a guessed tier). */
+  invoiced: boolean;
+  tier: string | null;
+  unit_price: number | null;
 }
 
 export interface G3Question {
@@ -1446,6 +1452,24 @@ export interface G3Question {
   question: string;
   asked_by: string;
   asked_at: string;
+}
+
+// ---------------------------------------------------- S9.1.2: accepted units by tier
+
+export interface AcceptanceTierRow {
+  tier: string;
+  accepted: number;
+  planned: number;
+  delta: number;
+  unit_price: number;
+  accepted_value: number;
+}
+
+export interface AcceptanceSummary {
+  by_tier: AcceptanceTierRow[];
+  total_accepted: number;
+  total_planned: number;
+  total_accepted_value: number;
 }
 
 export interface Api {
@@ -1639,6 +1663,7 @@ export interface Api {
   requestChangesG3(workbookId: string, rationale: string, identity: Identity): Promise<G3DecisionResult>;
   askG3Question(workbookId: string, question: string, identity: Identity): Promise<G3Question>;
   g3Questions(workbookId: string, identity: Identity): Promise<{ questions: G3Question[]; count: number }>;
+  acceptanceSummary(identity: Identity): Promise<AcceptanceSummary>;
 }
 
 export function createApi(base = ''): Api {
@@ -2041,6 +2066,9 @@ export function createApi(base = ''): Api {
         questions: G3Question[];
         count: number;
       };
+    },
+    async acceptanceSummary(identity) {
+      return (await get('/v1/programmes:acceptance', identity)) as AcceptanceSummary;
     },
   };
 }

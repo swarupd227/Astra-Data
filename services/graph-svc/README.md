@@ -3061,6 +3061,117 @@ passed, up from 255) both green alongside them; `ruff`/`mypy` clean;
 See [ADR 0066](../../docs/adr/0066-the-g3-gate-card-workbook-id-as-subject-a-real-adaptive-card-export.md)
 for the full reasoning.
 
+## mu.accepted invoicing and the commercial ledger (story S9.1.2, closes F9.1, continues E9)
+
+§3.1 itself, verbatim: "Invoicing under a fixed-price-per-report contract is triggered
+by an MU reaching ACCEPTED." §3.4's own worked example: "...approves G3. State ->
+ACCEPTED; invoice line raised." Neither a real unit price nor a real per-tier plan is
+ever stated anywhere in the spec -- confirmed by direct grep of the whole document.
+
+**`EventType.MU_ACCEPTED` is a new notice, the identical footing SOURCE_DRIFT/
+PATTERN_RETIRED already have.** `mu_accepted` mirrors `pattern_retired`'s own factory
+shape exactly (a flat `data` dict, keyword-only args). The real mutation is
+`g3_card.approve`'s own `GateDecision(gate="G3", decision="APPROVED")` write, already in
+place since S9.1.1 -- `mu.accepted` exists so a billing-side consumer never has to
+re-derive the MU/tier/price from that node and a separate lookup. The workbook id is the
+event's own subject, the identical MU proxy every G3-adjacent story has used since
+S8.1.1.
+
+**Tier resolution reuses `ScopeStore.states()` verbatim -- there is no single-workbook
+tier getter anywhere, and this story does not add one.** Confirmed by direct read of
+`scope.py`: the only tier read path is the bulk `states()` map every other tier consumer
+already uses. A workbook that has never been re-tiered honestly has no tier
+(`ScopeState.tier is None`) -- `record_acceptance` returns `None` rather than guessing
+one, the identical "a real check, an honest skip" posture this codebase takes
+throughout. Approving G3 is never blocked by a missing tier -- S9.1.1's own `approve()`
+never checked tier, and retrofitting a hard precondition here would be scope beyond this
+story's own AC.
+
+**`DEFAULT_UNIT_PRICES`/`PLANNED_BY_TIER` are real, invented, disclosed planning
+assumptions, the identical footing `retention.PLANNED_FAMILY_COUNT` already has.**
+`DEFAULT_UNIT_PRICES` increases with tier complexity (8,000 / 15,000 / 28,000 / 40,000).
+`PLANNED_BY_TIER` (70 / 50 / 20 / 10) is deliberately built to sum to the identical 150,
+enforced by a real unit test importing `retention.PLANNED_FAMILY_COUNT`, so the two
+planning figures can never silently disagree.
+
+**Unit prices are a single current-value row per tier, not versioned like
+`mender_config` -- a deliberate simplification.** `mender_config` is append-only,
+versioned -- but has no console UI and no HTTP route; its own defaults are what every
+deployment actually uses, confirmed by direct read. `unit_price_schedule` is simpler:
+`PRIMARY KEY (graph, tier)`, plain `INSERT ... ON CONFLICT DO UPDATE`. A missing row for
+a tier falls back to `DEFAULT_UNIT_PRICES[tier]` rather than failing.
+
+**"Exported to the programme's commercial ledger" is the real write to
+`commercial_ledger` itself.** No "ledger" table existed anywhere before this story --
+confirmed by search; the only prior reference is an explicit deferral comment in
+`v0012_clustering_record.py` ("persisted run ledger... until a real need arises").
+Writing the row *is* the export: the fact leaves the append-only `estate_event` outbox
+stream and lands in a table shaped for a commercial reader (workbook, tier, price,
+who/when) -- the identical "a second, business-shaped read of a first-class platform
+fact" reasoning `parity_dashboard.py` already gives for reading `Verdict`s a second way.
+
+**`UNIQUE (graph, workbook_id)` plus `ON CONFLICT ... DO NOTHING` makes re-approving an
+already-accepted workbook a real no-op, not a double-billed line.** `record_acceptance`
+inserts and only emits `mu_accepted` when a row is actually, newly written -- proven
+directly by a test approving the same workbook twice, asserting the second approval is
+honestly not invoiced and `accepted_by_tier` still shows exactly one.
+
+`GET /v1/programmes:acceptance` lives directly in the existing `routes_provenance.py`,
+reusing `_estate_graph` -- no new service/app.state binding was needed purely for
+pool/graph_name access.
+
+**A real, pre-existing environment issue found along the way, not a code defect in this
+story.** `tests/conftest.py`'s long-standing `os.environ.setdefault("ASTRA_POSTGRES_
+PASSWORD", "test")` silently wins over the real local Docker password whenever a fresh
+shell has not already exported the correct value before `pytest` starts, since
+`setdefault` only fires when the variable is absent -- every real-Postgres integration
+test then skips with a misleading "PostgreSQL with Apache AGE not reachable" rather than
+surfacing the real `InvalidPasswordError` underneath. Not fixed in `conftest.py` itself
+(long-standing, shared by every integration test file in this codebase, out of this
+story's own scope) -- disclosed here since it cost real debugging time (including a
+false lead chasing Apache AGE relation-cache corruption in the Docker Postgres
+container's logs, which turned out to be a separate, unrelated symptom of the same
+underlying rejected-connection churn) and will recur for the next fresh shell that does
+not `export ASTRA_POSTGRES_PASSWORD=astra_local_dev_only` (or the real deployment's own
+value) before running `pytest`.
+
+New `invoicing.py`: `DEFAULT_UNIT_PRICES`, `PLANNED_BY_TIER`, `LedgerEntry`,
+`UnitPriceStore` (Protocol), `PostgresUnitPriceStore`, `record_acceptance`,
+`accepted_by_tier`, `programme_acceptance_summary`. New migration
+`v0033_commercial_ledger.py`: `public.unit_price_schedule`, `public.commercial_ledger`
+(both plain Postgres platform tables, not ontology nodes -- no ontology change, schema
+version stays at 36). `g3_card.py`'s `approve()` now also calls
+`invoicing.record_acceptance` after writing its own real `GateDecision`;
+`G3DecisionResult` widened with `invoiced`/`tier`/`unit_price` (default
+`False`/`None`/`None` -- `request_changes`/`ask_question` never invoice). New console
+Programme Board pane, `AcceptanceByTierPane`, the seventh, read-only -- accepted units by
+tier against `PLANNED_BY_TIER`, each tier's own current unit price, and total accepted
+value.
+
+Verified: 7 new pure unit tests (`invoicing.py`'s own real defaults/planning-sum
+cross-check/round-trips/notice classification) plus 2 new/updated `g3_card.py` unit
+tests for the widened `G3DecisionResult`; 12 new integration tests against real
+PostgreSQL + Apache AGE (a real ledger row and a real `mu.accepted` event, an honest
+`None` with no real tier, never double-invoicing, a real updated price, the price
+store's own defaults/persistence/tier validation, `accepted_by_tier` grouping, the
+programme summary combining accepted/planned/price, the honestly-empty summary, the new
+route's own role gate) plus 3 new integration tests in `test_integration_g3_card.py`
+(`approve` really invoices a tiered workbook, honestly skips an untiered one, never
+double-invoices on re-approval) -- all 37 of this story's own integration tests (25 +
+12) verified passing cleanly in an isolated re-run; 5 new console tests (real rows
+across all six columns, the honest zero-accepted state, a bad delta pill behind plan, a
+good delta pill at/ahead of plan, a read failure); the full existing graph-svc suite
+(1,458 passed in the non-integration run; 669 passed plus 2 already-known, unrelated
+`test_integration_g2_reminders.py` date-boundary skips in the integration run, with one
+additional teardown-only timeout on that single 46-minute continuous run confirmed a
+transient flake under sustained load, not a regression, since this story's own files
+re-ran clean on their own) and console-web suite (273 passed, up from 268) both green
+alongside them; `ruff`/`tsc --noEmit`/`eslint` clean; `ontology_check.py`/
+`migration_check.py --write` confirm no ontology drift.
+
+See [ADR 0067](../../docs/adr/0067-mu-accepted-invoicing-the-commercial-ledger-a-real-write-not-a-download.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

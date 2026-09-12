@@ -7,6 +7,7 @@
  */
 
 import type {
+  AcceptanceSummary,
   Api,
   AppliedRule,
   ApplyRulesResult,
@@ -1149,6 +1150,22 @@ export function exceptionAgeingResponse(
   };
 }
 
+export function acceptanceSummary(overrides: Partial<AcceptanceSummary> = {}): AcceptanceSummary {
+  const by_tier = overrides.by_tier ?? [
+    { tier: 'SIMPLE', accepted: 3, planned: 70, delta: -67, unit_price: 8_000, accepted_value: 24_000 },
+    { tier: 'MODERATE', accepted: 1, planned: 50, delta: -49, unit_price: 15_000, accepted_value: 15_000 },
+    { tier: 'COMPLEX', accepted: 0, planned: 20, delta: -20, unit_price: 28_000, accepted_value: 0 },
+    { tier: 'REDESIGN', accepted: 0, planned: 10, delta: -10, unit_price: 40_000, accepted_value: 0 },
+  ];
+  return {
+    by_tier,
+    total_accepted: by_tier.reduce((sum, row) => sum + row.accepted, 0),
+    total_planned: by_tier.reduce((sum, row) => sum + row.planned, 0),
+    total_accepted_value: by_tier.reduce((sum, row) => sum + row.accepted_value, 0),
+    ...overrides,
+  };
+}
+
 export function g3Card(overrides: Partial<G3Card> = {}): G3Card {
   return {
     workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
@@ -1223,6 +1240,7 @@ export function fakeApi(
   initialParityRun: ParityRunResponse | null = parityRunResponse(),
   initialRegressionMonitor: RegressionMonitorResponse = regressionMonitorResponse({ workbooks: [] }),
   initialExceptionCases: ExceptionCaseDetail[] = [],
+  initialAcceptanceSummary: AcceptanceSummary = acceptanceSummary(),
 ): FakeApi {
   const calls: FakeApi['calls'] = { estate: [], workbook: [], lineage: [], quality: 0 };
   const recorded: FakeApi['recorded'] = [];
@@ -2263,7 +2281,10 @@ export function fakeApi(
           timestamp: '2027-06-01T09:00:00.000Z', rationale,
         },
       });
-      return { workbook_id: workbookId, gate_decision_id: 'gd_g3_1', decision: 'APPROVED' };
+      return {
+        workbook_id: workbookId, gate_decision_id: 'gd_g3_1', decision: 'APPROVED',
+        invoiced: false, tier: null, unit_price: null,
+      };
     },
     async requestChangesG3(workbookId, rationale, identity) {
       maybeFail();
@@ -2276,7 +2297,10 @@ export function fakeApi(
           timestamp: '2027-06-01T09:00:00.000Z', rationale,
         },
       });
-      return { workbook_id: workbookId, gate_decision_id: 'gd_g3_2', decision: 'CHANGES_REQUESTED' };
+      return {
+        workbook_id: workbookId, gate_decision_id: 'gd_g3_2', decision: 'CHANGES_REQUESTED',
+        invoiced: false, tier: null, unit_price: null,
+      };
     },
     async askG3Question(workbookId, question, identity) {
       maybeFail();
@@ -2288,6 +2312,9 @@ export function fakeApi(
     async g3Questions(workbookId, _identity) {
       const rows = g3QuestionRows.filter((q) => q.workbook_id === workbookId);
       return { questions: rows, count: rows.length };
+    },
+    async acceptanceSummary(_identity) {
+      return initialAcceptanceSummary;
     },
   };
 }

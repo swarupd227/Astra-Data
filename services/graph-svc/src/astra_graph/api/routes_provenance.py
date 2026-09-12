@@ -12,6 +12,11 @@ prove that a copy was stored; a re-materialisation proves the record.
 A failed verification is a **200 with a finding**, not an error status. An auditor's tool
 that returned 4xx for the interesting case would be one an auditor learns to distrust —
 and MISMATCH and UNVERIFIABLE are different findings, never conflated.
+
+`GET /v1/programmes:acceptance` (story S9.1.2, closing F9.1/E9) is the Programme Board's
+own "accepted units by tier against plan" tile -- gated `ArtizentDep`, the identical
+broad-read posture every other read-only Programme Board tile already has, reading
+`invoicing.py`'s own real commercial ledger and unit price schedule.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..cartographer import count_families
 from ..context import ContractName
 from ..errors import ElementNotFoundError, InvalidRequestError
+from ..invoicing import UnitPriceStore, programme_acceptance_summary
 from ..provenance import AgentMode, ContextVerifier, ProvenanceStore, new_record
 from ..retention import ProgrammeStore, prunable_before
 from .deps import ArtizentDep, PrincipalDep, ProgrammeManagerDep
@@ -126,6 +132,13 @@ def _estate_graph(request: Request) -> tuple[Any, str]:
     if engine is None:
         raise InvalidRequestError("clustering is not available on this deployment")
     return engine.pool, engine.graph_name
+
+
+def _unit_price_store(request: Request) -> UnitPriceStore:
+    store: UnitPriceStore | None = getattr(request.app.state, "unit_price_store", None)
+    if store is None:  # pragma: no cover - set in every wiring path
+        raise InvalidRequestError("the commercial ledger is not available on this deployment")
+    return store
 
 
 # ------------------------------------------------------------------- graph versions
@@ -387,6 +400,17 @@ async def confirm_family_count(
         result["family_count_delta"],
     )
     return result
+
+
+@router.get(
+    "/v1/programmes:acceptance",
+    tags=["provenance"],
+    summary="Accepted units by tier against plan -- the commercial ledger's own real read (§3.1, §13.1, story S9.1.2)",
+)
+async def programme_acceptance(request: Request, principal: PrincipalDep, roles: ArtizentDep) -> dict[str, Any]:
+    pool, graph_name = _estate_graph(request)
+    store = _unit_price_store(request)
+    return await programme_acceptance_summary(pool, graph_name, store)
 
 
 __all__ = ["router"]

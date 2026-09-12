@@ -36,10 +36,16 @@ from astra_graph.g3_card import G3CardService  # noqa: E402
 from astra_graph.graph import AgeGraphRepository, create_pool  # noqa: E402
 from astra_graph.graph.queries import accessor  # noqa: E402
 from astra_graph.ids import new_ulid  # noqa: E402
+from astra_graph.invoicing import (  # noqa: E402
+    DEFAULT_UNIT_PRICES,
+    PostgresUnitPriceStore,
+    accepted_by_tier,
+)
 from astra_graph.lineage import hydrate  # noqa: E402
 from astra_graph.migrations import run as run_migrations  # noqa: E402
 from astra_graph.ontology import EDGE_LABELS, NODE_LABELS  # noqa: E402
 from astra_graph.principal import Principal  # noqa: E402
+from astra_graph.scope import DecisionKind, PostgresScopeStore, new_decision  # noqa: E402
 from astra_graph.writes import EdgeWrite, GraphWriter, NodeWrite  # noqa: E402
 
 PRINCIPAL = Principal("agent:harvester", run_id="run-harvester")
@@ -120,7 +126,8 @@ def settings() -> Settings:
             await conn.execute("LOAD 'age'")
             for table in (
                 "public.estate_edge_index", "public.estate_element_index", "public.estate_event",
-                "public.artefacts", "public.provenance", "public.g3_question",
+                "public.artefacts", "public.provenance", "public.g3_question", "public.scope_decision",
+                "public.commercial_ledger", "public.unit_price_schedule",
             ):
                 await conn.execute(f"DELETE FROM {table} WHERE graph = $1", config.graph_name)
             await conn.execute("SELECT ag_catalog.drop_graph($1, true)", config.graph_name)
@@ -150,6 +157,8 @@ async def estate(settings: Settings):
         repository = AgeGraphRepository(pool, graph_name=settings.graph_name)
         writer = GraphWriter(repository)
         artefact_store = PostgresArtefactStore(pool, graph_name=settings.graph_name)
+        scope_store = PostgresScopeStore(pool, graph_name=settings.graph_name)
+        unit_price_store = PostgresUnitPriceStore(pool, graph_name=settings.graph_name)
 
         suffix = new_ulid()[10:18].lower()
         site = await _write(writer, "Site", luid=f"s-{suffix}", name=f"RQA {suffix}")
@@ -184,6 +193,7 @@ async def estate(settings: Settings):
 
         yield {
             "pool": pool, "settings": settings, "writer": writer, "artefact_store": artefact_store,
+            "scope_store": scope_store, "unit_price_store": unit_price_store,
             "site": site, "project": project, "workbook": book, "sheet": sheet, "datasource": datasource,
             "margin_calc": margin_calc, "measure": measure,
         }
@@ -194,7 +204,8 @@ async def estate(settings: Settings):
 def _service(estate: dict[str, Any]) -> G3CardService:
     return G3CardService(
         estate["pool"], graph_name=estate["settings"].graph_name, writer=estate["writer"],
-        artefact_store=estate["artefact_store"],
+        artefact_store=estate["artefact_store"], scope_store=estate["scope_store"],
+        unit_price_store=estate["unit_price_store"],
     )
 
 
@@ -415,6 +426,60 @@ async def test_approve_snapshot_records_the_waivers_the_owner_saw(estate) -> Non
     assert snapshot is not None
     snapshot_card = json.loads(snapshot)
     assert len(snapshot_card["proof"]["waivers"]) == 1
+
+
+async def test_approve_invoices_a_real_tiered_workbook(estate) -> None:
+    await estate["scope_store"].decide(
+        new_decision(
+            workbook_id=estate["workbook"], kind=DecisionKind.RE_TIER,
+            reason="Confirmed against the source workbook's own real complexity.",
+            decided_by=ENGINEER.value, to_value="COMPLEX",
+        )
+    )
+
+    result = await _service(estate).approve(
+        estate["workbook"], rationale="This report is accurate and ready for release.",
+        countersigned_by="A. Mehta", principal=REPORT_OWNER,
+    )
+
+    assert result.invoiced is True
+    assert result.tier == "COMPLEX"
+    assert result.unit_price == DEFAULT_UNIT_PRICES["COMPLEX"]
+
+
+async def test_approve_honestly_skips_invoicing_with_no_real_tier(estate) -> None:
+    result = await _service(estate).approve(
+        estate["workbook"], rationale="This report is accurate and ready for release.",
+        countersigned_by="A. Mehta", principal=REPORT_OWNER,
+    )
+    assert result.invoiced is False
+    assert result.tier is None
+    assert result.unit_price is None
+
+
+async def test_a_re_approved_workbook_is_never_invoiced_twice(estate) -> None:
+    await estate["scope_store"].decide(
+        new_decision(
+            workbook_id=estate["workbook"], kind=DecisionKind.RE_TIER,
+            reason="Confirmed against the source workbook's own real complexity.",
+            decided_by=ENGINEER.value, to_value="SIMPLE",
+        )
+    )
+
+    first = await _service(estate).approve(
+        estate["workbook"], rationale="This report is accurate and ready for release.",
+        countersigned_by="A. Mehta", principal=REPORT_OWNER,
+    )
+    second = await _service(estate).approve(
+        estate["workbook"], rationale="Approving again after a second review pass.",
+        countersigned_by="A. Mehta", principal=REPORT_OWNER,
+    )
+
+    assert first.invoiced is True
+    assert second.invoiced is False
+
+    counts = await accepted_by_tier(estate["pool"], estate["settings"].graph_name)
+    assert counts["SIMPLE"] == 1
 
 
 async def test_approve_refuses_a_blank_countersigner(estate) -> None:

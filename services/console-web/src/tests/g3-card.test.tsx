@@ -106,7 +106,10 @@ describe('deciding', () => {
     let approved: [string, string, string] | null = null;
     api.approveG3 = async (workbookId, rationale, countersignedBy) => {
       approved = [workbookId, rationale, countersignedBy];
-      return { workbook_id: workbookId, gate_decision_id: 'gd_1', decision: 'APPROVED' };
+      return {
+        workbook_id: workbookId, gate_decision_id: 'gd_1', decision: 'APPROVED',
+        invoiced: false, tier: null, unit_price: null,
+      };
     };
     const user = await loadCard(api, REPORT_OWNER);
     await screen.findByText(/Daily VaR/);
@@ -125,7 +128,10 @@ describe('deciding', () => {
     let requested: [string, string] | null = null;
     api.requestChangesG3 = async (workbookId, rationale) => {
       requested = [workbookId, rationale];
-      return { workbook_id: workbookId, gate_decision_id: 'gd_2', decision: 'CHANGES_REQUESTED' };
+      return {
+        workbook_id: workbookId, gate_decision_id: 'gd_2', decision: 'CHANGES_REQUESTED',
+        invoiced: false, tier: null, unit_price: null,
+      };
     };
     const user = await loadCard(api, REPORT_OWNER);
     await screen.findByText(/Daily VaR/);
