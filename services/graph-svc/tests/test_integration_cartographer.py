@@ -323,6 +323,23 @@ async def test_a_re_run_retires_its_own_prior_proposal(estate) -> None:
     assert record is not None
     assert record.properties.get("retired_at") is not None
 
+    # A real, found-live bug: retiring the stale family NODE above never used to retire
+    # the re-clustered member's own prior IN_FAMILY edge (`retire_node` has no cascade to
+    # edges pointing at the node). Alpha must be left with exactly one live edge, pointing
+    # at its real, current family -- not two.
+    async with estate["pool"].acquire() as conn:
+        from astra_graph.graph.queries import EDGE_INDEX_TABLE
+
+        rows = await conn.fetch(
+            f"""
+            SELECT to_id AS family_id FROM {EDGE_INDEX_TABLE}
+            WHERE graph = $1 AND label = 'IN_FAMILY' AND from_id = $2 AND retired_at IS NULL
+            """,
+            estate["settings"].graph_name,
+            estate["alpha"],
+        )
+    assert [row["family_id"] for row in rows] == [second_family_id]
+
 
 async def test_a_re_run_never_touches_a_family_a_human_has_accepted(estate) -> None:
     """S3.1.2 is the split/merge/move story; this only has to prove the Cartographer stays
@@ -338,6 +355,104 @@ async def test_a_re_run_never_touches_a_family_a_human_has_accepted(estate) -> N
     assert record is not None
     assert record.properties.get("retired_at") is None
     assert record.properties["state"] == "DRAFT"
+
+
+# -------------------------------------------------- cleaning up a pre-fix corrupted estate
+
+
+async def test_find_duplicate_in_family_edges_is_honestly_empty_on_a_healthy_estate(estate) -> None:
+    await estate["cartographer"].run(principal=PRINCIPAL)
+
+    from astra_graph.cartographer import find_duplicate_in_family_edges
+
+    duplicates = await find_duplicate_in_family_edges(estate["pool"], estate["settings"].graph_name)
+    assert estate["alpha"] not in duplicates
+
+
+async def test_find_duplicate_in_family_edges_finds_a_real_pre_fix_duplicate(estate) -> None:
+    """Simulates the pre-fix state directly (the fix itself now prevents `run()` from
+    ever creating one) -- a second, real `IN_FAMILY` edge written without retiring the
+    first, exactly what the old code left behind."""
+    result = await estate["cartographer"].run(principal=PRINCIPAL)
+    first_family_id = _family_of(result, estate["alpha"]).id
+
+    stale_family_id = await _write(
+        estate["writer"], "ModelFamily", name="Stale duplicate", state="PROPOSED",
+    )
+    await _edge(estate["writer"], "IN_FAMILY", estate["alpha"], stale_family_id, confidence=1.0)
+
+    from astra_graph.cartographer import find_duplicate_in_family_edges
+    from astra_graph.graph.queries import EDGE_INDEX_TABLE
+
+    async with estate["pool"].acquire() as conn:
+        stale_edge_id = await conn.fetchval(
+            f"""
+            SELECT id FROM {EDGE_INDEX_TABLE}
+            WHERE graph = $1 AND label = 'IN_FAMILY' AND from_id = $2 AND to_id = $3
+              AND retired_at IS NULL
+            """,
+            estate["settings"].graph_name,
+            estate["alpha"],
+            stale_family_id,
+        )
+
+    try:
+        duplicates = await find_duplicate_in_family_edges(estate["pool"], estate["settings"].graph_name)
+        assert estate["alpha"] in duplicates
+        found_family_ids = {edge["family_id"] for edge in duplicates[estate["alpha"]]}
+        assert found_family_ids == {first_family_id, stale_family_id}
+        # Newest first -- the one just written.
+        assert duplicates[estate["alpha"]][0]["family_id"] == stale_family_id
+    finally:
+        # This suite's own graph is module-scoped (shared across every function-scoped
+        # `estate`, see `_family_of`'s own docstring) -- a duplicate this test creates
+        # by hand and never retires would otherwise leak into every later test's own
+        # whole-graph `find_duplicate_in_family_edges` scan.
+        await estate["writer"].retire_edge(stale_edge_id, reason="test cleanup", principal=PRINCIPAL)
+
+
+async def test_retire_duplicate_in_family_edges_keeps_only_the_most_recent(estate) -> None:
+    await estate["cartographer"].run(principal=PRINCIPAL)
+
+    stale_family_id = await _write(
+        estate["writer"], "ModelFamily", name="Stale duplicate", state="PROPOSED",
+    )
+    await _edge(estate["writer"], "IN_FAMILY", estate["alpha"], stale_family_id, confidence=1.0)
+
+    from astra_graph.cartographer import (
+        find_duplicate_in_family_edges,
+        retire_duplicate_in_family_edges,
+    )
+
+    retired = await retire_duplicate_in_family_edges(
+        estate["pool"], estate["settings"].graph_name, estate["writer"], principal=PRINCIPAL
+    )
+    # `in`, not `==`: this suite's own graph is module-scoped (shared across every
+    # function-scoped `estate`), so a call scanning the *whole* graph may legitimately
+    # also retire another test's own leftover duplicate in the same pass -- this
+    # workbook's own real outcome is what the rest of this test actually proves.
+    assert estate["alpha"] in retired.values()
+
+    async with estate["pool"].acquire() as conn:
+        from astra_graph.graph.queries import EDGE_INDEX_TABLE
+
+        rows = await conn.fetch(
+            f"""
+            SELECT to_id AS family_id FROM {EDGE_INDEX_TABLE}
+            WHERE graph = $1 AND label = 'IN_FAMILY' AND from_id = $2 AND retired_at IS NULL
+            """,
+            estate["settings"].graph_name,
+            estate["alpha"],
+        )
+    assert [row["family_id"] for row in rows] == [stale_family_id]
+
+    # Idempotent -- nothing left to retire the second time.
+    duplicates_after = await find_duplicate_in_family_edges(estate["pool"], estate["settings"].graph_name)
+    assert estate["alpha"] not in duplicates_after
+    retired_again = await retire_duplicate_in_family_edges(
+        estate["pool"], estate["settings"].graph_name, estate["writer"], principal=PRINCIPAL
+    )
+    assert estate["alpha"] not in retired_again.values()
 
 
 async def test_the_run_is_recorded_on_the_open_programme(estate) -> None:

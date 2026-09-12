@@ -266,6 +266,23 @@ async def test_a_move_leaves_exactly_one_live_in_train_edge(estate) -> None:
     assert len(await _live_in_train_edges(estate, estate["alpha"])) == 1
 
 
+async def test_family_of_resolves_the_most_recent_edge_when_two_are_live(estate) -> None:
+    """A real, found-live bug: a pre-fix `cartographer.Cartographer.run()` could leave a
+    re-clustered workbook with two live `IN_FAMILY` edges. `_family_of` must resolve
+    deterministically to the most recently created one, not an arbitrary one."""
+    from astra_graph.train_overrides import _family_of
+
+    newer_family = await _write(
+        estate["writer"], "ModelFamily", name="Newer family for alpha", state="PROPOSED",
+        grain="Desk", conformed_dims=[],
+    )
+    await _edge(estate["writer"], "IN_FAMILY", estate["alpha"], newer_family, confidence=1.0)
+
+    resolved = await _family_of(estate["pool"], estate["settings"].graph_name, estate["alpha"])
+    assert resolved is not None
+    assert resolved[0] == newer_family
+
+
 async def test_moving_one_of_two_family_members_is_refused(estate) -> None:
     with pytest.raises(InvalidRequestError, match="FamilyGamma|split"):
         await move_mu(

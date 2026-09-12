@@ -125,11 +125,23 @@ async def _family_for_workbook(pool: asyncpg.Pool, graph_name: str, workbook_id:
     """The real `ModelFamily` a workbook's own `IN_FAMILY` edge names -- the reverse of
     every existing family read, which only ever goes family -> members. `None` when no
     Cartographer run has ever clustered this workbook (an honest, real absence, not an
-    error): nothing exists yet to check either AC trigger against."""
+    error): nothing exists yet to check either AC trigger against.
+
+    **`ORDER BY created_at DESC` is a deliberate, real fix, not decoration.** A real bug,
+    found live (S9.2.1's own smoke test): `cartographer.Cartographer.run()` used to
+    retire only the stale `ModelFamily` node on a re-cluster, never the re-clustered
+    member's own prior `IN_FAMILY` edge (`retire_node` has no cascade to edges pointing
+    at the node -- confirmed directly), leaving some workbooks with two live edges after
+    a second clustering run. Fixed at the source in `cartographer.py`, but this read
+    stays deterministic on its own -- for a workbook a pre-fix run already corrupted, or
+    any future write path that fails to retire-before-write, this always resolves to the
+    most recently created live edge rather than an arbitrary one Postgres happens to
+    return first."""
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             f"""SELECT to_id AS family_id FROM {EDGE_INDEX_TABLE}
                  WHERE graph = $1 AND label = 'IN_FAMILY' AND from_id = $2 AND retired_at IS NULL
+                 ORDER BY created_at DESC
                  LIMIT 1""",
             graph_name, workbook_id,
         )

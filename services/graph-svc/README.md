@@ -3289,6 +3289,59 @@ precedent every earlier affected screen's own fix already set.
 See [ADR 0068](../../docs/adr/0068-promotion-through-the-fabric-pipeline-a-new-table-not-a-new-gate.md)
 for the full reasoning.
 
+## Duplicate `IN_FAMILY` edge fix (2026-09-12, not a numbered story)
+
+The pre-existing, out-of-scope bug S9.2.1's own row flagged above is fixed, and turned
+out to be far more widespread than the one workbook that first surfaced it.
+
+**Root cause**: `cartographer.Cartographer.run()` retires a stale `ModelFamily` node on
+a re-cluster (`retire_node`), but `retire_node` has no cascade to edges pointing at that
+node — confirmed by direct read of `AgeGraphRepository.retire_node`, which only ever
+stamps the node row. A workbook re-clustered from family A into a fresh family B on a
+second run kept both `IN_FAMILY` edges live (`workbook --IN_FAMILY--> A`, never
+retired, and `workbook --IN_FAMILY--> B`, freshly written). `family_overrides._relink`
+(S3.1.2) already retires-then-writes correctly for a human's own manual family move —
+`cartographer.py`'s own automatic re-cluster path was the one place that never did.
+Auditing the live demo estate found this was not a one-off: **62 of its ~69 workbooks**
+carried the identical duplicate.
+
+**Fix**: `Cartographer.run()`'s member-write loop now retires each re-clustered
+member's existing live `IN_FAMILY` edge (via a new `_current_family_edge_id` helper,
+duplicating `family_overrides._current_family_edge`'s own seven-line query rather than
+importing across the two modules' existing circular-import boundary) before writing
+the fresh one — the identical retire-then-write discipline `_relink` already has.
+**Defence in depth**: every other real reader of a workbook's own live `IN_FAMILY`
+edge — `foundry_routing._family_for_workbook`, `train_overrides._family_of`,
+`family_overrides._current_family_edge` — gained a matching `ORDER BY created_at DESC`
+tie-break, so an estate a pre-fix run already corrupted still resolves deterministically
+to the most recent edge rather than an arbitrary one Postgres happens to return first.
+**One-time cleanup**: `cartographer.find_duplicate_in_family_edges`/`retire_duplicate_
+in_family_edges` (new, exported, tested) converge an already-corrupted estate, keeping
+each affected workbook's most recently created live edge and retiring the rest —
+exposed as `tools/retire_duplicate_in_family_edges.py` (`--dry-run` reports without
+writing).
+
+**Live-verified against the real Docker demo estate, not just the test suite**: the
+dry-run correctly found and listed all 62 stale edges; running for real retired exactly
+those 62, confirmed by a direct `estate_edge_index` query and by the originally-
+reported workbook's own `GET .../:promotion-blockers` read changing from a real
+blocker to `[]`; a second dry-run afterward found zero remaining duplicates; and a real,
+full `POST /v1/families:cluster` re-cluster of the entire estate (confirmed by 69 fresh
+`ModelFamily` nodes) was followed by a third dry-run that still found zero new
+duplicates — proving the root-cause fix itself, not only the cleanup tool.
+
+Verified: the existing `test_a_re_run_retires_its_own_prior_proposal`
+(`test_integration_cartographer.py`) extended with a real edge-level assertion (exactly
+one live `IN_FAMILY` edge after a second run); three new tests for `find_duplicate_in_
+family_edges`/`retire_duplicate_in_family_edges` (honestly empty on a healthy estate,
+finding a real simulated pre-fix duplicate, keeping only the most recent edge and
+idempotent on a second call); one new test each in `test_integration_foundry_
+routing.py`, `test_integration_train_overrides.py` and `test_integration_family_
+overrides.py` proving the deterministic tie-break in each of the three other real
+callers; the full existing graph-svc suite (1,468 non-integration passed; 88
+integration tests across the five affected files) green alongside them;
+`ruff`/`mypy` clean.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

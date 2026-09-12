@@ -206,3 +206,44 @@ passed) and a production build, both green. `Admin.tsx`/`PatternLibrary.tsx` wer
 already correctly overridden (`display: flex`, an established convention of their own)
 and are untouched; `EstateExplorer.tsx`/`ParseQualityQueue.tsx` correctly keep the base
 three-column grid, also untouched.
+
+## Duplicate `IN_FAMILY` edge fix (2026-09-12, not a numbered story)
+
+Found live during S9.2.1's own smoke test: `release.promotion_blockers` reported "no
+successful build to promote" for a workbook whose real model family showed `state:
+"BUILT"` with real, `SUCCEEDED` `build_run` rows. The real cause: the workbook had
+**two** non-retired `IN_FAMILY` edges (`estate_edge_index`), left behind by an earlier
+`cartographer.Cartographer.run()` re-clustering pass — `retire_node` (used to retire the
+stale `ModelFamily` node on a re-cluster) has no cascade to edges pointing at that node,
+so the re-clustered member's own prior `IN_FAMILY` edge was never retired.
+`foundry_routing._family_for_workbook`'s own unordered `LIMIT 1` read then resolved to
+whichever edge Postgres returned first — sometimes the stale one. Auditing the live demo
+estate found this was not a one-off: **62 of its ~69 workbooks** had the identical
+duplicate, all traceable to the same "retire the node, not the edge" gap.
+
+Fixed at the root in `cartographer.py`'s own member-write loop: each re-clustered
+member's existing live `IN_FAMILY` edge is now retired before the fresh one is written —
+the identical retire-then-write discipline `family_overrides._relink` (S3.1.2) already
+had for a human's own manual family move, just missing from the Cartographer's own
+automatic path. `foundry_routing._family_for_workbook`, `train_overrides._family_of` and
+`family_overrides._current_family_edge` all gained a matching `ORDER BY created_at DESC`
+tie-break as defence in depth, so any estate a pre-fix run already corrupted still
+resolves deterministically rather than arbitrarily. A new, tested, idempotent one-time
+cleanup (`cartographer.retire_duplicate_in_family_edges`, exposed as `tools/
+retire_duplicate_in_family_edges.py`, with a `--dry-run` mode) converges an
+already-corrupted estate: run once against the real Docker demo estate, it found and
+correctly retired all 62 stale edges, confirmed by a direct query and by the
+originally-reported workbook's own `promotion-blockers` read returning `[]`. A real re-cluster run
+afterward (all ~69 workbooks) was also confirmed to introduce zero new duplicates,
+proving the root-cause fix, not just the cleanup.
+
+Verified: the existing `test_a_re_run_retires_its_own_prior_proposal` extended with a
+real edge-level assertion (exactly one live `IN_FAMILY` edge after a second run, not
+two) plus three new cartographer tests (`find_duplicate_in_family_edges` honestly empty
+on a healthy estate, finding a real simulated pre-fix duplicate, and
+`retire_duplicate_in_family_edges` keeping only the most recent edge and being
+idempotent); one new test each in `test_integration_foundry_routing.py`,
+`test_integration_train_overrides.py` and `test_integration_family_overrides.py`
+proving the deterministic tie-break in each of the three other real callers; the full
+existing graph-svc suite (1,468 non-integration passed; 88 integration tests across the
+five affected files confirmed passing) green alongside them; `ruff`/`mypy` clean.

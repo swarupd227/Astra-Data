@@ -506,3 +506,24 @@ async def test_a_workbook_with_no_family_falls_through_cleanly(estate) -> None:
     result = await _service(estate).mend(exception_id, workspace="dev", principal=PARITY_ENGINEER)
     assert result["outcome"] == "escalated"
     assert result["reason"] == "key_missing_model_defect"
+
+
+async def test_family_for_workbook_resolves_the_most_recent_edge_when_two_are_live(estate) -> None:
+    """A real, found-live bug: a pre-fix `cartographer.Cartographer.run()` could leave a
+    re-clustered workbook with two live `IN_FAMILY` edges (retiring the stale family
+    NODE never retired the member's own prior edge). `_family_for_workbook` must resolve
+    deterministically to the most recently created one, not an arbitrary one."""
+    from astra_graph.foundry_routing import _family_for_workbook
+
+    book = await _write(estate["writer"], "Workbook", luid=f"wb-dup-{new_ulid()[10:18]}", name="Duplicated", revision="1")
+    older_family = await _write_props(estate["writer"], "ModelFamily", {
+        "name": "Older family", "state": "PROPOSED", "grain": "Desk", "conformed_dims": [],
+    })
+    await _edge(estate["writer"], "IN_FAMILY", book, older_family, confidence=1.0)
+    newer_family = await _write_props(estate["writer"], "ModelFamily", {
+        "name": "Newer family", "state": "PROPOSED", "grain": "Desk", "conformed_dims": [],
+    })
+    await _edge(estate["writer"], "IN_FAMILY", book, newer_family, confidence=1.0)
+
+    resolved = await _family_for_workbook(estate["pool"], estate["settings"].graph_name, book)
+    assert resolved == newer_family

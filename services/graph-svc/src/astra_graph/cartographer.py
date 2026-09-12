@@ -624,6 +624,19 @@ class Cartographer:
         would have proposed for them instead. Naming a family's id in
         ``confirm_family_ids`` lifts that protection for this one run: its members re-enter
         clustering and the family may be retired and replaced like any other.
+
+        **A real, found-live bug, fixed here: retiring the stale `ModelFamily` node above
+        never retired a re-clustered member's own prior `IN_FAMILY` edge — `retire_node`
+        only stamps the node, it has no cascade to edges pointing at it (confirmed by
+        direct read of `AgeGraphRepository.retire_node`).** A workbook re-clustered from
+        family A into a fresh family B on a second run kept BOTH edges live
+        (`workbook --IN_FAMILY--> A`, never retired, and `workbook --IN_FAMILY--> B`,
+        freshly written) — `foundry_routing._family_for_workbook`'s own unordered
+        `LIMIT 1` read then silently resolved to whichever Postgres happened to return
+        first, sometimes the stale one. `family_overrides._relink` (S3.1.2) already
+        retires-then-writes correctly for a human's own manual move; the member-write loop
+        below now does the identical retire-then-write for every member this run actually
+        reclusters, closing the one path that never did.
         """
         confirm_family_ids = confirm_family_ids or frozenset()
 
@@ -679,6 +692,11 @@ class Cartographer:
                 principal=principal,
             )
             for member in proposal.members:
+                old_edge_id = await _current_family_edge_id(self._pool, self._graph, member)
+                if old_edge_id is not None:
+                    await self._writer.retire_edge(
+                        old_edge_id, reason=_MIN_RETIREMENT_REASON, principal=principal
+                    )
                 await self._writer.write_edge(
                     EdgeWrite(
                         type="IN_FAMILY",
@@ -806,6 +824,86 @@ async def _family_members(
     for row in rows:
         out.setdefault(row["family"], []).append(row["workbook"])
     return out
+
+
+async def _current_family_edge_id(
+    pool: asyncpg.Pool, graph_name: str, workbook_id: str
+) -> str | None:
+    """This workbook's own live ``IN_FAMILY`` edge id, if it has one -- read before `run`
+    writes a fresh one, so the prior edge can be retired first (`family_overrides.
+    _current_family_edge` does the identical read for a human's own manual move; not
+    imported directly since `family_overrides.py` itself imports from this module,
+    and duplicating one seven-line query is cheaper than restructuring either module to
+    avoid the cycle). `ORDER BY created_at DESC LIMIT 1` is a deliberate tie-break, not
+    a no-op: a workbook whose prior run already left two live edges behind (this
+    function's own reason for existing) must resolve to its most recent one, not an
+    arbitrary one, so this run's own retire-then-write converges the estate back to one
+    live edge per workbook rather than leaving the ambiguity in place."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""
+            SELECT e.id FROM {EDGE_INDEX_TABLE} e
+            WHERE e.graph = $1 AND e.label = 'IN_FAMILY' AND e.from_id = $2
+              AND e.retired_at IS NULL
+            ORDER BY e.created_at DESC
+            LIMIT 1
+            """,
+            graph_name,
+            workbook_id,
+        )
+    return str(row["id"]) if row is not None else None
+
+
+async def find_duplicate_in_family_edges(
+    pool: asyncpg.Pool, graph_name: str
+) -> dict[str, list[dict[str, Any]]]:
+    """Every real, live workbook with more than one live ``IN_FAMILY`` edge right now --
+    the real, queryable symptom `run()`'s own docstring discloses (a pre-fix re-cluster
+    never retired a member's prior edge). ``{workbook_id: [{"id", "family_id",
+    "created_at"}, ...]}``, newest first per workbook; a workbook with the healthy,
+    expected single live edge is not included."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            SELECT from_id AS workbook_id, id, to_id AS family_id, created_at
+            FROM {EDGE_INDEX_TABLE}
+            WHERE graph = $1 AND label = 'IN_FAMILY' AND retired_at IS NULL
+            ORDER BY from_id, created_at DESC
+            """,
+            graph_name,
+        )
+    by_workbook: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_workbook.setdefault(row["workbook_id"], []).append(
+            {"id": row["id"], "family_id": row["family_id"], "created_at": row["created_at"]}
+        )
+    return {workbook_id: edges for workbook_id, edges in by_workbook.items() if len(edges) > 1}
+
+
+async def retire_duplicate_in_family_edges(
+    pool: asyncpg.Pool, graph_name: str, writer: GraphWriter, *, principal: Principal
+) -> dict[str, str]:
+    """A one-time, idempotent convergence for an estate a pre-fix `run()` already left
+    with duplicate ``IN_FAMILY`` edges: for every workbook `find_duplicate_in_family_
+    edges` finds, retires every edge but the most recently created one. Safe to call
+    against a healthy estate (returns `{}`) and safe to call twice (the second call
+    finds nothing left to retire). Returns ``{retired_edge_id: workbook_id}``. Exposed
+    as `tools/retire_duplicate_in_family_edges.py` for a real deployment to run once
+    after upgrading past the `run()` fix."""
+    duplicates = await find_duplicate_in_family_edges(pool, graph_name)
+    retired: dict[str, str] = {}
+    for workbook_id, edges in duplicates.items():
+        for stale in edges[1:]:
+            await writer.retire_edge(
+                stale["id"],
+                reason=(
+                    "stale duplicate IN_FAMILY edge, retired by a one-time cleanup -- "
+                    "a pre-fix Cartographer.run() never retired it on re-cluster"
+                ),
+                principal=principal,
+            )
+            retired[stale["id"]] = workbook_id
+    return retired
 
 
 def _family_summary(
@@ -1078,7 +1176,9 @@ __all__ = [
     "candidate_grain",
     "count_families",
     "family_evidence",
+    "find_duplicate_in_family_edges",
     "get_family",
     "list_families",
     "resolve_undersized",
+    "retire_duplicate_in_family_edges",
 ]

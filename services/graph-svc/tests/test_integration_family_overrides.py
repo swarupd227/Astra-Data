@@ -224,6 +224,8 @@ async def _current_family(estate: dict, workbook_id: str) -> str | None:
             f"""
             SELECT to_id FROM {EDGE_INDEX_TABLE}
             WHERE graph = $1 AND label = 'IN_FAMILY' AND from_id = $2 AND retired_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT 1
             """,
             estate["settings"].graph_name,
             workbook_id,
@@ -365,6 +367,47 @@ async def test_move_relinks_the_workbook(estate) -> None:
     assert result.target.id == estate["family_two"]
     assert estate["alpha"] in result.target.members
     assert await _current_family(estate, estate["alpha"]) == estate["family_two"]
+
+
+async def test_move_relinks_the_most_recent_edge_when_two_are_live(estate) -> None:
+    """Defence in depth for a real, found-live bug: a pre-fix `cartographer.
+    Cartographer.run()` could leave a workbook with two live `IN_FAMILY` edges before
+    this module's own `move_member` is ever called on it. `_current_family_edge` (and
+    so `move_member` itself) must resolve deterministically to the most recently
+    created live edge as "the current one" -- not an arbitrary one -- when deciding
+    what to retire. (Retiring only that one is this module's own real, disclosed limit:
+    a workbook with more than one *pre-existing* stale edge still needs `cartographer.
+    retire_duplicate_in_family_edges`'s own one-time cleanup to fully converge;
+    `move_member` only ever owns the edge it just relinked, confirmed below by
+    `family_one`'s own edge staying untouched.)"""
+    stale_family = await _write(
+        estate["writer"], "ModelFamily", name="Stale duplicate for alpha", state="PROPOSED",
+        grain="Desk", conformed_dims=[],
+    )
+    await _edge(estate["writer"], "IN_FAMILY", estate["alpha"], stale_family, confidence=1.0)
+
+    await move_member(
+        estate["pool"], estate["settings"].graph_name, estate["writer"],
+        workbook_id=estate["alpha"], to_family_id=estate["family_two"],
+        reason=REASON, principal=PRINCIPAL,
+    )
+
+    async with estate["pool"].acquire() as conn:
+        from astra_graph.graph.queries import EDGE_INDEX_TABLE
+
+        rows = await conn.fetch(
+            f"""
+            SELECT to_id AS family_id, retired_at IS NOT NULL AS retired
+            FROM {EDGE_INDEX_TABLE}
+            WHERE graph = $1 AND label = 'IN_FAMILY' AND from_id = $2
+            """,
+            estate["settings"].graph_name,
+            estate["alpha"],
+        )
+    by_family = {row["family_id"]: row["retired"] for row in rows}
+    assert by_family[stale_family] is True, "the most recent edge, correctly treated as current, is retired"
+    assert by_family[estate["family_one"]] is False, "an older, unrelated edge is this module's own real limit -- left untouched"
+    assert by_family[estate["family_two"]] is False, "the new edge this move just wrote"
 
 
 async def test_move_updates_the_source_family(estate) -> None:

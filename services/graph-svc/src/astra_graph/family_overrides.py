@@ -154,7 +154,16 @@ async def _members_of(
 async def _current_family_edge(
     pool: asyncpg.Pool, graph_name: str, workbook_id: str
 ) -> tuple[str, str] | None:
-    """The id and target of a workbook's current (live) ``IN_FAMILY`` edge, if it has one."""
+    """The id and target of a workbook's current (live) ``IN_FAMILY`` edge, if it has one.
+
+    ``ORDER BY created_at DESC`` is defence in depth, not the primary fix: this module's
+    own ``_relink`` already retires-then-writes correctly on every move this module
+    makes, so it should never itself produce two live edges. It is `cartographer.py`'s
+    own re-cluster path that used to leave a stale edge behind (a real bug, fixed at the
+    source) — this ordering just means a workbook a pre-fix run already left with two
+    live edges still resolves deterministically to its most recent one here too, the
+    identical tie-break `foundry_routing._family_for_workbook`/`train_overrides.
+    _family_of` both take for the identical reason."""
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             f"""
@@ -162,6 +171,8 @@ async def _current_family_edge(
             FROM {EDGE_INDEX_TABLE} e
             WHERE e.graph = $1 AND e.label = 'IN_FAMILY' AND e.from_id = $2
               AND e.retired_at IS NULL
+            ORDER BY e.created_at DESC
+            LIMIT 1
             """,
             graph_name,
             workbook_id,

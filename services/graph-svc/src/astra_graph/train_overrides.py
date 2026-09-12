@@ -216,13 +216,21 @@ async def _family_of(
     pool: asyncpg.Pool, graph_name: str, workbook_id: str
 ) -> tuple[str, list[str]] | None:
     """(family_id, every member incl. ``workbook_id``) for a workbook's live family, or
-    ``None`` if it has none — nothing this story needs to solve."""
+    ``None`` if it has none — nothing this story needs to solve.
+
+    ``ORDER BY created_at DESC`` is a deliberate tie-break, the identical fix
+    `foundry_routing._family_for_workbook` needed for the identical reason: a real,
+    found-live `cartographer.py` bug (fixed at the source) could leave more than one
+    live ``IN_FAMILY`` edge on one workbook; this read always resolves to the most
+    recent rather than an arbitrary one."""
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             f"""
             SELECT e.to_id AS family FROM {EDGE_INDEX_TABLE} e
             WHERE e.graph = $1 AND e.label = 'IN_FAMILY' AND e.from_id = $2
               AND e.retired_at IS NULL
+            ORDER BY e.created_at DESC
+            LIMIT 1
             """,
             graph_name,
             workbook_id,
