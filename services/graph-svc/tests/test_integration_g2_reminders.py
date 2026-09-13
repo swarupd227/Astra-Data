@@ -165,9 +165,14 @@ async def _backdate_entry_into_review(pool: asyncpg.Pool, graph_name: str, famil
 
 @pytest.fixture
 async def estate(settings: Settings):
-    """One ModelFamily generated, accepted, and submitted for G2 review six calendar
-    days ago (comfortably past both the 3- and 5-working-day thresholds, whichever
-    weekday the suite happens to run on)."""
+    """One ModelFamily generated, accepted, and submitted for G2 review 7 calendar days
+    ago. Any span of exactly 7 consecutive calendar days contains exactly 5 weekdays and
+    2 weekend days, regardless of which weekday it starts on — `working_days_between`
+    (`train_projection.py`) therefore always measures exactly 5 working days elapsed
+    here, deterministically, whichever day of the week the suite happens to run on. A
+    fixed 6-calendar-day backdate (this fixture's own earlier shape) does not have that
+    property: landing on a weekend can leave fewer than 5 working days elapsed, which is
+    exactly what made `test_due_reminders_are_sent_and_recorded` flake."""
     pool = await create_pool(settings)
     try:
         repository = AgeGraphRepository(pool, graph_name=settings.graph_name)
@@ -209,7 +214,7 @@ async def estate(settings: Settings):
         await accept_family(pool, settings.graph_name, writer, family, principal=ENGINEER)
         await update_owner(pool, settings.graph_name, writer, family, owner="owner@client.example", principal=ENGINEER)
         submitted = await submit_for_review(pool, settings.graph_name, writer, family, principal=ENGINEER)
-        await _backdate_entry_into_review(pool, settings.graph_name, family, days=6)
+        await _backdate_entry_into_review(pool, settings.graph_name, family, days=7)
         # submit_for_review does not itself seed questions (routes_modeller.py's own route
         # orchestrates that, see g2.py's module docstring) — this fixture calls the graph
         # functions directly, so it raises one explicitly for the open-question assertions.
@@ -244,11 +249,11 @@ async def test_a_submitted_family_is_awaiting_g2(estate) -> None:
 async def test_days_waiting_and_breach_reflect_the_backdated_entry(estate) -> None:
     reviews = await pending_g2_reviews(estate["pool"], estate["settings"].graph_name, estate["question_store"])
     review = next(r for r in reviews if r.family_id == estate["family"])
-    # 6 calendar days back always spans at least the 5 working days a full week beats,
-    # but a run landing on a weekend could see fewer working days elapsed than 6 — assert
-    # only what is guaranteed: some real wait was measured and it is over the 3-day mark.
-    assert review.days_waiting is not None
-    assert review.days_waiting >= 3
+    # A 7-calendar-day backdate always spans exactly 5 working days (see the `estate`
+    # fixture's own docstring) — deterministic regardless of which weekday this runs on,
+    # so this can assert the exact value rather than only a lower bound.
+    assert review.days_waiting == 5
+    assert review.breached is False  # exactly the 5-working-day SLA, not yet over it
 
 
 async def test_the_approver_is_the_assigned_owner(estate) -> None:
@@ -277,6 +282,9 @@ async def test_due_reminders_are_sent_and_recorded(estate) -> None:
         estate["reminder_store"], LocalNotificationChannel(),
     )
     days_sent = {record.day for record in sent if record.family_id == estate["family"]}
+    # The `estate` fixture's own 7-calendar-day backdate always measures exactly 5
+    # working days elapsed (see its own docstring), so both the day-3 and day-5
+    # reminders are always due here, deterministically — not just "at least day 3."
     assert days_sent == {3, 5}
 
 
