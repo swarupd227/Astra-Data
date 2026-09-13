@@ -45,6 +45,7 @@ from .api import (
     lineage_router,
     mender_router,
     modeller_router,
+    mu_page_router,
     ownership_router,
     patterns_router,
     platform_router,
@@ -557,6 +558,7 @@ def create_app() -> FastAPI:
     app.include_router(programme_surface_router)
     app.include_router(calibration_wave_router)
     app.include_router(status_pack_router)
+    app.include_router(mu_page_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

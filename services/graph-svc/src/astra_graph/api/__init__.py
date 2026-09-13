@@ -27,6 +27,7 @@ from .routes_harvest import router as harvest_router
 from .routes_lineage import router as lineage_router
 from .routes_mender import router as mender_router
 from .routes_modeller import router as modeller_router
+from .routes_mu_page import router as mu_page_router
 from .routes_ownership import router as ownership_router
 from .routes_patterns import router as patterns_router
 from .routes_platform import router as platform_router
@@ -72,6 +73,7 @@ __all__ = [
     "lineage_router",
     "mender_router",
     "modeller_router",
+    "mu_page_router",
     "ownership_router",
     "patterns_router",
     "platform_router",

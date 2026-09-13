@@ -1028,6 +1028,206 @@ export interface StatusPackData {
   published_at: string | null;
 }
 
+// ------------------------------------------------- S10.3.1: the Migration Unit page
+
+/** One gate's own latest decision, the same compact shape used for G1/G2/G4 on the
+ * Migration Unit page -- G3 is instead the full `G3Card` (see `MuPageGates`). */
+export interface MuGateSummary {
+  decision: string | null;
+  approver: string | null;
+  countersigner: string | null;
+  timestamp: string | null;
+  rationale: string | null;
+}
+
+export interface MuPageHeader {
+  name: string | null;
+  luid: string | null;
+  site: { id: string; name: string | null } | null;
+  project: { id: string; name: string | null } | null;
+  /** The Wave Board's own already-disclosed static `IN_TRAIN.state` proxy -- `null` for
+   * a workbook the Train Planner has never sequenced. */
+  state: string | null;
+  tier: string | null;
+  withdrawn: boolean;
+  family: { id: string; name: string | null; state: string | null } | null;
+  train: { id: string; name: string | null; sequence: number } | null;
+  owner: { id: string; name: string } | null;
+  gate_status_strip: { gate: 'G1' | 'G2' | 'G3' | 'G4'; decision: string | null }[];
+}
+
+export interface MuSourceUsageRow {
+  id: string;
+  name: string | null;
+  views_90d: number | null;
+  distinct_viewers_90d: number | null;
+  last_view: string | null;
+}
+
+export interface MuCalculatedFieldRow {
+  id: string;
+  name: string | null;
+  class: string | null;
+  formula: string | null;
+}
+
+export interface MuDatasourceRow {
+  id: string;
+  name: string | null;
+  type: string | null;
+  extract_flag: boolean | null;
+  refresh_schedule: string | null;
+}
+
+/** An `ArtefactRecord.as_dict()` -- never the bytes; fetch `.../content` (`getBlob` +
+ * `downloadBlob`/an object URL) to actually render the preview, lazily. */
+export interface MuArtefactRecord {
+  id: string;
+  kind: string;
+  mu_ref: string;
+  case_id: string;
+  content_hash: string;
+  media_type: string;
+  size_bytes: number;
+  width: number | null;
+  height: number | null;
+  produced_by: { adapter: string | null; adapter_version: string | null; interface_version: string | null };
+  recorded_by: string;
+  recorded_at: string | null;
+}
+
+export interface MuPageSource {
+  worksheets: MuSourceUsageRow[];
+  dashboards: MuSourceUsageRow[];
+  datasources: MuDatasourceRow[];
+  calculated_fields: MuCalculatedFieldRow[];
+  screenshot: MuArtefactRecord | null;
+}
+
+export interface MuReportVisual {
+  id: string;
+  page: string;
+  [key: string]: unknown;
+}
+
+export interface MuReport {
+  id: string;
+  workbook_id: string;
+  family_id: string;
+  model_ref: string | null;
+  pages: string[];
+  visual_count: number;
+  redesign_count: number;
+  validation_state: string;
+  validation_warnings: string[];
+  visuals: MuReportVisual[];
+}
+
+export interface MuReportDocumentation {
+  report_id: string;
+  artefact_id: string;
+  provenance_id: string | null;
+  generated_at: string | null;
+  content: string;
+}
+
+export interface MuMeasure {
+  name: string | null;
+  source_calc_refs: string[];
+  dedup_decision: string | null;
+}
+
+export interface MuGitLink {
+  id: string;
+  report_id: string;
+  workbook_id: string;
+  state: string;
+  steps: { name: string; ok: boolean; detail: string }[];
+  git_commit_sha: string | null;
+  git_ref: string | null;
+  workspace: string | null;
+  attempts: number;
+  triggered_by: string;
+  started_at: string;
+  finished_at: string;
+}
+
+/** "Thumbnails and documentation only" for a client reader (§15.4) -- `model_ref`,
+ * `measures` and `git` all come back `null`/`[]` on the client-narrowed response,
+ * never omitted, so the console renders one shape regardless of role. */
+export interface MuPageArtefacts {
+  model_ref: string | null;
+  report: MuReport | null;
+  documentation: MuReportDocumentation | null;
+  measures: MuMeasure[];
+  git: MuGitLink | null;
+}
+
+export interface MuExceptionCase {
+  id: string;
+  mu_ref: string;
+  class: string | null;
+  state: string;
+  decisions: MuGateSummary[];
+  [key: string]: unknown;
+}
+
+export interface MuPageGates {
+  g1: MuGateSummary | null;
+  g2: MuGateSummary | null;
+  g3: G3Card;
+  g4: MuGateSummary | null;
+}
+
+export interface MuTimelineEvent {
+  sequence: number;
+  event: {
+    subject: string;
+    type: string;
+    time: string;
+    [key: string]: unknown;
+  };
+}
+
+/** One Migration Unit page (S10.3.1, opening F10.3) -- one URL per report. `exceptions`
+ * is present only for an Artizent reader; a client (report owner) response omits the
+ * key entirely rather than sending an empty one, matching what the server actually
+ * withholds per §15.4's own client-visibility list. */
+export interface MuPageResponse {
+  workbook_id: string;
+  header: MuPageHeader;
+  source: MuPageSource;
+  artefacts: MuPageArtefacts;
+  parity: ParityDashboardResponse | null;
+  exceptions?: { cases: MuExceptionCase[] };
+  gates: MuPageGates;
+  timeline: { events: MuTimelineEvent[] };
+}
+
+export interface MuProvenanceRecord {
+  id: string;
+  artefact: { kind: string; ref: string; content_hash: string };
+  produced_by: { agent: string; agent_version: string };
+  mode: string;
+  inputs: {
+    contract: string;
+    subject_ref: string;
+    context_hash: string;
+    graph_version: number;
+    pattern_ref: string | null;
+  };
+  model_call: Record<string, unknown> | null;
+  confidence: number | null;
+  supersedes: string | null;
+  created_by: string;
+  created_at: string | null;
+}
+
+export interface MuProvenanceResponse {
+  workbook_id: string;
+  records: MuProvenanceRecord[];
+}
+
 export interface RebuildStatus {
   running: boolean;
   started_at: string | null;
@@ -2032,6 +2232,9 @@ export interface Api {
   publishStatusPack(identity: Identity): Promise<StatusPackData>;
   statusPackPdf(identity: Identity): Promise<Blob>;
   statusPackPptx(identity: Identity): Promise<Blob>;
+  muPage(workbookId: string, identity: Identity): Promise<MuPageResponse>;
+  muProvenance(workbookId: string, identity: Identity, mode?: string): Promise<MuProvenanceResponse>;
+  getArtefactContent(artefactId: string, identity: Identity): Promise<Blob>;
 }
 
 export function createApi(base = ''): Api {
@@ -2548,6 +2751,16 @@ export function createApi(base = ''): Api {
     },
     async statusPackPptx(identity) {
       return getBlob('/v1/status-pack.pptx', identity);
+    },
+    async muPage(workbookId, identity) {
+      return (await get(`/v1/mu/${encodeURIComponent(workbookId)}`, identity)) as MuPageResponse;
+    },
+    async muProvenance(workbookId, identity, mode) {
+      const query = mode ? `?mode=${encodeURIComponent(mode)}` : '';
+      return (await get(`/v1/mu/${encodeURIComponent(workbookId)}/provenance${query}`, identity)) as MuProvenanceResponse;
+    },
+    async getArtefactContent(artefactId, identity) {
+      return getBlob(`/v1/artefacts/${encodeURIComponent(artefactId)}/content`, identity);
     },
   };
 }

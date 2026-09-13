@@ -126,6 +126,7 @@ import { useLiveTick } from './lib/live-events';
 import { isArtizentRole } from './lib/roles';
 import { LineageView } from './lineage/LineageView';
 import { ModelDetail } from './modeller/ModelDetail';
+import { MigrationUnitPage } from './mu/MigrationUnitPage';
 import { ParityDashboard } from './parity/ParityDashboard';
 import { PatternLibrary } from './patterns/PatternLibrary';
 import { ProgrammeBoard } from './programme/ProgrammeBoard';
@@ -174,7 +175,14 @@ import { WaveBoard } from './trains/WaveBoard';
  * time (see `calibration/CalibrationReport.tsx`'s own docstring for why the backlog's
  * "per F13.2" cross-reference is read this way). The Status Pack (S10.2.1) is a seventh —
  * §15.3.1's own named weekly narrative export, its own screen since it has a real
- * generate/edit/publish lifecycle no other surface shares. */
+ * generate/edit/publish lifecycle no other surface shares. The Migration Unit page
+ * (S10.3.1, opening F10.3) is an eighth — §15.4's own "one URL per report", built as
+ * its own top-level surface with a `?workbook=` deep link (the identical convention
+ * `G3Card.tsx`/`ParityDashboard.tsx` already use) rather than a path segment, since this
+ * SPA has no path-param router. `client_report_owner` gains it in
+ * `CLIENT_VISIBLE_SURFACES` below (§15.1's own "Migration Unit page (client view)"
+ * reading for that role) without changing that role's own existing `g3` landing
+ * surface — a deliberately narrow addition, not a re-litigation of `LANDING_SURFACE`. */
 export const SURFACES = [
   { key: 'estate', label: 'Estate Explorer' },
   { key: 'lineage', label: 'Lineage View' },
@@ -194,6 +202,7 @@ export const SURFACES = [
   { key: 'decommission', label: 'Decommission Tracker' },
   { key: 'calibration', label: 'Calibration Report' },
   { key: 'statuspack', label: 'Status Pack' },
+  { key: 'mu', label: 'Migration Unit' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -283,7 +292,9 @@ function landingSurfaceFor(role: string): Surface {
  * always sees its own landing surface too, even where that is the only entry. */
 const CLIENT_VISIBLE_SURFACES: Partial<Record<string, Surface[]>> = {
   client_data_owner: ['proposal'],
-  client_report_owner: ['g3', 'decommission'],
+  // Story S10.3.1: the Migration Unit page's own client view (§15.1: "Migration Unit
+  // page (client view)") is real-gated to this role (`deps.py`'s `MuPageReaderDep`).
+  client_report_owner: ['g3', 'decommission', 'mu'],
   client_licence_admin: ['decommission'],
   // Story S10.2.1: the client analytics lead is the Calibration Report's own named
   // co-signer (`deps.py`'s `CalibrationReportReaderDep`, mirroring `require_tolerance_
@@ -444,6 +455,9 @@ export function App({
         <CalibrationReport api={api} identity={identity} liveTick={liveTick} />
       )}
       {surface === 'statuspack' && <StatusPack api={api} identity={identity} liveTick={liveTick} />}
+      {surface === 'mu' && (
+        <MigrationUnitPage api={api} identity={identity} initialWorkbookId={getDeepLinkParam('workbook') ?? undefined} />
+      )}
     </div>
   );
 }

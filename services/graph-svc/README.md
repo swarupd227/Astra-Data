@@ -3817,6 +3817,42 @@ docstrings for the full reasoning behind each reading.
   and `public.status_pack`, both plain Postgres platform tables, not ontology nodes — no
   ontology change.
 
+## The Migration Unit page (story S10.3.1, opens F10.3)
+
+One URL per report — §15.4's own anatomy, assembled by `mu_page.py` from facts every
+prior story already writes. No migration, no ontology change: this story is a pure
+read-model aggregation.
+
+- `GET /v1/mu/{workbook_id}` (`MuPageReaderDep` — Artizent or the client report owner)
+  returns the header (state from the Wave Board's own `IN_TRAIN.state` proxy, tier from
+  `ScopeStore`, family/train/owner/site/project) plus Source, Artefacts, Parity, Gates
+  and Timeline for every reader, with Exceptions added only for an Artizent role.
+  `mu_page.mu_page_client_view` slices the identical, once-computed document down to
+  the client-visible subset (`exceptions` omitted; `artefacts.model_ref`/`.measures`/
+  `.git` nulled) rather than a second, separately-computed read — see `mu_page.py`'s
+  own module docstring for why.
+- Gates reads four subject grains: G1 is global (`tolerance_charter.SUBJECT_REF`); G2
+  is keyed by `foundry_routing._family_for_workbook`; G3 reuses `g3_card.g3_card`
+  wholesale; G4 is a real, disclosed *summary* — the latest site-level `GateDecision` —
+  not the full readiness checklist `g4_card.g4_card` builds for the Decommission
+  Tracker.
+- Timeline copies `regression.py`'s own multi-subject raw-SQL pattern
+  (`subject = ANY($1::text[])` against `public.estate_event` directly) rather than
+  looping `GET /v1/events`'s single-subject route once per id this MU touches.
+- `GET /v1/mu/{workbook_id}/provenance` (Artizent-only, refused with a real 403 for a
+  client role) is its own, separately fetched, lazily loaded read — the one section
+  with a real, un-avoidable fan-out (`ProvenanceStore.for_subject` is one artefact id
+  at a time). It deliberately does not call `mu_page()` to find its own subject ids,
+  since that would redo Parity/Exceptions/Gates/Timeline's own real queries for facts
+  Provenance never reads — `mu_page._provenance_subjects` collects them directly
+  instead.
+- `GET /v1/artefacts/{id}`, `.../content` and `GET /v1/artefacts` (list) were widened
+  from `ArtizentDep` to a new `ArtefactReaderDep` (Artizent or the report owner) so a
+  client's own "Artefacts (thumbnails and documentation only)" view can actually fetch
+  the bytes it links to — the console fetches them with `getBlob()` plus an object URL,
+  the identical mechanism SSE and PDF/PPTX export already use for the same "an
+  `<img src>` cannot carry this console's own identity headers" reason.
+
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,

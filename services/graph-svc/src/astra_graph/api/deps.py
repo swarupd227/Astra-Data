@@ -431,6 +431,46 @@ def require_calibration_reader(roles: RoleSetDep) -> RoleSet:
 
 CalibrationReportReaderDep = Annotated[RoleSet, Depends(require_calibration_reader)]
 
+
+def require_mu_page_reader(roles: RoleSetDep) -> RoleSet:
+    """Gate the Migration Unit page on "any Artizent role, or the report owner
+    specifically" (story S10.3.1, §15.1's own role table: "Client Report Owner ...
+    Migration Unit page (client view)") — the identical shape `require_g3_card_reader`/
+    `require_parity_dashboard_reader`/`require_exception_desk_reader` already set for
+    the same client persona, given its own name and error message here so a refused
+    request names the real screen."""
+    if not (roles.is_artizent() or Role.CLIENT_REPORT_OWNER in roles.roles):
+        raise ForbiddenError(
+            f"the Migration Unit page is open to Artizent roles and the report owner; "
+            f"declare one in {ROLES_HEADER}"
+        )
+    return roles
+
+
+MuPageReaderDep = Annotated[RoleSet, Depends(require_mu_page_reader)]
+
+
+def require_artefact_reader(roles: RoleSetDep) -> RoleSet:
+    """Gate reading a stored artefact's metadata/bytes/MU listing on "any Artizent role,
+    or the report owner specifically" (story S10.3.1) — widened from `ArtizentDep` for
+    exactly these three GET routes so the Migration Unit page's own client view can
+    actually render "Artefacts (thumbnails and documentation only)" (§15.4): a client
+    role that could read the MU page but not the images it links to would see broken
+    previews, not a narrower page. `POST /v1/artefacts` (producing one) stays
+    Artizent-only — unaffected, see `routes_artefacts.py`. The identical "checks the
+    bare role, no per-report ownership binding" disclosed gap `require_g3_approver`
+    already carries applies here too: nothing ties a `client_report_owner` principal to
+    the specific report whose artefacts they are asking for."""
+    if not (roles.is_artizent() or Role.CLIENT_REPORT_OWNER in roles.roles):
+        raise ForbiddenError(
+            f"reading an artefact is open to Artizent roles and the report owner; "
+            f"declare one in {ROLES_HEADER}"
+        )
+    return roles
+
+
+ArtefactReaderDep = Annotated[RoleSet, Depends(require_artefact_reader)]
+
 DOMAIN_SCOPE_HEADER = "X-Astra-Domain-Scope"
 
 

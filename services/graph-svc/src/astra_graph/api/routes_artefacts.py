@@ -5,6 +5,16 @@ metadata — never the bytes, per `artefacts.py`'s own reasoning — and
 `GET /v1/artefacts/{id}/content` returns exactly the bytes and nothing else, for a viewer that
 already knows it wants an image. Nothing else in this service imports the second route; a
 context contract (`context/`) can only ever see the first shape, which cannot carry pixels.
+
+**Story S10.3.1 widened the three GET routes from `ArtizentDep` to `ArtefactReaderDep`**
+(Artizent or the client report owner) — see `deps.py`'s own docstring for
+`require_artefact_reader`. The Migration Unit page's own client view renders "Artefacts
+(thumbnails and documentation only)" (§15.4); those thumbnails are the console's own
+`getBlob()`-fetched bytes from `.../content`, the identical "a plain `<img src>` cannot
+carry this console's own identity headers" problem SSE and PDF/PPTX export already had
+(ADR 0072, ADR 0073) — the client role could not actually render a preview the page
+already told it existed without this widening. `POST /v1/artefacts` (producing one)
+stays Artizent-only, unaffected.
 """
 
 from __future__ import annotations
@@ -19,7 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..artefacts import ArtefactError, ArtefactStore
 from ..errors import ElementNotFoundError, InvalidRequestError
-from .deps import ArtizentDep, PrincipalDep
+from .deps import ArtefactReaderDep, ArtizentDep, PrincipalDep
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +127,7 @@ async def store_artefact(
 async def get_artefact(
     request: Request,
     principal: PrincipalDep,
-    roles: ArtizentDep,
+    roles: ArtefactReaderDep,
     artefact_id: Annotated[str, _ARTEFACT_ID],
 ) -> dict[str, Any]:
     record = await _store(request).get(artefact_id)
@@ -134,7 +144,7 @@ async def get_artefact(
 async def get_artefact_content(
     request: Request,
     principal: PrincipalDep,
-    roles: ArtizentDep,
+    roles: ArtefactReaderDep,
     artefact_id: Annotated[str, _ARTEFACT_ID],
 ) -> Response:
     """The one route in this service that returns an artefact's bytes.
@@ -160,7 +170,7 @@ async def get_artefact_content(
 async def list_artefacts(
     request: Request,
     principal: PrincipalDep,
-    roles: ArtizentDep,
+    roles: ArtefactReaderDep,
     mu_ref: Annotated[str, Query(min_length=1, max_length=128)],
     kind: Annotated[str | None, Query(max_length=64)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,

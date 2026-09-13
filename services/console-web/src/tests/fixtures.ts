@@ -54,6 +54,8 @@ import type {
   ModelProposal,
   ModelVersion,
   MovedClassification,
+  MuPageResponse,
+  MuProvenanceRecord,
   ParityDashboardResponse,
   ParityRunResponse,
   ParityRunTrendEntry,
@@ -1578,6 +1580,88 @@ export function g3Question(overrides: Partial<G3Question> = {}): G3Question {
   };
 }
 
+// ---------------------------------------------------------- S10.3.1: the Migration Unit page
+
+export function muPageResponse(overrides: Partial<MuPageResponse> = {}): MuPageResponse {
+  return {
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    header: {
+      name: 'Daily VaR',
+      luid: 'wb-daily-var',
+      site: { id: 'site-rqa', name: 'RQA' },
+      project: { id: 'prj-risk', name: 'Risk Core' },
+      state: 'CLUSTERED',
+      tier: 'MODERATE',
+      withdrawn: false,
+      family: { id: 'fam_risk', name: 'Risk Positions', state: 'APPROVED' },
+      train: { id: 'trn_one', name: 'Train 1', sequence: 1 },
+      owner: { id: 'user-mehta', name: 'A. Mehta' },
+      gate_status_strip: [
+        { gate: 'G1', decision: 'APPROVED' },
+        { gate: 'G2', decision: 'APPROVED' },
+        { gate: 'G3', decision: null },
+        { gate: 'G4', decision: null },
+      ],
+    },
+    source: {
+      worksheets: [{ id: 'ws-1', name: 'VaR by Desk', views_90d: 412, distinct_viewers_90d: 31, last_view: '2027-06-01T00:00:00.000Z' }],
+      dashboards: [{ id: 'db-1', name: 'Risk Overview', views_90d: 90, distinct_viewers_90d: 12, last_view: '2027-06-01T00:00:00.000Z' }],
+      datasources: [{ id: 'ds-1', name: 'Positions', type: 'published', extract_flag: true, refresh_schedule: 'daily' }],
+      calculated_fields: [{ id: 'calc-1', name: 'Margin %', class: 'C1', formula: 'SUM([M]) / SUM([R])' }],
+      screenshot: null,
+    },
+    artefacts: {
+      model_ref: 'sem_one',
+      report: {
+        id: 'rd_1', workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', family_id: 'fam_risk', model_ref: 'sem_one',
+        pages: ['Overview'], visual_count: 1, redesign_count: 0, validation_state: 'SCHEMA_VALID',
+        validation_warnings: [], visuals: [{ id: 'vis-1', page: 'Overview' }],
+      },
+      documentation: {
+        report_id: 'rd_1', artefact_id: 'af_doc1', provenance_id: 'prov_doc1',
+        generated_at: '2027-06-01T09:00:00.000Z', content: '# Daily VaR\n\nA daily value-at-risk report.',
+      },
+      measures: [{ name: 'Margin %', source_calc_refs: ['calc-1'], dedup_decision: 'kept as-is' }],
+      git: {
+        id: 'deploy_1', report_id: 'rd_1', workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', state: 'SUCCEEDED',
+        steps: [{ name: 'deploy', ok: true, detail: '' }], git_commit_sha: 'a1b2c3d', git_ref: 'refs/heads/main',
+        workspace: 'dev', attempts: 1, triggered_by: 'agent:steward',
+        started_at: '2027-06-01T09:00:00.000Z', finished_at: '2027-06-01T09:00:02.000Z',
+      },
+    },
+    parity: parityDashboardResponse(),
+    exceptions: { cases: [] },
+    gates: {
+      g1: { decision: 'APPROVED', approver: 'user:architect@artizent.example', countersigner: null, timestamp: '2027-01-01T00:00:00.000Z', rationale: 'initial charter' },
+      g2: { decision: 'APPROVED', approver: 'user:owner@client.example', countersigner: null, timestamp: '2027-01-05T00:00:00.000Z', rationale: 'model approved' },
+      g3: g3Card(),
+      g4: null,
+    },
+    timeline: {
+      events: [
+        { sequence: 1, event: { subject: '01ARZ3NDEKTSV4RRFFQ69G5FAV', type: 'estate.node.upserted', time: '2027-01-01T00:00:00.000Z', principal: 'agent:harvester' } },
+      ],
+    },
+    ...overrides,
+  };
+}
+
+export function muProvenanceRecord(overrides: Partial<MuProvenanceRecord> = {}): MuProvenanceRecord {
+  return {
+    id: 'prov_1',
+    artefact: { kind: 'calculated_field', ref: 'calc-1', content_hash: 'deadbeef' },
+    produced_by: { agent: 'agent:transpiler', agent_version: '1.0' },
+    mode: 'DETERMINISTIC',
+    inputs: { contract: 'MODELLER_FAMILY', subject_ref: 'calc-1', context_hash: 'cafebabe', graph_version: 1, pattern_ref: null },
+    model_call: null,
+    confidence: null,
+    supersedes: null,
+    created_by: 'agent:transpiler',
+    created_at: '2027-06-01T09:00:00.000Z',
+    ...overrides,
+  };
+}
+
 export const RAISED_ISSUE: ConstructIssue = {
   id: 'gi_01M1',
   state: 'OPEN',
@@ -2958,6 +3042,21 @@ export function fakeApi(
       return new Blob(['PK fixture'], {
         type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       });
+    },
+    // Story S10.3.1. `muPage` does not call `maybeFail()` -- the identical "a GET is not
+    // the action a test is asserting through" reasoning `g3Card`/`explain` above already
+    // carry; a test wanting the read itself to fail overrides the method directly.
+    async muPage(workbookId: string, _identity: Identity) {
+      return muPageResponse({ workbook_id: workbookId });
+    },
+    async muProvenance(workbookId: string, _identity: Identity, mode?: string) {
+      maybeFail();
+      const records = mode ? [] : [muProvenanceRecord()];
+      return { workbook_id: workbookId, records };
+    },
+    async getArtefactContent(_artefactId: string, _identity: Identity) {
+      maybeFail();
+      return new Blob(['\x89PNG fixture bytes'], { type: 'image/png' });
     },
   };
 }
