@@ -114,6 +114,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Admin } from './admin/Admin';
+import { CalibrationReport } from './calibration/CalibrationReport';
 import { ToleranceCharter } from './charter/ToleranceCharter';
 import { EstateExplorer } from './estate/EstateExplorer';
 import { ExceptionDesk } from './exceptions/ExceptionDesk';
@@ -132,6 +133,7 @@ import { ParseQualityQueue } from './quality/ParseQualityQueue';
 import { RegressionMonitor } from './regression/RegressionMonitor';
 import { DecommissionTracker } from './release/DecommissionTracker';
 import { ReleaseBoard } from './release/ReleaseBoard';
+import { StatusPack } from './status-pack/StatusPack';
 import { WaveBoard } from './trains/WaveBoard';
 
 /** The Estate surface's screens (§15.3.2), plus the Programme Board's own figure (S3.1.3),
@@ -167,7 +169,12 @@ import { WaveBoard } from './trains/WaveBoard';
  * kanban. The Decommission Tracker (S9.2.2, continuing F9.2) is a fifth — §15.3.4's own
  * other named Delivery-surface row, confirmed a distinct screen from the Release Board
  * by direct read of both rows in the same table: its own axis is per-MU real adoption
- * against the configured threshold, not pipeline stage. */
+ * against the configured threshold, not pipeline stage. The Calibration Report (S10.2.1,
+ * opening F10.2) is a sixth — F13.1/S13.1.2's own report, screen-built here for the first
+ * time (see `calibration/CalibrationReport.tsx`'s own docstring for why the backlog's
+ * "per F13.2" cross-reference is read this way). The Status Pack (S10.2.1) is a seventh —
+ * §15.3.1's own named weekly narrative export, its own screen since it has a real
+ * generate/edit/publish lifecycle no other surface shares. */
 export const SURFACES = [
   { key: 'estate', label: 'Estate Explorer' },
   { key: 'lineage', label: 'Lineage View' },
@@ -185,6 +192,8 @@ export const SURFACES = [
   { key: 'g3', label: 'G3 Acceptance' },
   { key: 'release', label: 'Release Board' },
   { key: 'decommission', label: 'Decommission Tracker' },
+  { key: 'calibration', label: 'Calibration Report' },
+  { key: 'statuspack', label: 'Status Pack' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -276,7 +285,10 @@ const CLIENT_VISIBLE_SURFACES: Partial<Record<string, Surface[]>> = {
   client_data_owner: ['proposal'],
   client_report_owner: ['g3', 'decommission'],
   client_licence_admin: ['decommission'],
-  client_analytics_lead: ['charter'],
+  // Story S10.2.1: the client analytics lead is the Calibration Report's own named
+  // co-signer (`deps.py`'s `CalibrationReportReaderDep`, mirroring `require_tolerance_
+  // charter_reader`'s shape) -- real-gated to read (and sign) it, so it belongs here too.
+  client_analytics_lead: ['charter', 'calibration'],
   client_infosec_reviewer: ['estate'],
 };
 
@@ -428,6 +440,10 @@ export function App({
       )}
       {surface === 'release' && <ReleaseBoard api={api} identity={identity} />}
       {surface === 'decommission' && <DecommissionTracker api={api} identity={identity} />}
+      {surface === 'calibration' && (
+        <CalibrationReport api={api} identity={identity} liveTick={liveTick} />
+      )}
+      {surface === 'statuspack' && <StatusPack api={api} identity={identity} liveTick={liveTick} />}
     </div>
   );
 }

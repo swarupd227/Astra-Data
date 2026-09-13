@@ -15,7 +15,11 @@ import type {
   ApplyRulesResult,
   AwaitingG2Response,
   AwaitingG2Review,
+  BlockedCase,
   BuildRecord,
+  CalibrationBaseline,
+  CalibrationReportData,
+  CalibrationReportResponse,
   ClassMix,
   ConformanceRuleset,
   ConstructIssue,
@@ -42,8 +46,11 @@ import type {
   G4Card,
   G4DecisionResult,
   Identity,
+  KpiStrip,
   LineageQuery,
   LineageResponse,
+  Milestone,
+  MilestoneRailResponse,
   ModelProposal,
   ModelVersion,
   MovedClassification,
@@ -76,6 +83,7 @@ import type {
   RunVisualParityResult,
   SheetParityStats,
   SimulateResult,
+  StatusPackData,
   SubjectEventsResponse,
   ToleranceCharter,
   ToleranceCharterFieldMetadata,
@@ -86,6 +94,8 @@ import type {
   TrainProjection,
   TrainProjectionsResponse,
   TrainsResponse,
+  TrainSwimlane,
+  TrainSwimlanesResponse,
   VerdictRow,
   VersionsResponse,
   VisualCapturePair,
@@ -1380,6 +1390,161 @@ export function rebuildStatus(overrides: Partial<RebuildStatus> = {}): RebuildSt
   };
 }
 
+// ------------------------------------------------- S10.2.1: Programme surface, opening F10.2
+
+export function kpiStrip(overrides: Partial<KpiStrip> = {}): KpiStrip {
+  return {
+    mus_by_state: { CLUSTERED: 3, PLANNED: 2 },
+    first_pass_parity: { cases: 10, first_pass: 8, first_pass_rate: 0.8 },
+    absorption: {
+      threshold: 0.8,
+      baseline_source: 'the configured adoption threshold -- no Calibration Wave has signed a baseline yet',
+      mean_ratio: 0.72,
+      captured_count: 4,
+      meeting_threshold_count: 2,
+    },
+    gates_due_this_week: {
+      scope: 'G2 only -- no other gate has a real due-date concept yet',
+      due_this_week_count: 1,
+      already_breached_count: 1,
+      due_this_week: [{ family_id: 'fam_one', name: 'Risk Positions', days_waiting: 4 }],
+    },
+    spend_vs_budget: { spend: 560_000, budget: 1_184_000, budget_source: 'planned units by tier at current unit price', delta: -624_000 },
+    ...overrides,
+  };
+}
+
+export function blockedCase(overrides: Partial<BlockedCase> = {}): BlockedCase {
+  return {
+    case_id: 'exc_1',
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    class: 'AGGREGATION',
+    decision: 'MODEL_DEFECT_FOUNDRY',
+    reason: 'routed to the Foundry as a model-defect change request',
+    ...overrides,
+  };
+}
+
+export function trainSwimlane(overrides: Partial<TrainSwimlane> = {}): TrainSwimlane {
+  return {
+    id: 'trn_one',
+    name: 'Train 1',
+    size: 2,
+    planned_start: '2027-01-01',
+    planned_end: '2027-01-31',
+    actual_start: null,
+    actual_end: null,
+    state_counts: { CLUSTERED: 1, PLANNED: 1 },
+    blocked: [],
+    blocked_count: 0,
+    ...overrides,
+  };
+}
+
+export function trainSwimlanesResponse(
+  overrides: Partial<TrainSwimlanesResponse> = {},
+): TrainSwimlanesResponse {
+  return {
+    trains: overrides.trains ?? [trainSwimlane()],
+    orphaned_blocked_count: 0,
+    ...overrides,
+  };
+}
+
+export function milestone(overrides: Partial<Milestone> = {}): Milestone {
+  return {
+    date: '2027-01-31',
+    kind: 'gate',
+    label: 'Train 1 -- G3',
+    ref: 'trn_one',
+    ...overrides,
+  };
+}
+
+export function milestoneRailResponse(
+  overrides: Partial<MilestoneRailResponse> = {},
+): MilestoneRailResponse {
+  const rail = overrides.rail ?? [
+    milestone({ date: '2027-01-01', kind: 'train', label: 'Train 1 -- planned start', ref: 'trn_one' }),
+    milestone({ date: '2027-01-31', kind: 'gate', label: 'Train 1 -- G3', ref: 'trn_one' }),
+  ];
+  return {
+    rail,
+    gate_calendar: overrides.gate_calendar ?? { G3: [rail[1] ?? milestone()] },
+  };
+}
+
+export function calibrationReportData(overrides: Partial<CalibrationReportData> = {}): CalibrationReportData {
+  return {
+    class_mix: {
+      total: 20, unclassified: 5,
+      counts: { C1: 9, C2: 4, C3: 1, C4: 1 },
+      percentages: { C1: 60, C2: 27, C3: 6, C4: 7 },
+      targets: { C1: 45, C2: 30, C3: 18, C4: 7 },
+    },
+    calibration_targets: { C1: 45, C2: 30, C3: 18, C4: 7 },
+    rule_coverage: { total: 20, matched: 9, percentage: 45, by_family: { aggregate: 6 }, rules_version: 1 },
+    pattern_coverage: { active_count: 3, total_count: 5 },
+    first_pass_parity_by_tier: {
+      SIMPLE: { cases: 6, first_pass: 5, first_pass_rate: 0.83 },
+      MODERATE: { cases: 4, first_pass: 3, first_pass_rate: 0.75 },
+    },
+    mean_mender_passes: { available: true, closed_count: 4, mean_passes_to_pass: 1.5 },
+    c4: {
+      c4_count: 1, total_count: 15, c4_rate: 0.067,
+      by_reason: { unspecified: { count: 1, guidance: 'classified before this platform recorded a rule id' } },
+    },
+    families: { family_count: 12, planned_family_count: 150, reports_total: 18, mean_reports_per_family: 1.5 },
+    parse_quality: { workbooks_scored: 2, workbooks_total: 2, mean_parse_quality: 0.92 },
+    cost_per_report_by_tier: { SIMPLE: 8_000, MODERATE: 15_000, COMPLEX: 28_000, REDESIGN: 40_000 },
+    elapsed_time_per_stage: { available: false, detail: 'no uniform stage-timestamp series exists across harvest/build/promotion yet' },
+    executor_strategy_mix: { available: false, detail: 'no execution-strategy concept exists in this platform yet' },
+    ...overrides,
+  };
+}
+
+export function calibrationBaseline(overrides: Partial<CalibrationBaseline> = {}): CalibrationBaseline {
+  return {
+    id: 'cal_1',
+    version: 1,
+    report: calibrationReportData(),
+    signed_by: 'user:pm@artizent.example',
+    countersigned_by: 'A. Mehta',
+    signed_at: '2027-06-01T09:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function calibrationReportResponse(
+  overrides: Partial<CalibrationReportResponse> = {},
+): CalibrationReportResponse {
+  return {
+    report: calibrationReportData(),
+    baseline: null,
+    comparison: null,
+    ...overrides,
+  };
+}
+
+export function statusPackData(overrides: Partial<StatusPackData> = {}): StatusPackData {
+  return {
+    id: 'sp_1',
+    week_of: '2027-06-07',
+    version: 1,
+    narrative: 'The programme has 5 MUs in flight this week, with 1 blocked awaiting a Foundry fix.',
+    report: {
+      kpis: kpiStrip(),
+      swimlanes: trainSwimlanesResponse(),
+      milestones: milestoneRailResponse(),
+      exception_ageing: exceptionAgeingResponse(),
+    },
+    generated_by: 'user:pm@artizent.example',
+    generated_at: '2027-06-08T09:00:00.000Z',
+    published_at: null,
+    ...overrides,
+  };
+}
+
 export function g3Card(overrides: Partial<G3Card> = {}): G3Card {
   return {
     workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
@@ -1499,6 +1664,11 @@ export function fakeApi(
   const g3CardState = new Map<string, G3Card>();
   const g3QuestionRows: G3Question[] = [];
   let g1Approved = false;
+  // S10.2.1: the Calibration Report has no set-up param -- like `explain`/`rebuildStatus`
+  // above, a fresh default is enough for every test that does not override the method
+  // outright, the same convention those two already set.
+  let calibrationReportState: CalibrationReportResponse = calibrationReportResponse();
+  let statusPackState: StatusPackData | null = null;
   const programmeRows = programmes.programmes.map((row) => ({ ...row }));
   const trainRows = trains.trains.map((train) => ({
     ...train,
@@ -2699,6 +2869,95 @@ export function fakeApi(
     },
     async rebuildStatus(_identity: Identity) {
       return rebuildStatus();
+    },
+    // Story S10.2.1. `kpiStrip`/`trainSwimlanes`/`milestoneRail` fire in parallel with
+    // seven other panes on every Programme Board mount, the identical "do not call
+    // maybeFail()" reasoning `explain`/`rebuildStatus` above already carry -- a test
+    // wanting one of these three to fail overrides the method directly instead, exactly
+    // how every other Programme Board pane's own "surfaces a read failure" test already
+    // does.
+    async kpiStrip(_identity: Identity) {
+      return kpiStrip();
+    },
+    async trainSwimlanes(_identity: Identity) {
+      return trainSwimlanesResponse();
+    },
+    async milestoneRail(_identity: Identity) {
+      return milestoneRailResponse();
+    },
+    async calibrationReport(_identity: Identity) {
+      // Not gated behind `maybeFail()` -- the identical "a passive mount fetch must not
+      // eat the shared failure queue a test armed for its own action" reasoning
+      // `programmes()` above already carries. A test wanting this call itself to fail
+      // overrides the method directly.
+      return calibrationReportState;
+    },
+    async signCalibrationReport(countersignedBy: string, identity: Identity) {
+      maybeFail();
+      if (!countersignedBy.trim()) {
+        throw new ApiError(400, 'invalid_request', 'countersigned_by must not be blank');
+      }
+      const baseline = calibrationBaseline({
+        version: (calibrationReportState.baseline?.version ?? 0) + 1,
+        report: calibrationReportState.report,
+        signed_by: identity.principal,
+        countersigned_by: countersignedBy,
+        signed_at: new Date().toISOString(),
+      });
+      calibrationReportState = { ...calibrationReportState, baseline, comparison: {} };
+      recorded.push({ kind: 'SIGN_CALIBRATION_REPORT', id: baseline.id, reason: countersignedBy });
+      return baseline;
+    },
+    async calibrationReportPdf(_identity: Identity) {
+      maybeFail();
+      return new Blob(['%PDF-1.4 fixture'], { type: 'application/pdf' });
+    },
+    async statusPack(_identity: Identity) {
+      // Not gated behind `maybeFail()`, the same passive-mount-fetch reasoning as
+      // `calibrationReport` above.
+      if (!statusPackState) {
+        throw new ApiError(400, 'invalid_request', 'no Status Pack has been generated yet');
+      }
+      return statusPackState;
+    },
+    async generateStatusPack(identity: Identity) {
+      maybeFail();
+      statusPackState = statusPackData({
+        version: (statusPackState?.version ?? 0) + 1,
+        generated_by: identity.principal,
+        generated_at: new Date().toISOString(),
+        published_at: null,
+      });
+      recorded.push({ kind: 'GENERATE_STATUS_PACK', id: statusPackState.id, reason: '' });
+      return statusPackState;
+    },
+    async editStatusPack(narrative: string, _identity: Identity) {
+      maybeFail();
+      if (!statusPackState) {
+        throw new ApiError(400, 'invalid_request', 'no Status Pack has been generated yet');
+      }
+      statusPackState = { ...statusPackState, narrative, version: statusPackState.version + 1 };
+      recorded.push({ kind: 'EDIT_STATUS_PACK', id: statusPackState.id, reason: narrative });
+      return statusPackState;
+    },
+    async publishStatusPack(_identity: Identity) {
+      maybeFail();
+      if (!statusPackState) {
+        throw new ApiError(400, 'invalid_request', 'no Status Pack has been generated yet');
+      }
+      statusPackState = { ...statusPackState, published_at: new Date().toISOString() };
+      recorded.push({ kind: 'PUBLISH_STATUS_PACK', id: statusPackState.id, reason: '' });
+      return statusPackState;
+    },
+    async statusPackPdf(_identity: Identity) {
+      maybeFail();
+      return new Blob(['%PDF-1.4 fixture'], { type: 'application/pdf' });
+    },
+    async statusPackPptx(_identity: Identity) {
+      maybeFail();
+      return new Blob(['PK fixture'], {
+        type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      });
     },
   };
 }

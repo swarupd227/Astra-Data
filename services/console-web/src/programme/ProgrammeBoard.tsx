@@ -48,6 +48,16 @@
  * §3.2's own tier, against `invoicing.PLANNED_BY_TIER`'s own disclosed planning split of
  * the identical 150 this board's own first pane already plans against. Read-only, no
  * action of its own — see `invoicing.py`'s own docstring.
+ *
+ * Three more panes, since S10.2.1 (opening F10.2), are §15.3.1's own "KPI strip", "train
+ * swimlanes... blocked reasons" and "milestone rail and gate calendar" -- rendered first,
+ * above every pane built so far, matching that row's own "Top... Middle... Bottom" layout.
+ * "Exceptions ageing" is this story's own AC clause too, but the sixth pane above already
+ * built it (S8.3.2) -- reused as-is, not rebuilt. Every KPI strip/swimlane/milestone figure
+ * is real and live; see `programme_surface.py`'s own module docstring for exactly what
+ * each one reads and which readings (absorption vs a "calibrated baseline", a "budget"
+ * this codebase has never named in currency, "MUs by state" as the Wave Board's own
+ * honestly-static state proxy) are disclosed rather than invented.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -60,9 +70,12 @@ import type {
   ClassMix,
   ExceptionAgeingResponse,
   Identity,
+  KpiStrip,
+  MilestoneRailResponse,
   ProgrammeRecord,
   RuleCoverage,
   TrainProjection,
+  TrainSwimlanesResponse,
 } from '../lib/api';
 import { ApiError } from '../lib/api';
 
@@ -206,6 +219,9 @@ export function ProgrammeBoard({ api, identity, liveTick }: Props): JSX.Element 
         </footer>
       </section>
 
+      <KpiStripPane api={api} identity={identity} liveTick={liveTick} />
+      <TrainSwimlanesPane api={api} identity={identity} liveTick={liveTick} />
+      <MilestoneRailPane api={api} identity={identity} liveTick={liveTick} />
       <TrainProjectionsPane api={api} identity={identity} liveTick={liveTick} />
       <G2ReviewsPane api={api} identity={identity} liveTick={liveTick} />
       <ClassMixPane api={api} identity={identity} liveTick={liveTick} />
@@ -888,6 +904,236 @@ function AcceptanceByTierPane({ api, identity, liveTick }: Props): JSX.Element {
           </span>
         )}
       </footer>
+    </section>
+  );
+}
+
+// ------------------------------------------------------------------- KPI strip (S10.2.1)
+
+function formatPercent(value: number | null): string {
+  return value === null ? '—' : `${(value * 100).toFixed(1)}%`;
+}
+
+function KpiStripPane({ api, identity, liveTick }: Props): JSX.Element {
+  const [kpis, setKpis] = useState<KpiStrip | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setLoading(true);
+    api
+      .kpiStrip(identity)
+      .then((response) => {
+        if (!live) return;
+        setKpis(response);
+        setError(null);
+      })
+      .catch((caught: unknown) => {
+        if (!live) return;
+        setError(caught instanceof ApiError ? caught.message : 'The KPI strip could not be read.');
+      })
+      .finally(() => live && setLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [api, identity, liveTick]);
+
+  return (
+    <section className="pane kpi-strip" aria-label="KPI strip">
+      <header className="pane-header">
+        <h2>KPI strip</h2>
+      </header>
+      <div className="pane-body">
+        {error ? (
+          <div className="banner">{error}</div>
+        ) : loading && !kpis ? (
+          <p className="empty">Reading the KPI strip…</p>
+        ) : !kpis ? null : (
+          <div className="kpi-tiles">
+            <div className="kpi-tile">
+              <span className="section-title">MUs by state</span>
+              <span className="figure-value">
+                {Object.entries(kpis.mus_by_state).length === 0
+                  ? '—'
+                  : Object.entries(kpis.mus_by_state)
+                      .map(([state, count]) => `${count} ${state}`)
+                      .join(', ')}
+              </span>
+            </div>
+            <div className="kpi-tile">
+              <span className="section-title">First-pass parity</span>
+              <span className="figure-value numeric">{formatPercent(kpis.first_pass_parity.first_pass_rate)}</span>
+            </div>
+            <div className="kpi-tile">
+              <span className="section-title">
+                Absorption
+                <Explain api={api} identity={identity} metricKey="programme.absorption" />
+              </span>
+              <span className="figure-value numeric">{formatPercent(kpis.absorption.mean_ratio)}</span>
+              <span className="faint">vs {formatPercent(kpis.absorption.threshold)} threshold</span>
+            </div>
+            <div className="kpi-tile">
+              <span className="section-title">Gates due this week</span>
+              <span className="figure-value numeric">{kpis.gates_due_this_week.due_this_week_count}</span>
+              <span className="faint" title={kpis.gates_due_this_week.scope}>
+                {kpis.gates_due_this_week.already_breached_count} already past SLA
+              </span>
+            </div>
+            <div className="kpi-tile">
+              <span className="section-title">
+                Spend vs budget
+                <Explain api={api} identity={identity} metricKey="programme.spend_vs_budget" />
+              </span>
+              <span className="figure-value numeric">
+                {formatCurrency(kpis.spend_vs_budget.spend)} / {formatCurrency(kpis.spend_vs_budget.budget)}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ------------------------------------------------------------ train swimlanes (S10.2.1)
+
+function TrainSwimlanesPane({ api, identity, liveTick }: Props): JSX.Element {
+  const [swimlanes, setSwimlanes] = useState<TrainSwimlanesResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setLoading(true);
+    api
+      .trainSwimlanes(identity)
+      .then((response) => {
+        if (!live) return;
+        setSwimlanes(response);
+        setError(null);
+      })
+      .catch((caught: unknown) => {
+        if (!live) return;
+        setError(caught instanceof ApiError ? caught.message : 'Train swimlanes could not be read.');
+      })
+      .finally(() => live && setLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [api, identity, liveTick]);
+
+  return (
+    <section className="pane" aria-label="Train swimlanes">
+      <header className="pane-header">
+        <h2>Train swimlanes</h2>
+      </header>
+      <div className="pane-body">
+        {error ? (
+          <div className="banner">{error}</div>
+        ) : loading && !swimlanes ? (
+          <p className="empty">Reading train swimlanes…</p>
+        ) : !swimlanes || swimlanes.trains.length === 0 ? (
+          <p className="empty">No release trains yet.</p>
+        ) : (
+          <table className="estate">
+            <caption className="visually-hidden">
+              Each train's planned vs actual dates, MU counts by state, and blocked reasons
+            </caption>
+            <thead>
+              <tr>
+                <th>Train</th>
+                <th>Planned</th>
+                <th>Actual</th>
+                <th>MU counts by state</th>
+                <th>Blocked</th>
+              </tr>
+            </thead>
+            <tbody>
+              {swimlanes.trains.map((train) => (
+                <tr key={train.id} className={train.blocked_count > 0 ? 'flagged' : undefined}>
+                  <td>{train.name ?? train.id}</td>
+                  <td>
+                    {train.planned_start ?? '—'} → {train.planned_end ?? '—'}
+                  </td>
+                  <td>
+                    {train.actual_start ?? '—'} → {train.actual_end ?? '—'}
+                  </td>
+                  <td>
+                    {Object.entries(train.state_counts)
+                      .map(([state, count]) => `${count} ${state}`)
+                      .join(', ') || '—'}
+                  </td>
+                  <td>
+                    {train.blocked_count === 0 ? (
+                      <span className="faint">none</span>
+                    ) : (
+                      <span className="pill bad" title={train.blocked.map((b) => b.reason).join('; ')}>
+                        {train.blocked_count} blocked
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// -------------------------------------------------------------- milestone rail (S10.2.1)
+
+function MilestoneRailPane({ api, identity, liveTick }: Props): JSX.Element {
+  const [milestones, setMilestones] = useState<MilestoneRailResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setLoading(true);
+    api
+      .milestoneRail(identity)
+      .then((response) => {
+        if (!live) return;
+        setMilestones(response);
+        setError(null);
+      })
+      .catch((caught: unknown) => {
+        if (!live) return;
+        setError(caught instanceof ApiError ? caught.message : 'The milestone rail could not be read.');
+      })
+      .finally(() => live && setLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [api, identity, liveTick]);
+
+  return (
+    <section className="pane" aria-label="Milestone rail">
+      <header className="pane-header">
+        <h2>Milestone rail and gate calendar</h2>
+      </header>
+      <div className="pane-body">
+        {error ? (
+          <div className="banner">{error}</div>
+        ) : loading && !milestones ? (
+          <p className="empty">Reading the milestone rail…</p>
+        ) : !milestones || milestones.rail.length === 0 ? (
+          <p className="empty">No dated milestone exists yet.</p>
+        ) : (
+          <ul className="milestone-rail">
+            {milestones.rail.map((milestone) => (
+              <li key={`${milestone.kind}-${milestone.ref}-${milestone.date}`}>
+                <span className="mono">{milestone.date}</span>
+                <span className={`pill ${milestone.kind === 'gate' ? 'ok' : 'idle'}`}>{milestone.kind}</span>
+                <span>{milestone.label}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }

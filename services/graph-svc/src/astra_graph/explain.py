@@ -176,4 +176,31 @@ EXPLAIN_REGISTRY: dict[str, ExplainEntry] = {
         source="astra_graph/g3_card.py:203-239 (_proof)",
         subject_kind="workbook",
     ),
+    "programme.absorption": ExplainEntry(
+        metric_key="programme.absorption",
+        title="Programme Board — absorption vs calibrated baseline",
+        kind="computation",
+        text=(
+            "tracker = await decommission_tracker(pool, graph_name, adoption_store, adoption_config_store)\n"
+            "ratios = [mu['snapshot']['ratio'] for site in tracker['sites'] for mu in site['mus']\n"
+            "          if mu['snapshot'] and mu['snapshot']['ratio'] is not None]\n"
+            "mean_ratio = sum(ratios) / len(ratios) if ratios else None\n\n"
+            "-- 'calibrated baseline' reads as the configured AdoptionConfig.threshold until a\n"
+            "-- real Calibration Wave has signed a different one (see calibration_wave.py)."
+        ),
+        source="astra_graph/programme_surface.py:_absorption (S10.2.1)",
+    ),
+    "programme.spend_vs_budget": ExplainEntry(
+        metric_key="programme.spend_vs_budget",
+        title="Programme Board — spend vs budget",
+        kind="computation",
+        text=(
+            "summary = await programme_acceptance_summary(pool, graph_name, unit_price_store)\n"
+            "planned_value = sum(PLANNED_BY_TIER[tier] * prices[tier] for tier in TIERS)\n\n"
+            "-- 'spend' is the real accepted value; 'budget' is the real planned unit count\n"
+            "-- per tier times each tier's own current unit price -- no currency figure named\n"
+            "-- 'budget' exists anywhere in this codebase's own spec/backlog text."
+        ),
+        source="astra_graph/programme_surface.py:_spend_vs_budget (S10.2.1)",
+    ),
 }

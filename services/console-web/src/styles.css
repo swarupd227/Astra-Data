@@ -464,6 +464,19 @@ table.estate td {
 .detail dt { color: var(--text-muted); }
 .detail dd { margin: 0; overflow: hidden; text-overflow: ellipsis; }
 
+/* Story S10.2.1's own editable Status Pack narrative -- a full-width textarea, unlike
+   the fixed-width `.dialog textarea` this pane is not itself a dialog. */
+.status-pack-narrative {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  font: inherit;
+  color: inherit;
+  resize: vertical;
+}
+
 .section-title {
   font-size: 11px;
   font-weight: 650;
@@ -792,6 +805,47 @@ table.estate td {
   font-size: 24px;
   font-weight: 650;
   text-align: left;
+}
+
+/* -------------------------------------------------------------- KPI strip (S10.2.1) */
+
+.kpi-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.kpi-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.kpi-tile .figure-value {
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.milestone-rail {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.milestone-rail li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
 }
 
 /* --------------------------------------------------------------------- wave board */

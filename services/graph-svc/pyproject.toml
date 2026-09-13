@@ -35,6 +35,12 @@ dependencies = [
     # average-hash similarity -- graph-svc's own need, the identical "this story needs
     # it, added here rather than a shared package" precedent pyarrow already set.
     "Pillow>=10,<12",
+    # The Status Pack's own real PDF/PPTX export (story S10.2.1, §15.3.1). Both are the
+    # reference open-source library for their own format -- the identical "this story
+    # needs it, added here rather than a shared package" precedent pyarrow/Pillow already
+    # set.
+    "reportlab>=4,<5",
+    "python-pptx>=1,<2",
 ]
 
 [project.optional-dependencies]
@@ -107,6 +113,14 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "PIL.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "reportlab.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pptx.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

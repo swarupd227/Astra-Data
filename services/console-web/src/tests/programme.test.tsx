@@ -16,13 +16,19 @@ import {
   acceptanceSummary,
   awaitingG2Response,
   awaitingG2Review,
+  blockedCase,
   classMix,
   exceptionAgeingResponse,
   fakeApi,
+  kpiStrip,
+  milestone,
+  milestoneRailResponse,
   programmesResponse,
   ruleCoverage,
   trainProjection,
   trainProjectionsResponse,
+  trainSwimlane,
+  trainSwimlanesResponse,
 } from './fixtures';
 
 const PM: Identity = { principal: 'user:pm@artizent.example', roles: ['programme_manager'] };
@@ -549,6 +555,130 @@ describe('accepted units by tier (S9.1.2)', () => {
     render(<ProgrammeBoard api={api} identity={PM} />);
 
     expect(await screen.findByText(/this endpoint is available to Artizent roles/)).toBeInTheDocument();
+  });
+});
+
+describe('KPI strip (S10.2.1)', () => {
+  it('shows MUs by state, first-pass parity, absorption, gates due, and spend vs budget', async () => {
+    const api = fakeApi();
+    api.kpiStrip = async () =>
+      kpiStrip({
+        mus_by_state: { CLUSTERED: 3, PLANNED: 2 },
+        first_pass_parity: { cases: 10, first_pass: 8, first_pass_rate: 0.8 },
+        absorption: {
+          threshold: 0.8, baseline_source: 'configured threshold', mean_ratio: 0.72,
+          captured_count: 4, meeting_threshold_count: 2,
+        },
+        gates_due_this_week: {
+          scope: 'G2 only', due_this_week_count: 1, already_breached_count: 1,
+          due_this_week: [{ family_id: 'fam_one', name: 'Risk Positions', days_waiting: 4 }],
+        },
+        spend_vs_budget: { spend: 560_000, budget: 1_184_000, budget_source: 'planned units', delta: -624_000 },
+      });
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    const pane = await screen.findByRole('region', { name: 'KPI strip' });
+    expect(within(pane).getByText('3 CLUSTERED, 2 PLANNED')).toBeInTheDocument();
+    expect(within(pane).getByText('80.0%')).toBeInTheDocument();
+    expect(within(pane).getByText('72.0%')).toBeInTheDocument();
+    expect(within(pane).getByText('1')).toBeInTheDocument();
+    expect(within(pane).getByText('1 already past SLA')).toBeInTheDocument();
+    expect(within(pane).getByText('$560,000 / $1,184,000')).toBeInTheDocument();
+  });
+
+  it('surfaces a read failure', async () => {
+    const api = fakeApi();
+    api.kpiStrip = async () => {
+      throw new ApiError(503, 'unavailable', 'the KPI strip is not available');
+    };
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    expect(await screen.findByText(/the KPI strip is not available/)).toBeInTheDocument();
+  });
+});
+
+describe('train swimlanes (S10.2.1)', () => {
+  it('shows planned vs actual, MU counts by state, and blocked reasons', async () => {
+    const api = fakeApi();
+    api.trainSwimlanes = async () =>
+      trainSwimlanesResponse({
+        trains: [
+          trainSwimlane({
+            id: 'trn_one', name: 'Train 1',
+            planned_start: '2027-01-01', planned_end: '2027-01-31',
+            actual_start: null, actual_end: null,
+            state_counts: { CLUSTERED: 1, PLANNED: 1 },
+            blocked: [blockedCase({ reason: 'routed to the Foundry as a model-defect change request' })],
+            blocked_count: 1,
+          }),
+        ],
+      });
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    const pane = await screen.findByRole('region', { name: 'Train swimlanes' });
+    expect(within(pane).getByText('Train 1')).toBeInTheDocument();
+    expect(within(pane).getByText('1 CLUSTERED, 1 PLANNED')).toBeInTheDocument();
+    expect(within(pane).getByText('1 blocked')).toBeInTheDocument();
+    const row = within(pane).getByText('Train 1').closest('tr')!;
+    expect(row).toHaveClass('flagged');
+  });
+
+  it('says no release trains yet when there are none', async () => {
+    const api = fakeApi();
+    api.trainSwimlanes = async () => trainSwimlanesResponse({ trains: [] });
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    const pane = await screen.findByRole('region', { name: 'Train swimlanes' });
+    expect(within(pane).getByText('No release trains yet.')).toBeInTheDocument();
+  });
+
+  it('surfaces a read failure', async () => {
+    const api = fakeApi();
+    api.trainSwimlanes = async () => {
+      throw new ApiError(503, 'unavailable', 'train swimlanes are not available');
+    };
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    expect(await screen.findByText(/train swimlanes are not available/)).toBeInTheDocument();
+  });
+});
+
+describe('milestone rail (S10.2.1)', () => {
+  it('shows the milestone rail with train and gate entries', async () => {
+    const api = fakeApi();
+    api.milestoneRail = async () =>
+      milestoneRailResponse({
+        rail: [
+          milestone({ date: '2027-01-01', kind: 'train', label: 'Train 1 -- planned start', ref: 'trn_one' }),
+          milestone({ date: '2027-01-31', kind: 'gate', label: 'Train 1 -- G3', ref: 'trn_one' }),
+        ],
+      });
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    const pane = await screen.findByRole('region', { name: 'Milestone rail' });
+    expect(within(pane).getByText('Train 1 -- planned start')).toBeInTheDocument();
+    expect(within(pane).getByText('Train 1 -- G3')).toBeInTheDocument();
+    expect(within(pane).getByText('train')).toBeInTheDocument();
+    expect(within(pane).getByText('gate')).toBeInTheDocument();
+  });
+
+  it('says no dated milestone exists yet when there are none', async () => {
+    const api = fakeApi();
+    api.milestoneRail = async () => milestoneRailResponse({ rail: [] });
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    const pane = await screen.findByRole('region', { name: 'Milestone rail' });
+    expect(within(pane).getByText('No dated milestone exists yet.')).toBeInTheDocument();
+  });
+
+  it('surfaces a read failure', async () => {
+    const api = fakeApi();
+    api.milestoneRail = async () => {
+      throw new ApiError(503, 'unavailable', 'the milestone rail is not available');
+    };
+    render(<ProgrammeBoard api={api} identity={PM} />);
+
+    expect(await screen.findByText(/the milestone rail is not available/)).toBeInTheDocument();
   });
 });
 

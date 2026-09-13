@@ -3765,6 +3765,58 @@ exposes that record rather than adding a second projection layer.
   (see `explain.py`'s own module docstring); "the events behind it" reuses `GET /v1/
   events?subject=` directly, no new route needed for that half.
 
+## The Programme Board's KPI strip, the Calibration Report and the Status Pack (story S10.2.1, opens F10.2)
+
+Three new panes complete the Programme Board per §15.3.1, and two new top-level screens
+build the Calibration Report and the Status Pack. Every figure below reads a real,
+already-existing fact — no new state machine, budget ledger, or milestone concept was
+invented; see `programme_surface.py`/`calibration_wave.py`/`status_pack.py`'s own module
+docstrings for the full reasoning behind each reading.
+
+- `GET /v1/programme:kpis` (`programme_surface.kpi_strip`, `ArtizentDep`) — MUs by state
+  (the Wave Board's own already-disclosed static `IN_TRAIN.state`, aggregated), estate-
+  wide first-pass parity, absorption vs the *currently configured* adoption threshold
+  (until a real Calibration Wave signs a different one), gates due this week (G2 only —
+  the only gate with a real due-date concept), and spend vs budget (`PLANNED_BY_TIER`
+  times each tier's own current unit price — no currency "budget" is named anywhere in
+  spec or backlog text, so this is the one real, defensible reading).
+- `GET /v1/programme:swimlanes` (`programme_surface.train_swimlanes`) — planned vs actual
+  dates, MU counts by state, and blocked reasons per train. Blocked reasons key a small,
+  disclosed `_BLOCKED_REASONS` mapping off `ExceptionCase.decision` — the only property
+  the sole real write site (`foundry_routing.route_to_foundry`) ever persists; no
+  free-text reason is ever recorded on an `ExceptionCase` anywhere in this codebase.
+- `GET /v1/programme:milestones` (`programme_surface.milestone_rail`) — every real
+  `ReleaseTrain`'s own planned/actual dates and every real `GateDecision`'s own timestamp,
+  sorted into one rail and grouped into a gate calendar. No `Milestone` node exists.
+- `GET /v1/calibration:report` (`CalibrationReportReaderDep` — Artizent or the client
+  analytics lead) — `calibration_wave.calibration_report`. This is F13.1/S13.1.2's own
+  named "Calibration Wave" report; the backlog AC's own "per F13.2" is a disclosed
+  spec/backlog mismatch (§15.3.1's own row content matches S13.1.2 almost verbatim, not
+  F13.2/S13.2.2's separate, still-unbuilt model-confidence calibration curve). Every
+  field reads a real fact (class mix, coverage, per-tier parity, C4 reasons via
+  `CalculatedField.pattern_ref`, family count, cost per report) except `elapsed_time_
+  per_stage`/`executor_strategy_mix`, both honestly `{"available": false}` — no uniform
+  stage-timestamp series or execution-strategy concept exists in this codebase.
+  `POST /v1/calibration:sign` (`ProgrammeManagerDep`, a typed `countersigned_by` string —
+  the same no-second-authenticated-action limitation G3/G4 approval already carry) writes
+  a new, versioned `calibration_baseline` row (`UNIQUE (graph, version)`, append-only —
+  never an overwrite). `GET /v1/calibration:report.pdf` renders real `reportlab` tables.
+- `POST /v1/status-pack:generate` (`ProgrammeManagerDep`, `status_pack.generate_pack`)
+  freezes the Programme Board's own real `kpi_strip`/`train_swimlanes`/`milestone_rail`/
+  `exception_ageing` facts onto one versioned `status_pack` row — "generated weekly" is
+  Programme-Manager-triggered, not a claim of a scheduler this platform does not have.
+  `GET /v1/status-pack` (`ArtizentDep` — deliberately narrower than the Calibration
+  Report's own gate, since no client persona is named anywhere as a Status Pack reader).
+  `POST /v1/status-pack:edit` stores a narrative edit as a new version, never an
+  overwrite. `POST /v1/status-pack:publish` records a real `published_at` transition
+  only — the same "a real record, not an unverifiable delivery claim" posture `g2_
+  reminders.py`'s own "sent" reminders already set. `GET /v1/status-pack.pdf`/`.pptx`
+  render real `reportlab`/`python-pptx` tables and narrative text — deliberately not
+  native charts, a disclosed scope boundary.
+- New migration `v0037_calibration_and_status_pack.py`: `public.calibration_baseline`
+  and `public.status_pack`, both plain Postgres platform tables, not ontology nodes — no
+  ontology change.
+
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,

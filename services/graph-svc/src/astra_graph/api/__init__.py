@@ -4,6 +4,7 @@ from .routes import router
 from .routes_adapters import router as adapters_router
 from .routes_adoption import router as adoption_router
 from .routes_artefacts import router as artefacts_router
+from .routes_calibration_wave import router as calibration_wave_router
 from .routes_case_derivation import router as case_derivation_router
 from .routes_case_execution import router as case_execution_router
 from .routes_classification import router as classification_router
@@ -29,6 +30,7 @@ from .routes_modeller import router as modeller_router
 from .routes_ownership import router as ownership_router
 from .routes_patterns import router as patterns_router
 from .routes_platform import router as platform_router
+from .routes_programme_surface import router as programme_surface_router
 from .routes_provenance import router as provenance_router
 from .routes_quality import router as quality_router
 from .routes_rebuild import router as rebuild_router
@@ -37,6 +39,7 @@ from .routes_regression import router as regression_router
 from .routes_release import router as release_router
 from .routes_rules import router as rules_router
 from .routes_schedules import router as schedules_router
+from .routes_status_pack import router as status_pack_router
 from .routes_tolerance_charter import router as tolerance_charter_router
 from .routes_trains import router as trains_router
 from .routes_verdicts import router as verdicts_router
@@ -46,6 +49,7 @@ __all__ = [
     "adapters_router",
     "adoption_router",
     "artefacts_router",
+    "calibration_wave_router",
     "case_derivation_router",
     "case_execution_router",
     "classification_router",
@@ -71,6 +75,7 @@ __all__ = [
     "ownership_router",
     "patterns_router",
     "platform_router",
+    "programme_surface_router",
     "provenance_router",
     "quality_router",
     "rebuild_router",
@@ -80,6 +85,7 @@ __all__ = [
     "router",
     "rules_router",
     "schedules_router",
+    "status_pack_router",
     "tolerance_charter_router",
     "trains_router",
     "verdicts_router",

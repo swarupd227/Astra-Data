@@ -22,6 +22,7 @@ from .api import (
     adapters_router,
     adoption_router,
     artefacts_router,
+    calibration_wave_router,
     case_derivation_router,
     case_execution_router,
     classification_router,
@@ -47,6 +48,7 @@ from .api import (
     ownership_router,
     patterns_router,
     platform_router,
+    programme_surface_router,
     provenance_router,
     quality_router,
     rebuild_router,
@@ -56,6 +58,7 @@ from .api import (
     router,
     rules_router,
     schedules_router,
+    status_pack_router,
     tolerance_charter_router,
     trains_router,
     verdicts_router,
@@ -551,6 +554,9 @@ def create_app() -> FastAPI:
     app.include_router(rebuild_router)
     app.include_router(events_stream_router)
     app.include_router(explain_router)
+    app.include_router(programme_surface_router)
+    app.include_router(calibration_wave_router)
+    app.include_router(status_pack_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

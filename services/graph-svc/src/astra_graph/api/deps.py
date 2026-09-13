@@ -413,6 +413,24 @@ def require_decommission_confirmer(roles: RoleSetDep) -> RoleSet:
 
 DecommissionConfirmerDep = Annotated[RoleSet, Depends(require_decommission_confirmer)]
 
+
+def require_calibration_reader(roles: RoleSetDep) -> RoleSet:
+    """Gate the Calibration Report on "any Artizent role, or the client analytics
+    lead specifically" (story S10.2.1, F13.1/S13.1.2's own "'Sign report' by the
+    Programme Manager and the client analytics lead") — the identical shape `require_
+    tolerance_charter_reader` already set for the same client role, since the client
+    analytics lead is a real co-signer of this report and must be able to read it
+    before signing it, the identical reasoning that gate already gives for G1."""
+    if not (roles.is_artizent() or Role.CLIENT_ANALYTICS_LEAD in roles.roles):
+        raise ForbiddenError(
+            f"the Calibration Report is open to Artizent roles and the client "
+            f"analytics lead; declare one in {ROLES_HEADER}"
+        )
+    return roles
+
+
+CalibrationReportReaderDep = Annotated[RoleSet, Depends(require_calibration_reader)]
+
 DOMAIN_SCOPE_HEADER = "X-Astra-Domain-Scope"
 
 

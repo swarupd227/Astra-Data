@@ -889,6 +889,145 @@ export interface SubjectEventsResponse {
   has_more: boolean;
 }
 
+/** Story S10.2.1's own Programme Board KPI strip (§15.3.1). See `programme_surface.py`'s
+ * own module docstring for what each figure reads and which readings are disclosed. */
+export interface KpiStrip {
+  mus_by_state: Record<string, number>;
+  first_pass_parity: { cases: number; first_pass: number; first_pass_rate: number | null };
+  absorption: {
+    threshold: number;
+    baseline_source: string;
+    mean_ratio: number | null;
+    captured_count: number;
+    meeting_threshold_count: number;
+  };
+  gates_due_this_week: {
+    scope: string;
+    due_this_week_count: number;
+    already_breached_count: number;
+    due_this_week: { family_id: string; name: string | null; days_waiting: number | null }[];
+  };
+  spend_vs_budget: { spend: number; budget: number; budget_source: string; delta: number };
+}
+
+export interface BlockedCase {
+  case_id: string;
+  workbook_id: string | null;
+  class: string | null;
+  decision: string | null;
+  reason: string;
+}
+
+export interface TrainSwimlane {
+  id: string;
+  name: string | null;
+  size: number;
+  planned_start: string | null;
+  planned_end: string | null;
+  actual_start: string | null;
+  actual_end: string | null;
+  state_counts: Record<string, number>;
+  blocked: BlockedCase[];
+  blocked_count: number;
+}
+
+export interface TrainSwimlanesResponse {
+  trains: TrainSwimlane[];
+  orphaned_blocked_count: number;
+}
+
+export interface Milestone {
+  date: string;
+  kind: 'train' | 'gate';
+  label: string;
+  ref: string;
+}
+
+export interface MilestoneRailResponse {
+  rail: Milestone[];
+  gate_calendar: Record<string, Milestone[]>;
+}
+
+/** F13.1/S13.1.2's Calibration Report -- see `calibration_wave.py`'s own module
+ * docstring for why "per F13.2" in the backlog AC is read as this report instead, and
+ * which two named fields ("elapsed_time_per_stage", "executor_strategy_mix") are
+ * honestly not built. */
+export interface CalibrationReportData {
+  class_mix: {
+    total: number;
+    unclassified: number;
+    counts: Record<string, number>;
+    percentages: Record<string, number>;
+    targets: Record<string, number>;
+  };
+  calibration_targets: Record<string, number>;
+  rule_coverage: {
+    total: number;
+    matched: number;
+    percentage: number;
+    by_family: Record<string, number>;
+    rules_version: number;
+  };
+  pattern_coverage: { active_count: number; total_count: number };
+  first_pass_parity_by_tier: Record<
+    string,
+    { cases: number; first_pass: number; first_pass_rate: number | null }
+  >;
+  mean_mender_passes: {
+    available: boolean;
+    closed_count?: number;
+    mean_passes_to_pass?: number;
+    detail?: string;
+  };
+  c4: {
+    c4_count: number;
+    total_count: number;
+    c4_rate: number | null;
+    by_reason: Record<string, { count: number; guidance: string }>;
+  };
+  families: {
+    family_count: number;
+    planned_family_count: number;
+    reports_total: number;
+    mean_reports_per_family: number | null;
+  };
+  parse_quality: { workbooks_scored: number; workbooks_total: number; mean_parse_quality: number | null };
+  cost_per_report_by_tier: Record<string, number>;
+  elapsed_time_per_stage: { available: boolean; detail?: string };
+  executor_strategy_mix: { available: boolean; detail?: string };
+}
+
+export interface CalibrationBaseline {
+  id: string;
+  version: number;
+  report: CalibrationReportData;
+  signed_by: string;
+  countersigned_by: string;
+  signed_at: string;
+}
+
+export interface CalibrationReportResponse {
+  report: CalibrationReportData;
+  baseline: CalibrationBaseline | null;
+  comparison: Record<string, unknown> | null;
+}
+
+export interface StatusPackData {
+  id: string;
+  week_of: string;
+  version: number;
+  narrative: string;
+  report: {
+    kpis: KpiStrip;
+    swimlanes: TrainSwimlanesResponse;
+    milestones: MilestoneRailResponse;
+    exception_ageing: unknown;
+  };
+  generated_by: string;
+  generated_at: string;
+  published_at: string | null;
+}
+
 export interface RebuildStatus {
   running: boolean;
   started_at: string | null;
@@ -1881,6 +2020,18 @@ export interface Api {
   subjectEvents(subjectId: string, identity: Identity, limit?: number): Promise<SubjectEventsResponse>;
   startRebuild(identity: Identity): Promise<{ state: string; events_total: number }>;
   rebuildStatus(identity: Identity): Promise<RebuildStatus>;
+  kpiStrip(identity: Identity): Promise<KpiStrip>;
+  trainSwimlanes(identity: Identity): Promise<TrainSwimlanesResponse>;
+  milestoneRail(identity: Identity): Promise<MilestoneRailResponse>;
+  calibrationReport(identity: Identity): Promise<CalibrationReportResponse>;
+  signCalibrationReport(countersignedBy: string, identity: Identity): Promise<CalibrationBaseline>;
+  calibrationReportPdf(identity: Identity): Promise<Blob>;
+  statusPack(identity: Identity): Promise<StatusPackData>;
+  generateStatusPack(identity: Identity): Promise<StatusPackData>;
+  editStatusPack(narrative: string, identity: Identity): Promise<StatusPackData>;
+  publishStatusPack(identity: Identity): Promise<StatusPackData>;
+  statusPackPdf(identity: Identity): Promise<Blob>;
+  statusPackPptx(identity: Identity): Promise<Blob>;
 }
 
 export function createApi(base = ''): Api {
@@ -1895,6 +2046,17 @@ export function createApi(base = ''): Api {
         body: JSON.stringify(body),
       }),
     );
+
+  // A PDF/PPTX export needs this console's own identity headers (`GET /v1/explain`'s
+  // own "no privileged path" -- these two routes are gated the identical way every
+  // other read is), which a plain `<a href>` download link cannot send -- fetched as a
+  // blob instead, the same "download via JS, not a bare link" shape any authenticated
+  // binary export needs in a browser.
+  const getBlob = async (path: string, identity: Identity): Promise<Blob> => {
+    const response = await fetch(`${base}${path}`, { headers: headers(identity) });
+    if (!response.ok) return unwrap(response) as Promise<never>;
+    return response.blob();
+  };
 
   return {
     async estate(query, identity) {
@@ -2346,6 +2508,46 @@ export function createApi(base = ''): Api {
     },
     async rebuildStatus(identity) {
       return (await get('/v1/graph:rebuild/status', identity)) as RebuildStatus;
+    },
+    async kpiStrip(identity) {
+      return (await get('/v1/programme:kpis', identity)) as KpiStrip;
+    },
+    async trainSwimlanes(identity) {
+      return (await get('/v1/programme:swimlanes', identity)) as TrainSwimlanesResponse;
+    },
+    async milestoneRail(identity) {
+      return (await get('/v1/programme:milestones', identity)) as MilestoneRailResponse;
+    },
+    async calibrationReport(identity) {
+      return (await get('/v1/calibration:report', identity)) as CalibrationReportResponse;
+    },
+    async signCalibrationReport(countersignedBy, identity) {
+      return (await post(
+        '/v1/calibration:sign',
+        { countersigned_by: countersignedBy },
+        identity,
+      )) as CalibrationBaseline;
+    },
+    async calibrationReportPdf(identity) {
+      return getBlob('/v1/calibration:report.pdf', identity);
+    },
+    async statusPack(identity) {
+      return (await get('/v1/status-pack', identity)) as StatusPackData;
+    },
+    async generateStatusPack(identity) {
+      return (await post('/v1/status-pack:generate', {}, identity)) as StatusPackData;
+    },
+    async editStatusPack(narrative, identity) {
+      return (await post('/v1/status-pack:edit', { narrative }, identity)) as StatusPackData;
+    },
+    async publishStatusPack(identity) {
+      return (await post('/v1/status-pack:publish', {}, identity)) as StatusPackData;
+    },
+    async statusPackPdf(identity) {
+      return getBlob('/v1/status-pack.pdf', identity);
+    },
+    async statusPackPptx(identity) {
+      return getBlob('/v1/status-pack.pptx', identity);
     },
   };
 }
