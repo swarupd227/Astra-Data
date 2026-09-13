@@ -40,6 +40,26 @@ async function load(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'Load' }));
 }
 
+describe('a deep link to the dashboard (story S10.1.1)', () => {
+  it('auto-loads a workbook passed in as an initial id -- closes G3Card\'s own "Open report" link', async () => {
+    render(<ParityDashboard api={fakeApi()} identity={REPORT_OWNER} initialWorkbookId={WORKBOOK_ID} />);
+
+    expect(
+      await screen.findByText('This report does not yet pass the Tolerance Charter, version 1.'),
+    ).toBeInTheDocument();
+  });
+
+  it('writes the loaded workbook back into the URL', async () => {
+    window.history.replaceState(null, '', '/parity');
+    const user = userEvent.setup();
+    renderScreen();
+    await load(user);
+
+    await screen.findByText('This report does not yet pass the Tolerance Charter, version 1.');
+    expect(window.location.search).toContain(`workbook=${WORKBOOK_ID}`);
+  });
+});
+
 describe('reading the dashboard', () => {
   it('shows the plain-language pass statement and the per-sheet stats', async () => {
     const user = userEvent.setup();
@@ -247,8 +267,10 @@ describe('visual parity (§10.5, advisory)', () => {
 
 describe('the shell', () => {
   it('offers Parity Dashboard as a surface', async () => {
+    // An Artizent role, not a client one -- since S10.1.1, nav is role-generated and
+    // Parity Dashboard is not one of `client_report_owner`'s own visible surfaces.
     const user = userEvent.setup();
-    render(<App api={fakeApi()} environment="local" initialRole="client_report_owner" />);
+    render(<App api={fakeApi()} environment="local" initialRole="parity_engineer" />);
 
     await user.click(screen.getByRole('button', { name: 'Parity Dashboard' }));
 

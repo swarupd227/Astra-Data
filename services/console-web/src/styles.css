@@ -118,6 +118,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .topbar .brand .product { color: var(--text-muted); font-weight: 500; }
 .topbar .spacer { flex: 1; }
 
+/* Distinct per environment value (S10.1.1, §15.6: "prod/test/dev chrome visibly
+ * distinct") -- not just distinct text with one fixed style regardless of which
+ * environment is actually running. `local` (this repo's own default, `VITE_ASTRA_ENV`
+ * unset) and any other unrecognised value share the neutral fallback below. */
 .env-chip {
   font-size: 11px;
   font-weight: 650;
@@ -125,9 +129,27 @@ button, input, select, textarea { font: inherit; color: inherit; }
   text-transform: uppercase;
   padding: 2px 7px;
   border-radius: 999px;
+  background: var(--idle-bg);
+  color: var(--idle);
+  border: 1px solid color-mix(in srgb, var(--idle) 30%, transparent);
+}
+
+.env-chip[data-env="prod"] {
+  background: var(--bad-bg);
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 30%, transparent);
+}
+
+.env-chip[data-env="test"] {
   background: var(--warn-bg);
   color: var(--warn);
-  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+}
+
+.env-chip[data-env="dev"] {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-panel));
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .identity {

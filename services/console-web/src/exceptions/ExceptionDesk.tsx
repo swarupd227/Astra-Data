@@ -31,10 +31,13 @@ import type {
   Identity,
 } from '../lib/api';
 import { ApiError } from '../lib/api';
+import { setDeepLinkParam } from '../lib/deep-link';
 
 interface Props {
   api: Api;
   identity: Identity;
+  /** Deep-links straight to this one case (story S10.1.1's own "a case" noun). */
+  initialCaseId?: string;
 }
 
 type DecisionKind = 'patch' | 'redesign' | 'model_defect' | 'source_defect';
@@ -49,7 +52,7 @@ function formatAge(seconds: number | null): string {
   return `${days}d`;
 }
 
-export function ExceptionDesk({ api, identity }: Props): JSX.Element {
+export function ExceptionDesk({ api, identity, initialCaseId }: Props): JSX.Element {
   const [trainFilter, setTrainFilter] = useState('');
   const [classFilter, setClassFilter] = useState('');
   const [siteFilter, setSiteFilter] = useState('');
@@ -137,6 +140,7 @@ export function ExceptionDesk({ api, identity }: Props): JSX.Element {
   const loadCase = useCallback(
     async (caseId: string) => {
       setSelectedCaseId(caseId);
+      setDeepLinkParam('case', caseId);
       setDecisionNotice(null);
       setRationale('');
       setDax('');
@@ -146,6 +150,12 @@ export function ExceptionDesk({ api, identity }: Props): JSX.Element {
     },
     [refreshCase],
   );
+
+  // A deep link is read once, at mount.
+  useEffect(() => {
+    if (initialCaseId) void loadCase(initialCaseId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggleSelected = useCallback((caseId: string) => {
     setSelectedIds((current) => {

@@ -23,6 +23,36 @@ const REPORT_OWNER: Identity = {
   roles: ['client_report_owner'],
 };
 
+describe('a deep link to a case (story S10.1.1)', () => {
+  it('auto-loads a case passed in as an initial id', async () => {
+    const api = fakeApi();
+    api.exceptionQueue = async () => exceptionQueueResponse({ entries: [exceptionQueueEntry({ id: 'exc_1' })] });
+    let requested: string | null = null;
+    api.exceptionCase = async (id) => {
+      requested = id;
+      return exceptionCaseDetail({ id });
+    };
+    render(<ExceptionDesk api={api} identity={ENGINEER} initialCaseId="exc_1" />);
+
+    expect(await screen.findByText('Margin')).toBeInTheDocument();
+    expect(requested).toBe('exc_1');
+  });
+
+  it('writes the loaded case back into the URL', async () => {
+    window.history.replaceState(null, '', '/exceptions');
+    const api = fakeApi();
+    api.exceptionQueue = async () => exceptionQueueResponse({ entries: [exceptionQueueEntry({ id: 'exc_1' })] });
+    api.exceptionCase = async (id) => exceptionCaseDetail({ id });
+    const user = userEvent.setup();
+    render(<ExceptionDesk api={api} identity={ENGINEER} />);
+
+    await user.click(await screen.findByText('01ARZ3NDEKTSV4RRFFQ69G5FAV'));
+
+    await screen.findByText('Margin');
+    expect(window.location.search).toContain('case=exc_1');
+  });
+});
+
 describe('the queue', () => {
   it('shows an entry with its own AC columns', async () => {
     const api = fakeApi();

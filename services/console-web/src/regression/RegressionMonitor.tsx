@@ -29,10 +29,15 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type { Api, Identity, RegressionMonitorRow } from '../lib/api';
 import { ApiError } from '../lib/api';
+import { setDeepLinkParam } from '../lib/deep-link';
+import { isArtizentRole } from '../lib/roles';
 
 interface Props {
   api: Api;
   identity: Identity;
+  /** Deep-links to this one workbook's own run (story S10.1.1) -- a stable link to "a
+   * run" the AC names, since this screen has no other per-row detail view to link to. */
+  initialWorkbookId?: string;
 }
 
 function resultPillClass(result: string | null): string {
@@ -42,27 +47,18 @@ function resultPillClass(result: string | null): string {
   return 'pill idle';
 }
 
-export function RegressionMonitor({ api, identity }: Props): JSX.Element {
+export function RegressionMonitor({ api, identity, initialWorkbookId }: Props): JSX.Element {
   const [rows, setRows] = useState<RegressionMonitorRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
   const [busyWorkbookId, setBusyWorkbookId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [focusWorkbookId, setFocusWorkbookId] = useState<string | null>(initialWorkbookId ?? null);
 
   const canSchedule = identity.roles.includes('programme_manager');
-  // Every Artizent role (roles.py's own ARTIZENT_ROLES) -- the identical set `ArtizentDep`
-  // gates the export route on.
-  const canExport = identity.roles.some((role) =>
-    [
-      'programme_manager',
-      'migration_architect',
-      'semantic_model_engineer',
-      'migration_engineer',
-      'parity_engineer',
-      'platform_engineer',
-    ].includes(role),
-  );
+  // Every Artizent role -- the identical set `ArtizentDep` gates the export route on.
+  const canExport = isArtizentRole(identity.roles);
 
   useEffect(() => {
     let live = true;
@@ -138,13 +134,20 @@ export function RegressionMonitor({ api, identity }: Props): JSX.Element {
 
   const driftCount = (rows ?? []).filter((r) => r.drift_alert.unaddressed).length;
   const unscheduledCount = (rows ?? []).filter((r) => r.schedule === null).length;
+  const visibleRows = focusWorkbookId
+    ? (rows ?? []).filter((row) => row.workbook_id === focusWorkbookId)
+    : rows;
+  const clearFocus = () => {
+    setFocusWorkbookId(null);
+    setDeepLinkParam('workbook', null);
+  };
 
   return (
     <div className="workspace regression-monitor">
       <section className="pane" aria-label="Regression Monitor">
         <header className="pane-header">
           <h2>Regression Monitor</h2>
-          {rows && rows.length > 0 && (
+          {rows && rows.length > 0 && !focusWorkbookId && (
             <>
               {driftCount > 0 && <span className="pill bad">{driftCount} drift alert{driftCount === 1 ? '' : 's'}</span>}
               {unscheduledCount > 0 && (
@@ -154,6 +157,14 @@ export function RegressionMonitor({ api, identity }: Props): JSX.Element {
           )}
         </header>
         <div className="pane-body">
+          {focusWorkbookId && (
+            <p className="faint">
+              Showing this run only.{' '}
+              <button type="button" className="btn small" onClick={clearFocus}>
+                Show every released workbook
+              </button>
+            </p>
+          )}
           {error ? (
             <div className="banner">{error}</div>
           ) : loading && !rows ? (
@@ -163,6 +174,8 @@ export function RegressionMonitor({ api, identity }: Props): JSX.Element {
               No workbook has been released yet -- a workbook appears here once its report
               has been deployed.
             </p>
+          ) : focusWorkbookId && visibleRows?.length === 0 ? (
+            <p className="empty">This workbook has no real regression run recorded.</p>
           ) : (
             <table className="estate">
               <caption className="visually-hidden">
@@ -178,7 +191,7 @@ export function RegressionMonitor({ api, identity }: Props): JSX.Element {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {(visibleRows ?? []).map((row) => (
                   <tr key={row.workbook_id} className={row.drift_alert.unaddressed ? 'flagged' : undefined}>
                     <td>{row.workbook_name}</td>
                     <td>

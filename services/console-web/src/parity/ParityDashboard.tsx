@@ -37,7 +37,7 @@
  * `visual_parity.py`'s own docstring.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import type {
   Api,
@@ -49,10 +49,15 @@ import type {
   VisualCapturePair,
 } from '../lib/api';
 import { ApiError } from '../lib/api';
+import { setDeepLinkParam } from '../lib/deep-link';
 
 interface Props {
   api: Api;
   identity: Identity;
+  /** Deep-links straight to this workbook's own dashboard (story S10.1.1) -- closes
+   * `G3Card.tsx`'s own "Open report" link, which has pointed here with `?workbook=`
+   * since S9.1.1 without this screen ever reading it back. */
+  initialWorkbookId?: string;
 }
 
 function pillClass(result: string): string {
@@ -65,8 +70,8 @@ function percent(value: number | null): string {
   return value === null ? '—' : `${Math.round(value * 100)}%`;
 }
 
-export function ParityDashboard({ api, identity }: Props): JSX.Element {
-  const [workbookId, setWorkbookId] = useState('');
+export function ParityDashboard({ api, identity, initialWorkbookId }: Props): JSX.Element {
+  const [workbookId, setWorkbookId] = useState(initialWorkbookId ?? '');
   const [loadedWorkbookId, setLoadedWorkbookId] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<ParityDashboardResponse | null>(null);
   const [run, setRun] = useState<ParityRunResponse | null>(null);
@@ -99,6 +104,7 @@ export function ParityDashboard({ api, identity }: Props): JSX.Element {
         setDashboard(dashboardResult);
         setRun(runResult);
         setLoadedWorkbookId(id.trim());
+        setDeepLinkParam('workbook', id.trim());
       } catch (caught: unknown) {
         setDashboard(null);
         setRun(null);
@@ -114,6 +120,12 @@ export function ParityDashboard({ api, identity }: Props): JSX.Element {
     },
     [api, identity],
   );
+
+  // A deep link is read once, at mount.
+  useEffect(() => {
+    if (initialWorkbookId) void load(initialWorkbookId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const runParity = useCallback(async () => {
     if (!loadedWorkbookId) return;

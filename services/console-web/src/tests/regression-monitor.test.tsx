@@ -33,6 +33,53 @@ function renderMonitor(identity: Identity = PM, api = fakeApi()) {
   return { api, ...render(<RegressionMonitor api={api} identity={identity} />) };
 }
 
+describe('a deep link to a run (story S10.1.1)', () => {
+  it('shows only the workbook passed in as an initial id', async () => {
+    const api = fakeApi();
+    api.regressionMonitor = async () =>
+      regressionMonitorResponse({
+        workbooks: [
+          regressionMonitorRow({ workbook_id: 'wb_1', workbook_name: 'Daily VaR' }),
+          regressionMonitorRow({ workbook_id: 'wb_2', workbook_name: 'Weekly PnL' }),
+        ],
+      });
+    render(<RegressionMonitor api={api} identity={PM} initialWorkbookId="wb_1" />);
+
+    expect(await screen.findByText('Daily VaR')).toBeInTheDocument();
+    expect(screen.queryByText('Weekly PnL')).not.toBeInTheDocument();
+    expect(screen.getByText('Showing this run only.')).toBeInTheDocument();
+  });
+
+  it('discloses honestly when the focused workbook has no real run recorded', async () => {
+    const api = fakeApi();
+    api.regressionMonitor = async () =>
+      regressionMonitorResponse({ workbooks: [regressionMonitorRow({ workbook_id: 'wb_2' })] });
+    render(<RegressionMonitor api={api} identity={PM} initialWorkbookId="wb_1" />);
+
+    expect(await screen.findByText('This workbook has no real regression run recorded.')).toBeInTheDocument();
+  });
+
+  it('clears the focus and the URL when "Show every released workbook" is clicked', async () => {
+    window.history.replaceState(null, '', '/regression?workbook=wb_1');
+    const user = userEvent.setup();
+    const api = fakeApi();
+    api.regressionMonitor = async () =>
+      regressionMonitorResponse({
+        workbooks: [
+          regressionMonitorRow({ workbook_id: 'wb_1', workbook_name: 'Daily VaR' }),
+          regressionMonitorRow({ workbook_id: 'wb_2', workbook_name: 'Weekly PnL' }),
+        ],
+      });
+    render(<RegressionMonitor api={api} identity={PM} initialWorkbookId="wb_1" />);
+    await screen.findByText('Daily VaR');
+
+    await user.click(screen.getByRole('button', { name: 'Show every released workbook' }));
+
+    expect(await screen.findByText('Weekly PnL')).toBeInTheDocument();
+    expect(window.location.search).not.toContain('workbook=');
+  });
+});
+
 describe('the listing', () => {
   it('shows a released workbook with its own schedule, last result and drift alert', async () => {
     const api = fakeApi();

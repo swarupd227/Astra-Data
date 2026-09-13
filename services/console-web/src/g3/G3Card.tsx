@@ -29,10 +29,15 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type { Api, G3Card as G3CardData, G3Question, Identity } from '../lib/api';
 import { ApiError } from '../lib/api';
+import { setDeepLinkParam } from '../lib/deep-link';
 
 interface Props {
   api: Api;
   identity: Identity;
+  /** Deep-links straight to this workbook's own gate card (story S10.1.1) -- the AC's
+   * own "a gate card" noun, and the identical `?workbook=` shape `ParityDashboard.tsx`
+   * now reads too, so this screen's own "Open report" link finally lands somewhere. */
+  initialWorkbookId?: string;
 }
 
 function percent(value: number | null): string {
@@ -45,8 +50,8 @@ function decisionPillClass(decision: string | null): string {
   return 'pill idle';
 }
 
-export function G3Card({ api, identity }: Props): JSX.Element {
-  const [workbookId, setWorkbookId] = useState('');
+export function G3Card({ api, identity, initialWorkbookId }: Props): JSX.Element {
+  const [workbookId, setWorkbookId] = useState(initialWorkbookId ?? '');
   const [loadedWorkbookId, setLoadedWorkbookId] = useState<string | null>(null);
   const [card, setCard] = useState<G3CardData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -104,7 +109,15 @@ export function G3Card({ api, identity }: Props): JSX.Element {
     setCountersignedBy('');
     setQuestionText('');
     setDecisionNotice(null);
+    setDeepLinkParam('workbook', loadedWorkbookId);
   }, [loadedWorkbookId]);
+
+  // A deep link is read once, at mount, the same way `initialRole`/`initialSurface`
+  // seed `App.tsx` once.
+  useEffect(() => {
+    if (initialWorkbookId) void load(initialWorkbookId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadAdaptiveCard = useCallback(async () => {
     if (!loadedWorkbookId) return;

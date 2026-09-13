@@ -41,6 +41,18 @@ export function EstateExplorer({ api, identity }: Props): JSX.Element {
   const [notice, setNotice] = useState<string | null>(null);
   const [reharvesting, setReharvesting] = useState(false);
 
+  // A deep link to "an MU" (story S10.1.1) is `?search=<luid or name>` -- `useEstate`
+  // already persists `search` in the URL, so a link that narrows the table to exactly
+  // one real workbook only needs that one workbook auto-selected to become a genuine
+  // deep link to its own detail panel, not just to a filtered list. Deliberately reuses
+  // the existing filter/URL machinery rather than adding a second, competing one: `use
+  // Estate`'s own effect already owns this screen's whole query string, and writing a
+  // second one (e.g. a bare `?workbook=`) would race it on every filter change.
+  useEffect(() => {
+    if (selected || !estate.data || estate.data.workbooks.length !== 1) return;
+    setSelected(estate.data.workbooks[0]!);
+  }, [estate.data, selected]);
+
   useEffect(() => {
     if (!selected) {
       setDetail(null);

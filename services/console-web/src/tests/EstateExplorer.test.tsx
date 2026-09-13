@@ -26,6 +26,23 @@ function renderExplorer(api = fakeApi(), identity: Identity = PM) {
   return { api, ...rendered };
 }
 
+describe('a deep link to a workbook (story S10.1.1)', () => {
+  it('auto-selects the sole workbook a filtered link narrows the table to', async () => {
+    window.history.replaceState(null, '', '/?search=liquid');
+    renderExplorer(fakeApi(estateResponse({ workbooks: [HELD] })));
+
+    const panel = await screen.findByRole('region', { name: 'Selected workbook' });
+    expect(await within(panel).findByText('wb-liquidity')).toBeInTheDocument();
+  });
+
+  it('does not auto-select when the filtered result is more than one workbook', async () => {
+    renderExplorer();
+
+    const panel = await screen.findByRole('region', { name: 'Selected workbook' });
+    expect(within(panel).getByText(/Select a workbook/)).toBeInTheDocument();
+  });
+});
+
 describe('the three panes', () => {
   it('shows the site and project tree with counts and parse status', async () => {
     renderExplorer();

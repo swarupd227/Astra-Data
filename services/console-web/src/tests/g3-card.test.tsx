@@ -27,6 +27,31 @@ async function loadCard(api: ReturnType<typeof fakeApi>, identity: Identity, wor
   return user;
 }
 
+describe('a deep link to the gate card (story S10.1.1)', () => {
+  it('auto-loads a workbook passed in as an initial id', async () => {
+    const api = fakeApi();
+    let requested: string | null = null;
+    api.g3Card = async (workbookId) => {
+      requested = workbookId;
+      return g3Card({ workbook_id: workbookId });
+    };
+    render(<G3Card api={api} identity={REPORT_OWNER} initialWorkbookId="01ARZ3NDEKTSV4RRFFQ69G5FAV" />);
+
+    expect(await screen.findByText(/Daily VaR \(RQA\)/)).toBeInTheDocument();
+    expect(requested).toBe('01ARZ3NDEKTSV4RRFFQ69G5FAV');
+  });
+
+  it('writes the loaded workbook back into the URL', async () => {
+    window.history.replaceState(null, '', '/g3');
+    const api = fakeApi();
+    api.g3Card = async () => g3Card();
+    await loadCard(api, REPORT_OWNER);
+
+    await screen.findByText(/Daily VaR \(RQA\)/);
+    expect(window.location.search).toContain('workbook=wb_1');
+  });
+});
+
 describe('the card', () => {
   it('shows all five real sections', async () => {
     const api = fakeApi();
