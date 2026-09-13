@@ -96,6 +96,17 @@ class EventType(str, Enum):
     not have to poll `promotion_run` to learn a promotion just happened, the identical
     "carry the whole claim in one place" reasoning every prior notice already gives."""
 
+    ADOPTION_CAPTURED = "estate.adoption.captured"
+    """S9.2.2: `adoption.capture_adoption_sweep` recorded one workbook's own weekly
+    source-views/target-views snapshot during parallel run. No event of this shape is
+    named anywhere in Appendix C (confirmed by direct search — the closest is `astra.
+    data.release.promoted`, an unrelated fact); this is a genuinely new notice, on the
+    identical `estate.*` footing every prior notice already takes for the identical,
+    already-disclosed reason. The real mutation is nothing at all in the graph —
+    `public.adoption_snapshot`'s own row (a plain Postgres platform table) is the whole
+    fact — so this exists purely so a Decommission-Tracker-adjacent consumer does not
+    have to poll that table to learn a capture just happened."""
+
     @property
     def element_kind(self) -> str:
         return "edge" if self in (EventType.EDGE_UPSERTED, EventType.EDGE_RETIRED) else "node"
@@ -110,7 +121,7 @@ class EventType(str, Enum):
         """
         return self not in (
             EventType.SOURCE_DRIFT, EventType.PATTERN_RETIRED, EventType.MU_ACCEPTED,
-            EventType.MU_PROMOTED,
+            EventType.MU_PROMOTED, EventType.ADOPTION_CAPTURED,
         )
 
 
@@ -376,6 +387,37 @@ def mu_promoted(
             "to_stage": to_stage,
             "workspace": workspace,
             "promotion_run_id": promotion_run_id,
+        },
+    )
+
+
+def adoption_captured(
+    *,
+    source: str,
+    workbook_id: str,
+    source_views: int | None,
+    target_views: int,
+    ratio: float | None,
+    meets_threshold: bool | None,
+    principal: Principal,
+) -> PlatformEvent:
+    """One weekly adoption snapshot was captured for a released Migration Unit (S9.2.2).
+    Not a graph mutation: `public.adoption_snapshot`'s own row is the whole real fact —
+    a Decommission-Tracker-adjacent consumer watching for `adoption.captured` should not
+    need to separately resolve the workbook's own latest snapshot to know the ratio."""
+    return PlatformEvent(
+        type=EventType.ADOPTION_CAPTURED,
+        source=source,
+        subject=workbook_id,
+        label="Workbook",
+        principal=principal.value,
+        run_id=principal.run_id,
+        data={
+            "workbook_id": workbook_id,
+            "source_views": source_views,
+            "target_views": target_views,
+            "ratio": ratio,
+            "meets_threshold": meets_threshold,
         },
     )
 

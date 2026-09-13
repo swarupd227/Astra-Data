@@ -259,3 +259,55 @@ async def test_render_visual_is_deterministic(tmp_path: Path) -> None:
     second = await adapter.render_visual(visual_case=case, workspace="dev")
 
     assert first.image == second.image
+
+
+# --------------------------------------------------------------------------------- usage
+
+
+async def test_usage_is_honestly_zero_for_an_item_never_deployed(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+
+    result = await adapter.usage(workspace="prod", item_path="Daily VaR.Report", window_days=7)
+
+    assert result.views == 0
+    assert "nothing has ever been deployed" in result.detail
+
+
+async def test_usage_reports_real_views_for_a_deployed_item(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    commit = await adapter.commit(
+        _bundle(**{"report.json": "{}"}), item_path="Daily VaR.Report", message="Deploy report",
+    )
+    await adapter.deploy(workspace="prod", git_ref=commit.ref)
+
+    result = await adapter.usage(workspace="prod", item_path="Daily VaR.Report", window_days=7)
+
+    assert result.item_path == "Daily VaR.Report"
+    assert result.window_days == 7
+    assert "synthetic" in result.detail
+
+
+async def test_usage_is_deterministic_for_the_same_item_and_window(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    commit = await adapter.commit(
+        _bundle(**{"report.json": "{}"}), item_path="Daily VaR.Report", message="Deploy report",
+    )
+    await adapter.deploy(workspace="prod", git_ref=commit.ref)
+
+    first = await adapter.usage(workspace="prod", item_path="Daily VaR.Report", window_days=7)
+    second = await adapter.usage(workspace="prod", item_path="Daily VaR.Report", window_days=7)
+
+    assert first.views == second.views
+
+
+async def test_usage_differs_for_a_different_window(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    commit = await adapter.commit(
+        _bundle(**{"report.json": "{}"}), item_path="Daily VaR.Report", message="Deploy report",
+    )
+    await adapter.deploy(workspace="prod", git_ref=commit.ref)
+
+    seven_day = await adapter.usage(workspace="prod", item_path="Daily VaR.Report", window_days=7)
+    thirty_day = await adapter.usage(workspace="prod", item_path="Daily VaR.Report", window_days=30)
+
+    assert seven_day.views != thirty_day.views

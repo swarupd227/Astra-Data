@@ -2,6 +2,7 @@
 
 from .routes import router
 from .routes_adapters import router as adapters_router
+from .routes_adoption import router as adoption_router
 from .routes_artefacts import router as artefacts_router
 from .routes_case_derivation import router as case_derivation_router
 from .routes_case_execution import router as case_execution_router
@@ -39,6 +40,7 @@ from .routes_visual_parity import router as visual_parity_router
 
 __all__ = [
     "adapters_router",
+    "adoption_router",
     "artefacts_router",
     "case_derivation_router",
     "case_execution_router",

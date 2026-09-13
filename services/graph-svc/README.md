@@ -3342,6 +3342,160 @@ callers; the full existing graph-svc suite (1,468 non-integration passed; 88
 integration tests across the five affected files) green alongside them;
 `ruff`/`mypy` clean.
 
+## Adoption tracking during parallel run (story S9.2.2, continues F9.2)
+
+The backlog's own AC, verbatim: "As a report owner, I want adoption of the released
+report tracked against the source during parallel run, so that we know users have
+moved before the source is switched off." Views on the Power BI report (Fabric
+activity) and the Tableau view (Metadata API) are both captured weekly; the ratio is
+shown on the Decommission Tracker; a configurable adoption threshold contributes to G4
+readiness.
+
+**"Adoption sessions held" (§14.4's own prose) and this story's own views-ratio metric
+are two different notions of "adoption."** The spec's own prose never mentions a views
+ratio anywhere; this backlog story's own AC introduces the more concrete, measurable
+definition used here. Nothing here claims to satisfy "adoption sessions held" -- that
+remains its own, separate, unbuilt fact.
+
+**Source-side views reuse the real, already-declared `SourceAdapter.usage()` contract
+verbatim, capability-gated exactly the way `harvest/runner.py`'s own `_context` already
+gates it.** The real `TableauAdapter` still declares `usage=False` (S1.2.3's own
+Metadata API integration was never built), so a real deployment's own weekly capture
+honestly records `source_views=None` for every workbook rather than fabricating a
+source-side number; the fixture source adapter (`usage=True`) exercises the real code
+path end to end in this platform's own demo/test estate.
+
+**Target-side views are a genuinely new `TargetAdapter.usage()` method**
+(`ActivityResult`, `target_contract.py`, interface bumped to 1.3) -- no target-side
+activity method existed before this story (confirmed by direct read:
+`manifest`/`commit`/`deploy`/`smoke_query`/`evaluate`/`render_visual` were the whole
+contract). `FixtureTargetAdapter` implements it with the identical "check something
+real first, then disclosed deterministic synthetic data" posture `evaluate`/
+`smoke_query` already established: it checks whether `item_path` was ever actually
+deployed to `workspace` before returning anything, and the count itself is
+deterministic, seeded synthetic data once deployed.
+
+**"Released" is the identical real signal `release.py` already established: a
+SUCCEEDED `promotion_run` row for `to_stage="prod"`.** Queried directly here (a small,
+duplicated `SELECT DISTINCT workbook_id` rather than a new export from `release.py`),
+matching this codebase's own tolerance for a short, self-contained query over adding a
+cross-module dependency for one read.
+
+**No per-workbook schedule, unlike `harvest`'s or `regression.py`'s own scheduling --
+deliberately.** Both of those are opt-in, per-workbook, and materially expensive (a
+regression re-run re-executes real parity DAX), so each earns its own enable/pause/
+retry state machine. Adoption capture is the opposite: a uniform, cheap read across
+*every* currently released workbook in one pass, with nothing to opt into or pause
+per-workbook. `is_capture_due` checks a single, graph-wide fact -- how long since
+`adoption_snapshot`'s own most recent row (`CAPTURE_WINDOW_DAYS = 7`, the AC's own
+literal "captured weekly") -- rather than maintaining a second schedule table.
+
+**A configurable threshold is a real, versioned store, the identical shape
+`mender.MenderConfig`/`PostgresMenderConfigStore` already set.** The AC's own literal
+word "configurable" is what earns a real store here (`DEFAULT_ADOPTION_THRESHOLD =
+0.8`, an invented, disclosed default, the identical footing `mender.DEFAULT_PASS_
+BUDGET`/`invoicing.DEFAULT_UNIT_PRICES` already have) -- unlike `g3_card.DEFAULT_
+PARALLEL_WINDOW_WEEKS`, which stays a bare constant because nothing in its own AC ever
+asked to change it.
+
+**A snapshot freezes its own threshold and verdict at capture time -- never
+recomputed later.** `AdoptionSnapshot.threshold`/`meets_threshold` are stored on the
+row itself; a later change to the configured threshold must never retroactively alter
+whether a past week's own snapshot "met" it -- verified directly by an integration test
+that changes the config after a capture and confirms the stored row is untouched.
+
+**`_adoption_ratio` is a pure function, extracted specifically for unit testability**
+out of what was originally inline logic in `capture_adoption_sweep` -- honestly `(None,
+None)` with no real source-side denominator (an absent or zero source-views count),
+never a fabricated ratio, matching this codebase's dominant "pure core, graph-coupled
+shell" testing convention.
+
+**G4 readiness itself is not this story's own scope.** The AC's own words are
+"contributes to," not "computes," G4 readiness -- `meets_threshold` is a real,
+computed, exposed fact a later story (the G4/decommission-authorisation story this epic
+has not yet reached) folds into a fuller readiness rollup alongside regression status
+and owner confirmation, neither of which exists as a real, driven fact anywhere in this
+codebase today.
+
+**The Decommission Tracker is its own top-level screen, gated to a real, previously-
+undriven persona.** §15.3.4's own two rows (confirmed distinct by direct read): the
+Release Board (platform engineer/PM-facing, pipeline stage and the parallel-run
+window) and the Decommission Tracker (client licence administrator-facing, per-MU real
+adoption against the threshold). `require_decommission_tracker_reader` mirrors
+`require_g3_card_reader`'s own "reader is broader than the persona who acts on it"
+shape: any Artizent role, the report owner, or `Role.CLIENT_LICENCE_ADMIN` -- declared
+in `roles.py` since S1.1.1, gated nowhere until this story.
+
+New `adoption.py`: `AdoptionConfig`/`AdoptionConfigStore`/`PostgresAdoptionConfigStore`/
+`InMemoryAdoptionConfigStore`, `AdoptionSnapshot`/`AdoptionStore`/`PostgresAdoptionStore`,
+`is_capture_due`, `_adoption_ratio`, `capture_adoption_sweep`, `decommission_tracker`,
+`AdoptionService`. `events.py`: `EventType.ADOPTION_CAPTURED` (`estate.adoption.
+captured`), a notice on the identical footing `MU_ACCEPTED`/`MU_PROMOTED`/
+`SOURCE_DRIFT`/`PATTERN_RETIRED` already have. New migration `v0035_adoption.py`
+(`public.adoption_config`, `public.adoption_snapshot`, both plain Postgres platform
+tables, not ontology nodes -- no ontology change). `api/deps.py`:
+`require_decommission_tracker_reader`/`DecommissionTrackerReaderDep`. New routes: `GET
+/v1/decommission:tracker`, `GET`/`POST /v1/adoption:config` (write: Migration
+Architect), `POST /v1/adoption:capture` (Programme Manager). `main.py`:
+`app.state.adoption_store`, `app.state.adoption_config_store`, `app.state.adoption =
+AdoptionService(...)`, wired after `app.state.source_adapter`/`app.state.target_adapter`
+are already set. New console-web top-level surface, `DecommissionTracker.tsx` --
+per-site MU tables (source/target views, ratio, capture date, an honest "not yet
+captured"/"unavailable" state), a threshold-setting panel gated to the Migration
+Architect, and a "Capture now" action gated to the Programme Manager; a new "Client
+Licence Administrator" role option added to the console's own role selector.
+
+Verified: 16 new pure unit tests (`_adoption_ratio`, `is_capture_due`'s own date math
+against a minimal fake store, both result dataclasses' round-trips, the in-memory
+config store's own threshold validation); 4 new adapter-sdk unit tests for
+`FixtureTargetAdapter.usage()` (honest zero for an undeployed item, real views for a
+deployed one, deterministic for the same inputs, differing by window); 8 new
+integration tests against real PostgreSQL + Apache AGE and the real fixture
+source/target adapters (a real ratio for a released workbook with a known
+source-views count and a real target-side view count; a workbook never promoted to
+prod is never touched; honest `None`s with the source usage capability absent while
+target views stay real; the sweep uses whatever threshold is currently configured,
+frozen on the row even after the config later changes; `is_capture_due` honestly true
+with nothing ever captured and false right after a real capture; the Decommission
+Tracker grouping a released MU by its real site with a real snapshot, and honestly
+empty with nothing released yet); 11 new console tests (real per-MU views/ratio, the
+honest "unavailable"/"not yet captured" states, an honest empty state, a read failure,
+setting the threshold gated to the Migration Architect with real client-side range
+validation, capturing on demand gated to the Programme Manager, both hidden for
+neither role, a real API refusal surfaced for each). The full existing graph-svc suite
+(1,484 passed non-integration; 696 passed, 2 skipped, one already-known, unrelated
+`test_integration_cartographer.py` failure in the full integration run -- confirmed a
+background-task/pool-teardown race under sustained load by a clean pass in isolation,
+and confirmed unrelated to this story by a clean `git diff` on that test's own files;
+adapter-sdk's own 124 tests and `test_events_and_retirement.py`'s 5-notice update both
+confirmed passing) and console-web suite (295 passed) both green alongside them;
+`ruff`/`mypy`/`tsc --noEmit`/`eslint` clean.
+
+Live-smoke-tested against the real Docker stack: `GET /v1/decommission:tracker`,
+`GET`/`POST /v1/adoption:config`, and `POST /v1/adoption:capture` all live and
+role-gated correctly (a wrong-role attempt refused with a real 403, an unauthorised
+read refused and surfaced honestly in the console's own error banner); triggered a
+real capture against an already prod-promoted demo workbook, confirmed a real
+`adoption_snapshot` row and real `estate.adoption.captured` events on the outbox;
+confirmed the console's Decommission Tracker screen renders the real ratio and that
+setting a new threshold through the UI round-trips to a real, persisted row. **A
+Docker/infrastructure note, not a product bug**: `FixtureTargetAdapter`'s local git
+repo and per-workspace deployed-file directories live under the container's own `/tmp`,
+which does not survive a container recreate, while `promotion_run` rows in Postgres (a
+named volume) do -- after an unrelated Docker restart recreated every `astra-data-*`
+container mid-session, the demo estate's one previously-promoted workbook still showed
+`SUCCEEDED` in Postgres but had nothing real left deployed; the first capture
+afterward honestly reported `target_views=0` until the report was re-promoted through
+the same live routes, which redeployed fresh files immediately. **`DecommissionTracker.
+tsx`'s own copy of ADR 0066/0068's multi-pane CSS bug was found and fixed before it
+ever reached the demo estate** -- `.decommission-tracker` added to `styles.css`'s
+existing single-column override list, confirmed by a real before/after computed-style
+check (`gridTemplateColumns` changing from a three-column `268px 650px 360px` to a
+single `minmax(0, 1fr)`) rather than assumed fixed.
+
+See [ADR 0069](../../docs/adr/0069-adoption-tracking-a-views-ratio-not-adoption-sessions.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

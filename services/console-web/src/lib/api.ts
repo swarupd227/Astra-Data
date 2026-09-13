@@ -1528,6 +1528,50 @@ export interface ReleaseBoard {
   sites: ReleaseSiteRow[];
 }
 
+export interface AdoptionSnapshot {
+  id: string;
+  workbook_id: string;
+  captured_at: string;
+  /** `null` when the source adapter's own usage capability is absent -- never a fabricated zero. */
+  source_views: number | null;
+  target_views: number;
+  /** `null` with no real source-side denominator (S9.2.2). */
+  ratio: number | null;
+  /** The configured threshold *at capture time* -- frozen on the row. */
+  threshold: number;
+  meets_threshold: boolean | null;
+  triggered_by: string;
+}
+
+export interface DecommissionTrackerMu {
+  workbook_id: string;
+  name: string;
+  /** `null` until the first weekly capture has run for this MU. */
+  snapshot: AdoptionSnapshot | null;
+}
+
+export interface DecommissionTrackerSite {
+  site_id: string;
+  name: string;
+  mus: DecommissionTrackerMu[];
+  released_mu_count: number;
+  meeting_threshold_count: number;
+}
+
+export interface DecommissionTracker {
+  threshold: number;
+  sites: DecommissionTrackerSite[];
+}
+
+export interface AdoptionConfig {
+  threshold: number;
+}
+
+export interface AdoptionCaptureResult {
+  captured: AdoptionSnapshot[];
+  count: number;
+}
+
 export interface Api {
   estate(query: EstateQuery, identity: Identity): Promise<EstateResponse>;
   workbook(id: string, identity: Identity): Promise<WorkbookDetail>;
@@ -1723,6 +1767,10 @@ export interface Api {
   releaseBoard(identity: Identity): Promise<ReleaseBoard>;
   promoteToTest(workbookId: string, identity: Identity): Promise<PromotionRecord>;
   promoteToProd(workbookId: string, rationale: string, identity: Identity): Promise<PromotionRecord>;
+  decommissionTracker(identity: Identity): Promise<DecommissionTracker>;
+  adoptionConfig(identity: Identity): Promise<AdoptionConfig>;
+  setAdoptionConfig(threshold: number, identity: Identity): Promise<AdoptionConfig>;
+  captureAdoption(identity: Identity): Promise<AdoptionCaptureResult>;
 }
 
 export function createApi(base = ''): Api {
@@ -2141,6 +2189,18 @@ export function createApi(base = ''): Api {
         { rationale },
         identity,
       )) as PromotionRecord;
+    },
+    async decommissionTracker(identity) {
+      return (await get('/v1/decommission:tracker', identity)) as DecommissionTracker;
+    },
+    async adoptionConfig(identity) {
+      return (await get('/v1/adoption:config', identity)) as AdoptionConfig;
+    },
+    async setAdoptionConfig(threshold, identity) {
+      return (await post('/v1/adoption:config', { threshold }, identity)) as AdoptionConfig;
+    },
+    async captureAdoption(identity) {
+      return (await post('/v1/adoption:capture', {}, identity)) as AdoptionCaptureResult;
     },
   };
 }

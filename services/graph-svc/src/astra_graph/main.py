@@ -17,8 +17,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .adapters.conformance import PostgresConformanceStore
+from .adoption import AdoptionService, PostgresAdoptionConfigStore, PostgresAdoptionStore
 from .api import (
     adapters_router,
+    adoption_router,
     artefacts_router,
     case_derivation_router,
     case_execution_router,
@@ -337,6 +339,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
         source_adapter=app.state.source_adapter, target_adapter=app.state.target_adapter,
     )
+    # Story S9.2.2, continuing F9.2: adoption tracking during parallel run -- weekly
+    # source-views/target-views snapshots over the same source/target adapters S7.3.1
+    # already wired above, feeding the Decommission Tracker's own real read.
+    app.state.adoption_store = PostgresAdoptionStore(pool, graph_name=config.graph_name)
+    app.state.adoption_config_store = PostgresAdoptionConfigStore(pool, graph_name=config.graph_name)
+    app.state.adoption = AdoptionService(
+        pool, graph_name=config.graph_name, writer=writer,
+        source_adapter=app.state.source_adapter, target_adapter=app.state.target_adapter,
+        adoption_store=app.state.adoption_store, config_store=app.state.adoption_config_store,
+        target_workspace=app.state.target_workspace_published,
+    )
     # Story S7.4.1, closing F7.4: the real §10.3 diff, over the ResultSets S7.3.1 already
     # stored.
     app.state.verdicts = VerdictsService(
@@ -508,6 +521,7 @@ def create_app() -> FastAPI:
     app.include_router(visual_parity_router)
     app.include_router(regression_router)
     app.include_router(release_router)
+    app.include_router(adoption_router)
     app.include_router(failure_classification_router)
     app.include_router(mender_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])

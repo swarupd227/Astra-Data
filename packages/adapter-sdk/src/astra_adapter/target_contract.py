@@ -41,9 +41,9 @@ from .proof import ParityCase, ResultSet, VisualCapture, VisualCase
 
 #: Version of *this interface*, not of any adapter implementing it — the same discipline
 #: ``INTERFACE_VERSION`` (contract.py) applies to the source side. Bumped for story
-#: S7.6.1's own addition of ``render_visual`` — an additive change, every prior method
-#: unchanged (S7.3.1 bumped it to 1.1 for ``evaluate``).
-TARGET_INTERFACE_VERSION = "1.2"
+#: S9.2.2's own addition of ``usage`` — an additive change, every prior method unchanged
+#: (S7.3.1 bumped it to 1.1 for ``evaluate``; S7.6.1 to 1.2 for ``render_visual``).
+TARGET_INTERFACE_VERSION = "1.3"
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +90,20 @@ class DeploymentResult:
     deployment_id: str
     workspace: str
     ok: bool
+    detail: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityResult:
+    """Views over a window for one deployed item, via the Fabric activity API (story
+    S9.2.2, spec's own backlog AC: "Views on the Power BI report (Fabric activity)").
+    ``views`` is real and required; a target that cannot answer raises
+    ``TargetAdapterError`` rather than fabricating zero — the identical "an absent fact
+    is not a zero" posture ``Capabilities.usage`` already draws on the source side."""
+
+    item_path: str
+    views: int
+    window_days: int
     detail: str = ""
 
 
@@ -150,6 +164,14 @@ class TargetAdapter(Protocol):
         own docstring."""
         ...
 
+    async def usage(self, *, workspace: str, item_path: str, window_days: int) -> ActivityResult:
+        """Real views over ``window_days`` for the deployed report at ``item_path`` in
+        ``workspace``, via the Fabric activity API (story S9.2.2's own backlog AC:
+        "Views on the Power BI report (Fabric activity)... captured weekly"). No
+        ``Capabilities`` gate, matching every other ``TargetAdapter`` method — an
+        adapter either implements this whole narrow contract or it is not one."""
+        ...
+
     async def render_visual(self, *, visual_case: VisualCase, workspace: str) -> VisualCapture:
         """A rendered image of the target visual, via the Power BI export API (§10.5,
         story S7.6.1) -- the candidate side of the advisory visual comparison, the
@@ -168,6 +190,7 @@ class TargetAdapter(Protocol):
 
 __all__ = [
     "TARGET_INTERFACE_VERSION",
+    "ActivityResult",
     "CommitResult",
     "DeploymentResult",
     "SmokeQueryResult",

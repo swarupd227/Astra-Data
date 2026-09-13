@@ -39,6 +39,16 @@ one case agree" requirement §6.3 checks on the source side applies here too), d
 from the case and the query text, clearly disclosed as fixture data via ``adapter_name``/
 ``detail`` rather than passed off as a real query result.
 
+**``usage`` (story S9.2.2) follows ``smoke_query``'s own "check something real first"
+floor, then ``evaluate``'s own "useful, disclosed synthetic data" precedent.** No live
+Fabric activity API exists locally to read a real trailing-views count — the identical
+real gap ``smoke_query``/``evaluate`` already disclose. Zero, honestly, for an
+``item_path`` that was never actually deployed to the given workspace (a real,
+checkable fact, not a fabricated view count for a report that does not exist there);
+once deployed, a deterministic, seeded count — never a clock, never randomness — the
+same "the same query always answers the same way" requirement ``evaluate``'s own rows
+already meet.
+
 **``render_visual`` (story S7.6.1) is the one stand-in that deliberately does *not*
 follow ``evaluate``'s own "useful synthetic data" precedent.** ``fake/source.py``'s own
 ``capture_visual`` already drew this line for the source side: *"the fake has nothing to
@@ -74,6 +84,7 @@ from .proof import (
 )
 from .target_contract import (
     TARGET_INTERFACE_VERSION,
+    ActivityResult,
     CommitResult,
     DeploymentResult,
     SmokeQueryResult,
@@ -226,6 +237,37 @@ class FixtureTargetAdapter:
                 "structural check only: the table's TMDL landed in the deployed workspace; "
                 "no live Fabric analysis-services engine is configured to run a real row "
                 "count or measure query — see FixtureTargetAdapter's own docstring"
+            ),
+        )
+
+    # ---------------------------------------------------------------------------- usage
+
+    async def usage(self, *, workspace: str, item_path: str, window_days: int) -> ActivityResult:
+        return await asyncio.to_thread(self._usage_sync, workspace, item_path, window_days)
+
+    def _usage_sync(self, workspace: str, item_path: str, window_days: int) -> ActivityResult:
+        """No live Fabric activity API exists locally — a real gap, disclosed rather
+        than faked (see this module's own docstring on ``smoke_query``/``evaluate``).
+        What this genuinely checks first: that ``item_path`` was actually deployed to
+        ``workspace`` — a real, checkable fact (the identical "checks something real"
+        floor ``smoke_query`` already sets), never a synthetic view count for a report
+        that was never deployed. Once deployed, the count itself is deterministic
+        synthetic data (the identical "useful, disclosed, never a clock or randomness"
+        posture ``evaluate`` already takes) — seeded from ``workspace``/``item_path``/
+        ``window_days`` so the same query always returns the same answer, the way a
+        real trailing-views count would for an unchanged window."""
+        deployed = (self._workspaces / workspace / item_path).exists()
+        if not deployed:
+            return ActivityResult(
+                item_path=item_path, views=0, window_days=window_days,
+                detail=f"nothing has ever been deployed to '{item_path}' in workspace '{workspace}'",
+            )
+        seed = int(hashlib.sha256(f"{workspace}:{item_path}:{window_days}".encode()).hexdigest()[:8], 16)
+        return ActivityResult(
+            item_path=item_path, views=seed % 500, window_days=window_days,
+            detail=(
+                "synthetic fixture data -- no live Fabric activity API is configured; "
+                "see FixtureTargetAdapter's own docstring"
             ),
         )
 

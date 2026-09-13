@@ -27,6 +27,7 @@ import { PatternLibrary } from './patterns/PatternLibrary';
 import { ProgrammeBoard } from './programme/ProgrammeBoard';
 import { ParseQualityQueue } from './quality/ParseQualityQueue';
 import { RegressionMonitor } from './regression/RegressionMonitor';
+import { DecommissionTracker } from './release/DecommissionTracker';
 import { ReleaseBoard } from './release/ReleaseBoard';
 import { WaveBoard } from './trains/WaveBoard';
 
@@ -60,7 +61,10 @@ import { WaveBoard } from './trains/WaveBoard';
  * search shape the Parity Dashboard already set. The Release Board (S9.2.1, opening
  * F9.2) is a fourth — §15.3.4's own named Delivery-surface screen, its own axis (pipeline
  * stage and the parallel-run window) distinct from the Wave Board's §3.2 MU-state
- * kanban. */
+ * kanban. The Decommission Tracker (S9.2.2, continuing F9.2) is a fifth — §15.3.4's own
+ * other named Delivery-surface row, confirmed a distinct screen from the Release Board
+ * by direct read of both rows in the same table: its own axis is per-MU real adoption
+ * against the configured threshold, not pipeline stage. */
 export const SURFACES = [
   { key: 'estate', label: 'Estate Explorer' },
   { key: 'lineage', label: 'Lineage View' },
@@ -77,6 +81,7 @@ export const SURFACES = [
   { key: 'exceptions', label: 'Exception Desk' },
   { key: 'g3', label: 'G3 Acceptance' },
   { key: 'release', label: 'Release Board' },
+  { key: 'decommission', label: 'Decommission Tracker' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -126,6 +131,11 @@ export const ROLES: { value: string; label: string; principal: string }[] = [
     value: 'client_analytics_lead',
     label: 'Client Analytics Lead',
     principal: 'user:lead@client.example',
+  },
+  {
+    value: 'client_licence_admin',
+    label: 'Client Licence Administrator',
+    principal: 'user:licence.admin@client.example',
   },
 ];
 
@@ -218,6 +228,7 @@ export function App({
       {surface === 'exceptions' && <ExceptionDesk api={api} identity={identity} />}
       {surface === 'g3' && <G3Card api={api} identity={identity} />}
       {surface === 'release' && <ReleaseBoard api={api} identity={identity} />}
+      {surface === 'decommission' && <DecommissionTracker api={api} identity={identity} />}
     </div>
   );
 }

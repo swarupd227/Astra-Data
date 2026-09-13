@@ -8,6 +8,8 @@
 
 import type {
   AcceptanceSummary,
+  AdoptionConfig,
+  AdoptionSnapshot,
   Api,
   AppliedRule,
   ApplyRulesResult,
@@ -18,6 +20,9 @@ import type {
   ConformanceRuleset,
   ConstructIssue,
   ConstructsResponse,
+  DecommissionTracker as DecommissionTrackerData,
+  DecommissionTrackerMu,
+  DecommissionTrackerSite,
   DesignDocument,
   EstateQuery,
   EstateResponse,
@@ -1220,6 +1225,57 @@ export function releaseBoard(overrides: Partial<ReleaseBoardData> = {}): Release
   };
 }
 
+export function adoptionSnapshot(overrides: Partial<AdoptionSnapshot> = {}): AdoptionSnapshot {
+  return {
+    id: 'adoption_01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    captured_at: '2027-06-08T09:00:00.000Z',
+    source_views: 100,
+    target_views: 90,
+    ratio: 0.9,
+    threshold: 0.8,
+    meets_threshold: true,
+    triggered_by: 'user:pm@artizent.example',
+    ...overrides,
+  };
+}
+
+export function decommissionTrackerMu(overrides: Partial<DecommissionTrackerMu> = {}): DecommissionTrackerMu {
+  return {
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    name: 'Daily VaR',
+    snapshot: adoptionSnapshot(),
+    ...overrides,
+  };
+}
+
+export function decommissionTrackerSite(
+  overrides: Partial<DecommissionTrackerSite> = {},
+): DecommissionTrackerSite {
+  return {
+    site_id: 'site-rqa',
+    name: 'RQA',
+    mus: overrides.mus ?? [decommissionTrackerMu()],
+    released_mu_count: 1,
+    meeting_threshold_count: 1,
+    ...overrides,
+  };
+}
+
+export function decommissionTracker(
+  overrides: Partial<DecommissionTrackerData> = {},
+): DecommissionTrackerData {
+  return {
+    threshold: 0.8,
+    sites: overrides.sites ?? [decommissionTrackerSite()],
+    ...overrides,
+  };
+}
+
+export function adoptionConfig(overrides: Partial<AdoptionConfig> = {}): AdoptionConfig {
+  return { threshold: 0.8, ...overrides };
+}
+
 export function g3Card(overrides: Partial<G3Card> = {}): G3Card {
   return {
     workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
@@ -1296,6 +1352,8 @@ export function fakeApi(
   initialExceptionCases: ExceptionCaseDetail[] = [],
   initialAcceptanceSummary: AcceptanceSummary = acceptanceSummary(),
   initialReleaseBoard: ReleaseBoardData = releaseBoard(),
+  initialDecommissionTracker: DecommissionTrackerData = decommissionTracker(),
+  initialAdoptionConfig: AdoptionConfig = adoptionConfig(),
 ): FakeApi {
   const calls: FakeApi['calls'] = { estate: [], workbook: [], lineage: [], quality: 0 };
   const recorded: FakeApi['recorded'] = [];
@@ -1311,6 +1369,12 @@ export function fakeApi(
     })),
     sites: initialReleaseBoard.sites.map((s) => ({ ...s })),
   };
+  let decommissionTrackerState: DecommissionTrackerData = {
+    threshold: initialDecommissionTracker.threshold,
+    sites: initialDecommissionTracker.sites.map((s) => ({ ...s, mus: s.mus.map((mu) => ({ ...mu })) })),
+  };
+  let adoptionConfigState: AdoptionConfig = { ...initialAdoptionConfig };
+  let adoptionCaptureSeq = 0;
   const exceptionCaseRows = initialExceptionCases.map((c) => ({ ...c }));
   const findExceptionCase = (exceptionCaseId: string): ExceptionCaseDetail => {
     const found = exceptionCaseRows.find((c) => c.id === exceptionCaseId);
@@ -2419,6 +2483,45 @@ export function fakeApi(
         })),
       };
       return record;
+    },
+    async decommissionTracker(_identity) {
+      maybeFail();
+      return decommissionTrackerState;
+    },
+    async adoptionConfig(_identity) {
+      maybeFail();
+      return adoptionConfigState;
+    },
+    async setAdoptionConfig(threshold, _identity) {
+      maybeFail();
+      recorded.push({ kind: 'SET_ADOPTION_CONFIG', id: '', reason: String(threshold) });
+      adoptionConfigState = { threshold };
+      decommissionTrackerState = { ...decommissionTrackerState, threshold };
+      return adoptionConfigState;
+    },
+    async captureAdoption(identity) {
+      maybeFail();
+      recorded.push({ kind: 'CAPTURE_ADOPTION', id: '', reason: '' });
+      const captured: AdoptionSnapshot[] = [];
+      decommissionTrackerState = {
+        ...decommissionTrackerState,
+        sites: decommissionTrackerState.sites.map((site) => {
+          const mus = site.mus.map((mu) => {
+            adoptionCaptureSeq += 1;
+            const snapshot = adoptionSnapshot({
+              id: `adoption_capture_${adoptionCaptureSeq}`,
+              workbook_id: mu.workbook_id,
+              threshold: adoptionConfigState.threshold,
+              triggered_by: identity.principal,
+            });
+            captured.push(snapshot);
+            return { ...mu, snapshot };
+          });
+          const meeting = mus.filter((mu) => mu.snapshot?.meets_threshold).length;
+          return { ...site, mus, meeting_threshold_count: meeting };
+        }),
+      };
+      return { captured, count: captured.length };
     },
   };
 }

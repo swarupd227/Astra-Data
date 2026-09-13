@@ -77,6 +77,7 @@ from .proof import (
 from .registry import UnknownAdapter, load_adapter, register, registered_names
 from .target_contract import (
     TARGET_INTERFACE_VERSION,
+    ActivityResult,
     CommitResult,
     DeploymentResult,
     SmokeQueryResult,
@@ -92,6 +93,7 @@ __all__ = [
     "BACKLOG_METHOD_NAMES",
     "INTERFACE_VERSION",
     "TARGET_INTERFACE_VERSION",
+    "ActivityResult",
     "AdapterError",
     "AdapterManifest",
     "AssetRef",

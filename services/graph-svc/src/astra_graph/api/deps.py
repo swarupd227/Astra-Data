@@ -360,6 +360,27 @@ def require_g3_approver(roles: RoleSetDep) -> RoleSet:
 
 G3ApproverDep = Annotated[RoleSet, Depends(require_g3_approver)]
 
+
+def require_decommission_tracker_reader(roles: RoleSetDep) -> RoleSet:
+    """Gate the Decommission Tracker on "any Artizent role, the report owner, or the
+    client licence administrator" (story S9.2.2) — the identical "reader is broader
+    than the persona who acts on it" shape `require_g3_card_reader` already set;
+    `Role.CLIENT_LICENCE_ADMIN` is the screen's own real §15.3.4 persona, declared in
+    `roles.py` since S1.1.1 and gated nowhere until now."""
+    if not (
+        roles.is_artizent()
+        or Role.CLIENT_REPORT_OWNER in roles.roles
+        or Role.CLIENT_LICENCE_ADMIN in roles.roles
+    ):
+        raise ForbiddenError(
+            f"the Decommission Tracker is open to Artizent roles, the report owner and "
+            f"the client licence administrator; declare one in {ROLES_HEADER}"
+        )
+    return roles
+
+
+DecommissionTrackerReaderDep = Annotated[RoleSet, Depends(require_decommission_tracker_reader)]
+
 DOMAIN_SCOPE_HEADER = "X-Astra-Domain-Scope"
 
 

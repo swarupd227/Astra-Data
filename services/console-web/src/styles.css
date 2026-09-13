@@ -181,7 +181,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .parity-workspace,
 .regression-monitor,
 .exception-desk,
-.release-board {
+.release-board,
+.decommission-tracker {
   grid-template-columns: minmax(0, 1fr);
   overflow-y: auto;
 }
