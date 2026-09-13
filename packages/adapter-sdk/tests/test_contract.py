@@ -14,6 +14,7 @@ from astra_adapter import (
     BACKLOG_METHOD_NAMES,
     INTERFACE_VERSION,
     AdapterError,
+    AssetRef,
     Capabilities,
     Column,
     ColumnRole,
@@ -147,6 +148,35 @@ async def test_an_unclaimed_capability_is_refused_by_name() -> None:
     assert caught.value.capability == "capture_visual"
     assert isinstance(caught.value, AdapterError), "an unsupported capability is still an error"
     assert not caught.value.retryable, "retrying will not make an adapter support something"
+
+
+# ------------------------------------------------------- archive (story S9.3.1, G4)
+
+
+async def test_archive_is_refused_when_not_claimed() -> None:
+    from astra_adapter.fake import FixtureSourceAdapter, build_site
+
+    adapter = FixtureSourceAdapter([build_site("s", 1)], capabilities=Capabilities(archive=False))
+    asset = AssetRef(luid="s-wb-00000", name="Workbook 0", site="s", project="Project 0", revision="1")
+
+    with pytest.raises(UnsupportedCapability) as caught:
+        await adapter.archive(asset)
+
+    assert caught.value.capability == "archive"
+
+
+async def test_archive_retires_a_real_source_workbook() -> None:
+    from astra_adapter.fake import FixtureSite, FixtureSourceAdapter, FixtureWorkbook
+
+    workbook = FixtureWorkbook(name="Daily VaR", luid="wb-1", project="Risk")
+    adapter = FixtureSourceAdapter([FixtureSite(name="s", workbooks=[workbook], projects=["Risk"])])
+    asset = AssetRef(luid="wb-1", name="Daily VaR", site="s", project="Risk", revision="1")
+
+    result = await adapter.archive(asset)
+
+    assert result.luid == "wb-1"
+    assert result.archived is True
+    assert workbook.archived is True, "the fixture's own estate reflects the real archive"
 
 
 # ------------------------------------------------------- S2.1.1 criterion 4

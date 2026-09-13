@@ -44,6 +44,7 @@ from astra_adapter import (
     INTERFACE_VERSION,
     AdapterError,
     AdapterManifest,
+    ArchiveResult,
     AssetRef,
     CalcAST,
     Capabilities,
@@ -458,6 +459,9 @@ class TableauAdapter:
 
     async def owners(self, scope: Scope) -> Sequence[OwnershipRecord]:
         raise UnsupportedCapability("ownership", adapter=ADAPTER_NAME)
+
+    async def archive(self, asset: AssetRef) -> ArchiveResult:
+        raise UnsupportedCapability("archive", adapter=ADAPTER_NAME)
 
     # ------------------------------------------------------- conformance (S2.1.2)
 

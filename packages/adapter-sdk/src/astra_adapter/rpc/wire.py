@@ -20,6 +20,7 @@ from ..calc import CalcAST, CalcNode, NodeKind
 from ..contract import (
     INTERFACE_VERSION,
     AdapterManifest,
+    ArchiveResult,
     AssetRef,
     Capabilities,
     EdgeFragment,
@@ -84,6 +85,7 @@ def encode_capabilities(value: Capabilities) -> dict[str, bool]:
         "usage": value.usage,
         "ownership": value.ownership,
         "screenshot": value.screenshot,
+        "archive": value.archive,
     }
 
 
@@ -94,6 +96,7 @@ def decode_capabilities(raw: dict[str, Any]) -> Capabilities:
         usage=bool(raw.get("usage", False)),
         ownership=bool(raw.get("ownership", False)),
         screenshot=bool(raw.get("screenshot", False)),
+        archive=bool(raw.get("archive", False)),
     )
 
 
@@ -241,6 +244,16 @@ def decode_usage(raw: dict[str, Any]) -> UsageRecord:
         kind=UsageKind(raw.get("kind", UsageKind.WORKBOOK.value)),
         workbook_luid=raw.get("workbook_luid"),
         view_name=raw.get("view_name"),
+    )
+
+
+def encode_archive_result(value: ArchiveResult) -> dict[str, Any]:
+    return {"luid": value.luid, "archived": value.archived, "detail": value.detail}
+
+
+def decode_archive_result(raw: dict[str, Any]) -> ArchiveResult:
+    return ArchiveResult(
+        luid=str(raw["luid"]), archived=bool(raw["archived"]), detail=str(raw.get("detail", "")),
     )
 
 

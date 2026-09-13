@@ -1572,6 +1572,58 @@ export interface AdoptionCaptureResult {
   count: number;
 }
 
+export interface ReadinessItem {
+  key: string;
+  label: string;
+  met: boolean;
+  evidence: Record<string, unknown>;
+}
+
+export interface G4CardMu {
+  workbook_id: string;
+  name: string;
+}
+
+export interface G4LatestDecision {
+  decision: string;
+  approver: string | null;
+  countersigner: string | null;
+  timestamp: string | null;
+  rationale: string | null;
+  target_date: string | null;
+}
+
+export interface G4Card {
+  site_id: string;
+  name: string;
+  licence_tier: string | null;
+  licence_cost_annual: number | null;
+  mus: G4CardMu[];
+  released_mu_count: number;
+  source_workbooks_to_archive: G4CardMu[];
+  confirmation_text: string;
+  ready: boolean;
+  checklist: ReadinessItem[];
+  next: { on_approval: string };
+  latest_decision: G4LatestDecision | null;
+}
+
+export interface G4DecisionResult {
+  site_id: string;
+  gate_decision_id: string;
+  decision: string;
+  archived_count: number;
+  licence_release_value: number | null;
+  decommissioned_at: string | null;
+  target_date: string | null;
+}
+
+export interface DecommissionConfirmation {
+  workbook_id: string;
+  confirmed_by: string;
+  confirmed_at: string;
+}
+
 export interface Api {
   estate(query: EstateQuery, identity: Identity): Promise<EstateResponse>;
   workbook(id: string, identity: Identity): Promise<WorkbookDetail>;
@@ -1771,6 +1823,10 @@ export interface Api {
   adoptionConfig(identity: Identity): Promise<AdoptionConfig>;
   setAdoptionConfig(threshold: number, identity: Identity): Promise<AdoptionConfig>;
   captureAdoption(identity: Identity): Promise<AdoptionCaptureResult>;
+  g4Card(siteId: string, identity: Identity): Promise<G4Card>;
+  approveG4(siteId: string, rationale: string, countersignedBy: string, identity: Identity): Promise<G4DecisionResult>;
+  deferG4(siteId: string, reason: string, targetDate: string, identity: Identity): Promise<G4DecisionResult>;
+  confirmDecommission(workbookId: string, identity: Identity): Promise<DecommissionConfirmation>;
 }
 
 export function createApi(base = ''): Api {
@@ -2201,6 +2257,26 @@ export function createApi(base = ''): Api {
     },
     async captureAdoption(identity) {
       return (await post('/v1/adoption:capture', {}, identity)) as AdoptionCaptureResult;
+    },
+    async g4Card(siteId, identity) {
+      return (await get(`/v1/sites/${siteId}:g4-card`, identity)) as G4Card;
+    },
+    async approveG4(siteId, rationale, countersignedBy, identity) {
+      return (await post(
+        `/v1/sites/${siteId}:approve-g4`,
+        { rationale, countersigned_by: countersignedBy },
+        identity,
+      )) as G4DecisionResult;
+    },
+    async deferG4(siteId, reason, targetDate, identity) {
+      return (await post(
+        `/v1/sites/${siteId}:defer-g4`,
+        { reason, target_date: targetDate },
+        identity,
+      )) as G4DecisionResult;
+    },
+    async confirmDecommission(workbookId, identity) {
+      return (await post(`/v1/workbooks/${workbookId}:confirm-decommission`, {}, identity)) as DecommissionConfirmation;
     },
   };
 }

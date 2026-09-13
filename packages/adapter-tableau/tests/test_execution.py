@@ -201,7 +201,7 @@ async def test_the_strategy_used_is_recorded_on_the_result(adapter) -> None:
     result = await executed(adapter)
 
     assert result.strategy.value in {"EXTRACT_READ", "VIEW_DATA", "LIVE_REPLAY"}
-    assert result.interface_version == "1.1"
+    assert result.interface_version == "1.2"
     assert result.adapter_name == "tableau"
 
 
@@ -212,7 +212,7 @@ async def test_a_parity_run_stamp_carries_the_strategy_evidence(adapter) -> None
     result = await executed(adapter)
     stamp = ParityRunStamp.from_results([result])
 
-    assert stamp.interface_version == "1.1"
+    assert stamp.interface_version == "1.2"
     assert stamp.adapter_name == "tableau"
 
 
@@ -250,7 +250,7 @@ async def test_an_inconclusive_result_is_still_stamped(adapter, server: FakeTabl
     result = await executed(adapter)
 
     assert result.outcome is ExecutionOutcome.INCONCLUSIVE
-    assert result.interface_version == "1.1"
+    assert result.interface_version == "1.2"
     assert result.adapter_name == "tableau"
 
 

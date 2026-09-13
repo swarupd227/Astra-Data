@@ -1052,7 +1052,8 @@
             "PATCHED",
             "REDESIGN",
             "MODEL_DEFECT",
-            "SOURCE_DEFECT"
+            "SOURCE_DEFECT",
+            "DEFERRED"
           ],
           "name": "decision",
           "required": true,
@@ -1114,6 +1115,13 @@
           "required": false,
           "server_managed": false,
           "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "target_date",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
         }
       ],
       "side": "platform"
@@ -2103,6 +2111,20 @@
           "required": false,
           "server_managed": false,
           "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "decommissioned_at",
+          "required": false,
+          "server_managed": false,
+          "type": "timestamp"
+        },
+        {
+          "enum": null,
+          "name": "licence_release_value",
+          "required": false,
+          "server_managed": false,
+          "type": "float"
         }
       ],
       "side": "source"
@@ -2560,5 +2582,5 @@
       "side": "source"
     }
   },
-  "schema_version": 36
+  "schema_version": 37
 }

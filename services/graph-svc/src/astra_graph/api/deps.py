@@ -381,6 +381,38 @@ def require_decommission_tracker_reader(roles: RoleSetDep) -> RoleSet:
 
 DecommissionTrackerReaderDep = Annotated[RoleSet, Depends(require_decommission_tracker_reader)]
 
+
+def require_g4_approver(roles: RoleSetDep) -> RoleSet:
+    """Gate G4 approve/defer on the licence administrator alone (story S9.3.1, §13.1's
+    own G4 row: "Client licence administrator; countersigned by Programme Manager") —
+    the identical narrower-than-reader shape `require_g3_approver` already set for G3's
+    own report-owner persona."""
+    if Role.CLIENT_LICENCE_ADMIN not in roles.roles:
+        raise ForbiddenError(
+            f"deciding a G4 card is the licence administrator's action; declare "
+            f"'{Role.CLIENT_LICENCE_ADMIN.value}' in {ROLES_HEADER}"
+        )
+    return roles
+
+
+G4ApproverDep = Annotated[RoleSet, Depends(require_g4_approver)]
+
+
+def require_decommission_confirmer(roles: RoleSetDep) -> RoleSet:
+    """Gate the per-MU decommission confirmation on the report owner alone (§14.4's own
+    "owner confirmation received") — the identical bare-role check `require_g3_approver`
+    already makes for the same persona, given its own name here since it gates a
+    different, unrelated action."""
+    if Role.CLIENT_REPORT_OWNER not in roles.roles:
+        raise ForbiddenError(
+            f"confirming decommission readiness is the report owner's action; declare "
+            f"'{Role.CLIENT_REPORT_OWNER.value}' in {ROLES_HEADER}"
+        )
+    return roles
+
+
+DecommissionConfirmerDep = Annotated[RoleSet, Depends(require_decommission_confirmer)]
+
 DOMAIN_SCOPE_HEADER = "X-Astra-Domain-Scope"
 
 

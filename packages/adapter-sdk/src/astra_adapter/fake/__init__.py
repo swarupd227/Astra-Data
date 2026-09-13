@@ -70,10 +70,10 @@ REQUIRED_NODE_KINDS = frozenset(
 def build() -> FixtureSourceAdapter:
     """The fake adapter over the conformance corpus's site.
 
-    Screenshot is claimed here and nowhere else in the codebase: the platform has no use for
-    it before §10.6, but the conformance suite has to be able to exercise a claimed
-    capability, and an SDK whose only adapter claims nothing would leave the "claimed but
-    broken" path untested.
+    Screenshot (and, since S9.3.1, archive) is claimed here and nowhere else in the
+    codebase: the platform has no use for either before §10.6/G4 respectively, but the
+    conformance suite has to be able to exercise a claimed capability, and an SDK whose
+    only adapter claims nothing would leave the "claimed but broken" path untested.
     """
     # No grammar gaps. §6.3 requires the corpus to clear the §4.1.4 floor of 0.98, so a
     # corpus seeded with constructs the adapter cannot read fails by construction — it would
@@ -90,6 +90,7 @@ def build() -> FixtureSourceAdapter:
             usage=True,
             ownership=True,
             screenshot=True,
+            archive=True,
         ),
     )
 

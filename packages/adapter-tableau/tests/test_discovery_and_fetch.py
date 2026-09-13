@@ -475,7 +475,7 @@ async def test_the_manifest_names_the_grammar_that_parsed(adapter) -> None:
 
     assert manifest.name == "tableau"
     assert manifest.grammar_version == "tableau-1"
-    assert manifest.interface_version == "1.1", "retyped columns at S2.4.1"
+    assert manifest.interface_version == "1.2", "S2.4.1 retyped columns; S9.3.1 added archive()"
 
     ast = await adapter.parse_calc("SUM([Sales])")
     assert ast.grammar_version == manifest.grammar_version

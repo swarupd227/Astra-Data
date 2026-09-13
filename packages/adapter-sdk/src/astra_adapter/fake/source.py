@@ -31,6 +31,7 @@ from ..contract import (
     INTERFACE_VERSION,
     AdapterError,
     AdapterManifest,
+    ArchiveResult,
     AssetRef,
     Capabilities,
     EdgeFragment,
@@ -88,6 +89,9 @@ class FixtureWorkbook:
     unrecognised: tuple[str, ...] = ()
     #: Raise on fetch or parse, so failure isolation can be tested.
     fails_on: str | None = None
+    #: Set by a real `archive()` call (story S9.3.1, G4 decommission) -- never true on its
+    #: own, so a test can tell a real archive happened from one that never ran.
+    archived: bool = False
 
 
 @dataclass(slots=True)
@@ -116,7 +120,8 @@ class FixtureSourceAdapter:
         """Settable, so a test can do what a grammar extension does (S1.2.2/S1.2.4)."""
 
         self._capabilities = capabilities or Capabilities(
-            live_query=False, extract_read=True, usage=True, ownership=True, screenshot=False
+            live_query=False, extract_read=True, usage=True, ownership=True, screenshot=False,
+            archive=True,
         )
         self.fetches = 0
         self.parses = 0
@@ -419,6 +424,19 @@ class FixtureSourceAdapter:
             media_type="image/png",
         )
 
+    async def archive(self, asset: AssetRef) -> ArchiveResult:
+        """G4 decommission (story S9.3.1): retire one source workbook. Refused unless
+        claimed, the identical "a real capability, not a silent no-op" posture
+        ``capture_visual`` already takes for `screenshot`."""
+        if not self._capabilities.archive:
+            raise UnsupportedCapability("archive", adapter=self._name)
+        workbook = self._workbook(asset)
+        workbook.archived = True
+        return ArchiveResult(
+            luid=asset.luid, archived=True,
+            detail=f"'{asset.name}' archived in the fixture estate",
+        )
+
     @property
     def grammar(self) -> object:
         """What this adapter's grammar claims to read."""
@@ -454,7 +472,7 @@ class FixtureSourceAdapter:
 #: re-publish of the same file, a metadata touch. Folding them into the hash would make
 #: every such event look like a content change, and the platform would re-parse and raise
 #: drift for a workbook nobody edited.
-_NOT_CONTENT = frozenset({"fails_on", "revision", "updated_at"})
+_NOT_CONTENT = frozenset({"fails_on", "revision", "updated_at", "archived"})
 
 
 def _canonical(workbook: FixtureWorkbook) -> str:
@@ -482,6 +500,7 @@ def _from_canonical(payload: bytes, known: FixtureWorkbook) -> FixtureWorkbook:
         revision=known.revision,
         updated_at=known.updated_at,
         fails_on=known.fails_on,
+        archived=known.archived,
     )
 
 

@@ -107,6 +107,16 @@ class EventType(str, Enum):
     fact — so this exists purely so a Decommission-Tracker-adjacent consumer does not
     have to poll that table to learn a capture just happened."""
 
+    SITE_DECOMMISSIONED = "estate.site.decommissioned"
+    """S9.3.1: `g4_card.approve` archived a site's own source workbooks and recorded its
+    G4 decommission. The identical `MU_PROMOTED` shape: the real mutation is the real
+    `Site.decommissioned_at`/`.licence_release_value` property write plus the real
+    `GateDecision(gate="G4")` node — each already raising its own `NODE_UPSERTED` event
+    through `writer.set_node_properties`/`write_nodes` — so this notice exists purely so
+    a consumer does not have to poll for a Site's own `decommissioned_at` to learn a
+    decommission just happened. The first notice (and the first event of any kind) whose
+    `subject` is a Site rather than a Workbook."""
+
     @property
     def element_kind(self) -> str:
         return "edge" if self in (EventType.EDGE_UPSERTED, EventType.EDGE_RETIRED) else "node"
@@ -121,7 +131,7 @@ class EventType(str, Enum):
         """
         return self not in (
             EventType.SOURCE_DRIFT, EventType.PATTERN_RETIRED, EventType.MU_ACCEPTED,
-            EventType.MU_PROMOTED, EventType.ADOPTION_CAPTURED,
+            EventType.MU_PROMOTED, EventType.ADOPTION_CAPTURED, EventType.SITE_DECOMMISSIONED,
         )
 
 
@@ -418,6 +428,38 @@ def adoption_captured(
             "target_views": target_views,
             "ratio": ratio,
             "meets_threshold": meets_threshold,
+        },
+    )
+
+
+def site_decommissioned(
+    *,
+    source: str,
+    site_id: str,
+    workbook_ids: tuple[str, ...],
+    licence_tier: str | None,
+    licence_release_value: float | None,
+    gate_decision_id: str,
+    principal: Principal,
+) -> PlatformEvent:
+    """A site was decommissioned under G4 (S9.3.1). Not a graph mutation: the real
+    `Site.decommissioned_at`/`.licence_release_value` write and the real
+    `GateDecision(gate="G4")` node are — a licence-tracking consumer watching for
+    `site.decommissioned` should not need to separately resolve the site's own released
+    MUs and licence value to know what was just released."""
+    return PlatformEvent(
+        type=EventType.SITE_DECOMMISSIONED,
+        source=source,
+        subject=site_id,
+        label="Site",
+        principal=principal.value,
+        run_id=principal.run_id,
+        data={
+            "site_id": site_id,
+            "workbook_ids": list(workbook_ids),
+            "licence_tier": licence_tier,
+            "licence_release_value": licence_release_value,
+            "gate_decision_id": gate_decision_id,
         },
     )
 

@@ -41,7 +41,11 @@ from .proof import ParityCase, ResultSet, VisualCapture, VisualCase
 #: an adapter built against 1.0 is refused rather than silently handing the Proof Engine
 #: untyped columns it would have to guess the roles of. ADR 0015 set the rule (additive
 #: fields do not move the version; removals and retypes do) and this is its first exercise.
-INTERFACE_VERSION = "1.1"
+#:
+#: **1.2** (S9.3.1) adds ``archive`` — the identical "a genuinely new Protocol method
+#: widens the contract" bump ``target_contract.TARGET_INTERFACE_VERSION`` already took
+#: three times (1.0->1.1->1.2->1.3) for ``evaluate``/``render_visual``/``usage``.
+INTERFACE_VERSION = "1.2"
 
 #: The six method names story S2.1.1 asks for, mapped to the specification's names, which
 #: win. Asserted against the protocol in the SDK's tests, so the mapping cannot rot.
@@ -69,6 +73,11 @@ class Capabilities:
     usage: bool = False
     ownership: bool = False
     screenshot: bool = False
+    archive: bool = False
+    """Can retire a source workbook at G4 decommission (story S9.3.1, §13.1's own G4 row:
+    "source workbooks archived"). Absent for the real Tableau adapter today — no live
+    archive integration exists yet, the identical disclosed gap ``usage``/``viewers`` have
+    always had for it."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,6 +312,20 @@ class SiteRecord:
     for. Recorded in ADR 0015."""
 
 
+@dataclass(frozen=True, slots=True)
+class ArchiveResult:
+    """One source workbook's own real archive outcome, at G4 decommission (story S9.3.1,
+    §13.1's own G4 row: "source workbooks archived").
+
+    ``archived`` is real and required; a target that cannot actually retire the asset
+    raises ``AdapterError`` rather than fabricating success -- the identical "no partial
+    or guessed success" posture ``fetch``/``parse`` already take per-asset."""
+
+    luid: str
+    archived: bool
+    detail: str = ""
+
+
 class AdapterError(Exception):
     """The adapter could not do what was asked.
 
@@ -399,3 +422,13 @@ class SourceAdapter(Protocol):
     """§6.2 Screenshot / §10.6: an image of the source view, for the advisory visual
     comparison. Advisory is the operative word — §10.6 gates on data parity and a human
     review, never on this."""
+
+    async def archive(self, asset: AssetRef) -> ArchiveResult: ...
+
+    """§13.1's own G4 row, "source workbooks archived" (story S9.3.1): retire one source
+    workbook at G4 decommission approval, the Steward's own adapter capability. Gated by
+    ``Capabilities.archive`` exactly like every other optional capability on this
+    contract — an adapter that never claimed it raises ``UnsupportedCapability`` rather
+    than silently doing nothing, so a real deployment's own G4 approval fails loudly
+    rather than recording a licence release for source workbooks nothing actually
+    retired."""

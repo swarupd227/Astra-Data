@@ -175,6 +175,13 @@ def create_app(adapter: SourceAdapter) -> Starlette:
         return JSONResponse({"records": [wire.encode_owner(r) for r in records]})
 
     @_guard
+    async def archive(request: Request) -> JSONResponse:
+        body = await request.json()
+        wire.check_interface(str(body.get("interface_version", INTERFACE_VERSION)))
+        result = await adapter.archive(wire.decode_asset(body["asset"]))
+        return JSONResponse(wire.encode_archive_result(result))
+
+    @_guard
     async def sites(request: Request) -> JSONResponse:
         body = await request.json()
         wire.check_interface(str(body.get("interface_version", INTERFACE_VERSION)))
@@ -222,6 +229,7 @@ def create_app(adapter: SourceAdapter) -> Starlette:
             Route("/v1/usage", usage, methods=["POST"]),
             Route("/v1/viewers", viewers, methods=["POST"]),
             Route("/v1/owners", owners, methods=["POST"]),
+            Route("/v1/archive", archive, methods=["POST"]),
             Route("/v1/sites", sites, methods=["POST"]),
             Route("/v1/execute-case", execute_case, methods=["POST"]),
             Route("/v1/capture-visual", capture_visual, methods=["POST"]),

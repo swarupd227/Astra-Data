@@ -23,6 +23,7 @@ from ..contract import (
     INTERFACE_VERSION,
     AdapterError,
     AdapterManifest,
+    ArchiveResult,
     AssetRef,
     OwnershipRecord,
     ParseResult,
@@ -186,6 +187,11 @@ class RemoteAdapter:
     async def owners(self, scope: Scope) -> Sequence[OwnershipRecord]:
         body = await self._post("/v1/owners", {"scope": wire.encode_scope(scope)})
         return [wire.decode_owner(raw) for raw in body["records"]]
+
+    async def archive(self, asset: AssetRef) -> ArchiveResult:
+        return wire.decode_archive_result(
+            await self._post("/v1/archive", {"asset": wire.encode_asset(asset)})
+        )
 
     async def sites(self, scope: Scope) -> Sequence[SiteRecord]:
         body = await self._post("/v1/sites", {"scope": wire.encode_scope(scope)})

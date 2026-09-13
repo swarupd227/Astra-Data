@@ -73,6 +73,7 @@ async def test_the_whole_contract_survives_the_wire() -> None:
         assert list(await remote.owners(scope)) == list(await local.owners(scope))
         assert list(await remote.viewers(scope, 90)) == list(await local.viewers(scope, 90))
         assert list(await remote.sites(scope)) == list(await local.sites(scope))
+        assert await remote.archive(far[0]) == await local.archive(near[0])
 
         case = ParityCase(id="c1", workbook_luid=far[0].luid)
         assert await remote.execute_case(case) == await local.execute_case(case)

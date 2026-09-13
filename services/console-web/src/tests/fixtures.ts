@@ -20,6 +20,7 @@ import type {
   ConformanceRuleset,
   ConstructIssue,
   ConstructsResponse,
+  DecommissionConfirmation,
   DecommissionTracker as DecommissionTrackerData,
   DecommissionTrackerMu,
   DecommissionTrackerSite,
@@ -37,6 +38,8 @@ import type {
   G2Question,
   G3Card,
   G3Question,
+  G4Card,
+  G4DecisionResult,
   Identity,
   LineageQuery,
   LineageResponse,
@@ -55,6 +58,7 @@ import type {
   PromoteResult,
   PromotionRecord,
   QueueResponse,
+  ReadinessItem,
   ReclassifyResult,
   RegressionExportRecord,
   RegressionMonitorResponse,
@@ -1276,6 +1280,62 @@ export function adoptionConfig(overrides: Partial<AdoptionConfig> = {}): Adoptio
   return { threshold: 0.8, ...overrides };
 }
 
+export function readinessItem(overrides: Partial<ReadinessItem> = {}): ReadinessItem {
+  return {
+    key: 'all_released', label: 'All in-scope MUs released', met: true,
+    evidence: { released: 1, total: 1 },
+    ...overrides,
+  };
+}
+
+export function defaultG4Checklist(): ReadinessItem[] {
+  return [
+    readinessItem(),
+    readinessItem({ key: 'parallel_window_elapsed', label: 'Parallel-run window elapsed', evidence: { window_start: '2027-05-01T00:00:00.000Z', window_end: '2027-05-29T00:00:00.000Z' } }),
+    readinessItem({ key: 'regression_green', label: 'Regression green', evidence: { checked: 1, failing: 0 } }),
+    readinessItem({ key: 'adoption_threshold_met', label: 'Adoption threshold met', evidence: { meeting: 1, released: 1 } }),
+    readinessItem({ key: 'owner_confirmations_received', label: 'Owner confirmations received', evidence: { confirmed: 1, total: 1 } }),
+  ];
+}
+
+export function g4Card(overrides: Partial<G4Card> = {}): G4Card {
+  return {
+    site_id: 'site-rqa',
+    name: 'RQA',
+    licence_tier: 'User-based',
+    licence_cost_annual: 50000,
+    mus: overrides.mus ?? [{ workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', name: 'Daily VaR' }],
+    released_mu_count: 1,
+    source_workbooks_to_archive: overrides.source_workbooks_to_archive
+      ?? overrides.mus ?? [{ workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', name: 'Daily VaR' }],
+    confirmation_text: 'I, as the licence administrator for RQA, confirm that all 1 in-scope Migration Unit(s) have been released.',
+    ready: true,
+    checklist: overrides.checklist ?? defaultG4Checklist(),
+    next: { on_approval: 'the Steward archives the listed source workbooks and records the licence release on this site' },
+    latest_decision: overrides.latest_decision === undefined ? null : overrides.latest_decision,
+    ...overrides,
+  };
+}
+
+export function g4DecisionResult(overrides: Partial<G4DecisionResult> = {}): G4DecisionResult {
+  return {
+    site_id: 'site-rqa', gate_decision_id: 'gd_01M2', decision: 'APPROVED',
+    archived_count: 1, licence_release_value: 50000, decommissioned_at: '2027-06-01T09:00:00.000Z',
+    target_date: null,
+    ...overrides,
+  };
+}
+
+export function decommissionConfirmation(
+  overrides: Partial<DecommissionConfirmation> = {},
+): DecommissionConfirmation {
+  return {
+    workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', confirmed_by: 'user:owner@client.example',
+    confirmed_at: '2027-06-01T09:00:00.000Z',
+    ...overrides,
+  };
+}
+
 export function g3Card(overrides: Partial<G3Card> = {}): G3Card {
   return {
     workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
@@ -1375,6 +1435,17 @@ export function fakeApi(
   };
   let adoptionConfigState: AdoptionConfig = { ...initialAdoptionConfig };
   let adoptionCaptureSeq = 0;
+  const g4CardsBySite = new Map<string, G4Card>(
+    decommissionTrackerState.sites.map((s) => [
+      s.site_id,
+      g4Card({
+        site_id: s.site_id, name: s.name,
+        mus: s.mus.map((mu) => ({ workbook_id: mu.workbook_id, name: mu.name })),
+        source_workbooks_to_archive: s.mus.map((mu) => ({ workbook_id: mu.workbook_id, name: mu.name })),
+        released_mu_count: s.released_mu_count,
+      }),
+    ]),
+  );
   const exceptionCaseRows = initialExceptionCases.map((c) => ({ ...c }));
   const findExceptionCase = (exceptionCaseId: string): ExceptionCaseDetail => {
     const found = exceptionCaseRows.find((c) => c.id === exceptionCaseId);
@@ -2522,6 +2593,50 @@ export function fakeApi(
         }),
       };
       return { captured, count: captured.length };
+    },
+    async g4Card(siteId, _identity) {
+      maybeFail();
+      const card = g4CardsBySite.get(siteId);
+      if (!card) throw new ApiError(404, 'not_found', `no Site '${siteId}'`);
+      return card;
+    },
+    async approveG4(siteId, rationale, countersignedBy, identity) {
+      maybeFail();
+      recorded.push({ kind: 'APPROVE_G4', id: siteId, reason: rationale });
+      const card = g4CardsBySite.get(siteId);
+      if (!card) throw new ApiError(404, 'not_found', `no Site '${siteId}'`);
+      const result = g4DecisionResult({ site_id: siteId, decision: 'APPROVED' });
+      g4CardsBySite.set(siteId, {
+        ...card,
+        latest_decision: {
+          decision: 'APPROVED', approver: identity.principal, countersigner: countersignedBy,
+          timestamp: result.decommissioned_at, rationale, target_date: null,
+        },
+      });
+      return result;
+    },
+    async deferG4(siteId, reason, targetDate, identity) {
+      maybeFail();
+      recorded.push({ kind: 'DEFER_G4', id: siteId, reason });
+      const card = g4CardsBySite.get(siteId);
+      if (!card) throw new ApiError(404, 'not_found', `no Site '${siteId}'`);
+      const result = g4DecisionResult({
+        site_id: siteId, decision: 'DEFERRED', archived_count: 0,
+        licence_release_value: null, decommissioned_at: null, target_date: targetDate,
+      });
+      g4CardsBySite.set(siteId, {
+        ...card,
+        latest_decision: {
+          decision: 'DEFERRED', approver: identity.principal, countersigner: null,
+          timestamp: new Date().toISOString(), rationale: reason, target_date: targetDate,
+        },
+      });
+      return result;
+    },
+    async confirmDecommission(workbookId, identity) {
+      maybeFail();
+      recorded.push({ kind: 'CONFIRM_DECOMMISSION', id: workbookId, reason: '' });
+      return decommissionConfirmation({ workbook_id: workbookId, confirmed_by: identity.principal });
     },
   };
 }

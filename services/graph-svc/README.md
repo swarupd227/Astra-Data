@@ -3496,6 +3496,152 @@ single `minmax(0, 1fr)`) rather than assumed fixed.
 See [ADR 0069](../../docs/adr/0069-adoption-tracking-a-views-ratio-not-adoption-sessions.md)
 for the full reasoning.
 
+## G4 decommission (story S9.3.1, opens F9.3)
+
+The backlog's own AC, verbatim: "As a licence admin, I want a Decommission Tracker per
+site with a readiness checklist and a G4 card when ready, so that I switch off a site
+once, safely, with a record." Readiness = all in-scope MUs RELEASED + parallel window
+elapsed + regression green + adoption threshold met + owner confirmations received,
+each item shown with its own state and evidence; the G4 card lists the MUs, the licence
+tier and count released, the source workbooks to be archived, and the confirmation
+text; approver is the licence admin, countersigned by the Programme Manager; on
+approval the Steward archives the source workbooks and records the licence-release date
+and value on the Site node, and emits `site.decommissioned`; deferral records the
+reason and a new target date.
+
+**Approve/defer reuse G3's own proven shape -- approver + countersigner on one
+`GateDecision`, no new mechanism invented.** `GateDecision.decision` gains `DEFERRED`
+-- an additive enum widening needing no migration (confirmed directly against the
+migration guard's own logic, which does not even classify an added enum value as a
+change to react to). `subject_ref` names the Site rather than a workbook -- the first
+G4 write this codebase has made, and the first `GateDecision` whose subject is not a
+Migration Unit proxy.
+
+**Readiness is a real, computed checklist -- never a stored flag, and never blocks
+reading the card.** Each item is computed live from facts prior stories already
+established, with real evidence: **all in-scope MUs released** (`ScopeStore.states()`
+excluding withdrawn workbooks, against the identical "released" signal `release.py`/
+`adoption.py` already use -- a SUCCEEDED `promotion_run` row for `to_stage="prod"`);
+**parallel window elapsed** (`release._window_end`/`g3_card.DEFAULT_PARALLEL_WINDOW_
+WEEKS`, reused verbatim); **regression green** (`RegressionScheduleStore.list_
+schedules()`, filtered to the site's in-scope workbooks -- a workbook never scheduled
+does not block readiness, since regression scheduling is itself opt-in and "green"
+reads as "nothing is currently failing," not "everything has been checked"); **adoption
+threshold met** (`AdoptionStore.latest_for_workbooks`'s own frozen `meets_threshold`,
+never recomputed against today's config); **owner confirmations received** (see below).
+Only the *approve* action is refused when the checklist is not fully met -- the
+identical "read shows real state, the mutating action enforces the real precondition"
+split `promotion_blockers`/`promote_workbook` already set.
+
+**Owner confirmation is a genuinely new, minimal, overwrite-not-append per-workbook
+fact** (`public.decommission_confirmation`, `PostgresDecommissionConfirmationStore`,
+`UNIQUE (graph, workbook_id)` with `ON CONFLICT ... DO UPDATE`) -- the identical shape
+`retention.Programme.family_count_confirmed_by`/`_at` already set for "someone
+confirmed X," reused here per-workbook. Confirming is the report owner's own action
+(`Role.CLIENT_REPORT_OWNER`), the same persona G3 approval already uses.
+
+**Archiving a source workbook is a genuinely new `SourceAdapter.archive()`
+capability** (`Capabilities.archive`, `ArchiveResult`, `INTERFACE_VERSION` bumped
+1.1 -> 1.2, the identical "a new Protocol method widens the contract" bump `Target
+Adapter.usage()` already took). `approve` resolves each in-scope workbook's own real
+`AssetRef` from the adapter's own live `enumerate(Scope(site=...))`, not derived from
+the graph. The real Tableau adapter honestly raises `UnsupportedCapability` -- no live
+archive integration exists, the identical disclosed gap `usage`/`viewers`/`owners`
+already have.
+
+**"Records the licence-release date and value" writes directly onto the real Site
+node** -- `decommissioned_at`/`licence_release_value` (both new, additive, disclosed-
+deviation properties) rather than a second `site_record` table §21 names but this
+codebase has never built; the value recorded is this same node's own `licence_cost_
+annual` at approval time, honestly `None` if that was never known.
+
+**Approval is all-or-nothing.** `approve` re-checks the full readiness checklist and
+refuses (naming every unmet item) before archiving anything; it also refuses outright
+if the adapter never claimed the archive capability, or if the source no longer
+reports the site at all. Only once every in-scope workbook has actually archived are
+the `GateDecision`, the `Site` property write, and the `estate.site.decommissioned`
+notice ever written.
+
+**Scope deliberately stops at approval and deferral -- no automatic G4 request.**
+§14.4's own "readiness met opens the request automatically" names a real scheduler or
+notification mechanism nothing in this codebase drives yet; the Decommission Tracker's
+own live checklist read is how a licence admin learns readiness today.
+
+New `g4_card.py`: `readiness_checklist`, `g4_card`, `approve`, `defer`,
+`DecommissionConfirmation`/`PostgresDecommissionConfirmationStore`, `G4CardService`.
+`events.py`: `EventType.SITE_DECOMMISSIONED` (`estate.site.decommissioned`), the first
+notice whose subject is a Site. New migration `v0036_decommission_confirmation.py`
+(`public.decommission_confirmation`, a plain Postgres platform table, not an ontology
+node). Ontology: `Site.decommissioned_at`/`.licence_release_value`, `GateDecision.
+target_date`, `GateDecision.decision` gains `DEFERRED` -- all additive (`SCHEMA_
+VERSION` 36 -> 37, `ontology.lock.json` regenerated, no migration entry needed). `api/
+deps.py`: `require_g4_approver`/`G4ApproverDep` (Client Licence Administrator),
+`require_decommission_confirmer`/`DecommissionConfirmerDep` (Client Report Owner);
+reuses `DecommissionTrackerReaderDep` (S9.2.2) for reading the card. New routes: `GET
+/v1/sites/{id}:g4-card`, `POST /v1/sites/{id}:approve-g4`/`:defer-g4`, `POST
+/v1/workbooks/{id}:confirm-decommission`. `DecommissionTracker.tsx` extended with a
+per-site readiness checklist, an on-demand G4 card panel (the identical single-lookup-
+on-demand shape `G3Card.tsx` already takes), and a per-MU "Confirm" action.
+
+Verified: 15 new pure unit tests (`_clean_rationale`, `_parse_target_date`,
+`_window_elapsed`'s own date math, the result dataclasses' own round-trips); 2 new
+adapter-sdk unit tests for `archive()` (refused when unclaimed, a real archive marking
+the fixture's own estate); 21 new integration tests against real PostgreSQL + Apache
+AGE and the real fixture source adapter (readiness fully met when every real
+precondition is real; each of the five items independently false with its own real
+evidence; a withdrawn workbook correctly excluded; the card's own MUs/licence
+tier/confirmation text; `approve` refusing an unready site, a missing rationale, a
+missing countersigner, an adapter with no archive capability, and a site the source no
+longer reports, each before archiving anything; a real approval really archiving the
+fixture workbook, writing the real `GateDecision`, and recording the real Site
+properties; an honest `None` licence value for a site with no known cost; `defer`
+recording a real reason and target date and refusing a past one; the `G4CardService`
+wrapper; confirmation's own overwrite semantics); 20 new console tests (the readiness
+checklist, an honest not-ready state, a card read failure, owner confirmation gated to
+the report owner, authorising and deferring both gated to the licence administrator, a
+real API refusal surfaced for each, and both hidden for every other role). The full
+existing graph-svc suite (1,499 passed non-integration; 716 passed, 2 skipped, one
+already-known, unrelated `test_integration_g2_reminders.py` date-boundary flake in the
+full integration run, confirmed unrelated by a clean `git diff` on that test's own
+files; adapter-sdk's own 126 tests and adapter-tableau's own 261 both confirmed
+passing after the RPC capability-wire fix below) and console-web suite (304 passed)
+both green alongside them; `ruff`/`mypy`/`tsc --noEmit`/`eslint` clean; `ontology_
+check.py`/`migration_check.py --write` confirm the ontology change is purely additive.
+
+Live-smoke-tested against the real Docker stack: all four new routes live and
+role-gated correctly (a wrong-role attempt refused with a real 403 on the card, the
+confirmation, and both decisions); a real Site/Project/Workbook built directly against
+the graph (bypassing the full harvest/promotion chain, the same "raw-insert the
+platform-table row a full pipeline would eventually produce" precedent earlier smoke
+tests already used) walked through every real readiness fact -- a real prod
+`promotion_run` row, a real frozen `adoption_snapshot`, a real owner confirmation --
+until its own G4 card read `"ready": true` with all five items honestly met; a real
+`defer` recorded a real reason and target date, visible on the card's own `latest_
+decision` immediately afterward. The smoke-test site and workbook were retired
+afterward (a disclosed reason), not left in the shared demo estate, since they were
+test scaffolding rather than real migration progress.
+
+**Three real bugs found live, all fixed here.** Widening `Capabilities` with `archive`
+broke the existing `test_the_platform_can_harvest_through_an_out_of_process_adapter`
+-- the RPC wire's own hand-written `encode_capabilities`/`decode_capabilities` silently
+dropped the new field, so a real out-of-process adapter would report every deployment
+as lacking the capability regardless of what it actually declared; fixed by widening
+both codec functions and adding `archive()`'s own full client/server/wire round trip,
+the same shape every other optional capability already has. `DecommissionTracker.tsx`'s
+`approveG4`/`deferG4` both refreshed the card afterward through `openG4`, which
+unconditionally reset the very success/failure notice they had just set -- a real
+decommission would have silently shown no confirmation of what just happened; found by
+a console test asserting on the notice text after a successful defer, not by
+inspection; fixed by moving the notice reset to the "Open G4 card" button's own click
+handler. `approve`'s own `source_adapter.enumerate(Scope(site=...))` call raised a
+bare, unhandled `AdapterError` for a real Site node the source no longer recognises,
+surfacing as an unhandled 500 rather than a clean refusal -- found live in Docker via
+the running container's own traceback, fixed by translating the error to a real
+`InvalidRequestError`, and proven by a new integration test.
+
+See [ADR 0070](../../docs/adr/0070-g4-decommission-a-readiness-checklist-not-an-automatic-request.md)
+for the full reasoning.
+
 ## Grammar issues
 
 A construct the adapter cannot read, raised as work by the Parse Quality Queue (S1.4.3).

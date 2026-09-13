@@ -46,22 +46,24 @@ def test_the_mutation_event_types_are_the_ones_the_story_names() -> None:
 
 
 def test_a_notice_is_not_replayed_and_cannot_be_written_on_its_own_by_mistake() -> None:
-    """The five halves of the notice/mutation split, stated together. Five notices share
+    """The six halves of the notice/mutation split, stated together. Six notices share
     the outbox today (S1.2.4's own SOURCE_DRIFT, S5.5.2's own PATTERN_RETIRED, S9.1.2's own
-    MU_ACCEPTED, S9.2.1's own MU_PROMOTED, S9.2.2's own ADOPTION_CAPTURED) -- all named
-    explicitly, so a future notice added without updating this set fails loudly rather
-    than silently starting to replay."""
+    MU_ACCEPTED, S9.2.1's own MU_PROMOTED, S9.2.2's own ADOPTION_CAPTURED, S9.3.1's own
+    SITE_DECOMMISSIONED) -- all named explicitly, so a future notice added without
+    updating this set fails loudly rather than silently starting to replay."""
     assert not EventType.SOURCE_DRIFT.mutates_graph
     assert not EventType.PATTERN_RETIRED.mutates_graph
     assert not EventType.MU_ACCEPTED.mutates_graph
     assert not EventType.MU_PROMOTED.mutates_graph
     assert not EventType.ADOPTION_CAPTURED.mutates_graph
+    assert not EventType.SITE_DECOMMISSIONED.mutates_graph
     assert {e.value for e in EventType if not e.mutates_graph} == {
         "estate.source.drift",
         "estate.pattern.retired",
         "estate.mu.accepted",
         "estate.mu.promoted",
         "estate.adoption.captured",
+        "estate.site.decommissioned",
     }
 
 

@@ -35,6 +35,7 @@ from .api import (
     families_router,
     g2_router,
     g3_router,
+    g4_router,
     gateway_router,
     generation_router,
     harvest_router,
@@ -80,6 +81,7 @@ from .exception_desk import ExceptionDeskService
 from .g2 import PostgresQuestionStore
 from .g2_reminders import LocalNotificationChannel, PostgresReminderStore
 from .g3_card import G3CardService
+from .g4_card import G4CardService, PostgresDecommissionConfirmationStore
 from .gateway import build_gateway
 from .generation import GenerationEngine
 from .grammar import LocalIssueTracker, PostgresIssueStore
@@ -411,6 +413,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
         scope_store=app.state.scope_store, unit_price_store=app.state.unit_price_store,
     )
+    # Story S9.3.1, opening F9.3: G4 decommission -- the per-site readiness checklist
+    # (over promotion/adoption/regression/scope facts already wired above) and the gate
+    # card itself. See g4_card.py's own docstring.
+    app.state.decommission_confirmation_store = PostgresDecommissionConfirmationStore(
+        pool, graph_name=config.graph_name,
+    )
+    app.state.g4_card = G4CardService(
+        pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
+        source_adapter=app.state.source_adapter, promotion_store=app.state.promotion_store,
+        adoption_store=app.state.adoption_store,
+        confirmation_store=app.state.decommission_confirmation_store,
+        regression_store=app.state.regression_schedule_store, scope_store=app.state.scope_store,
+    )
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(
         quality=quality_store,
@@ -503,6 +518,7 @@ def create_app() -> FastAPI:
     app.include_router(families_router)
     app.include_router(g2_router)
     app.include_router(g3_router)
+    app.include_router(g4_router)
     app.include_router(trains_router)
     app.include_router(modeller_router)
     app.include_router(conformance_router)

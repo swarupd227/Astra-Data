@@ -78,6 +78,14 @@ NODE_TYPES: tuple[NodeType, ...] = (
             _p("licence_tier", T.STRING,
                note="The site's licensing model, where the source exposes it. Absent "
                     "when the adapter has no ownership capability (story S1.2.3)."),
+            _p("decommissioned_at", T.TIMESTAMP,
+               note="Set once, at G4 approval -- spec §21's own site_record.decommissioned_at "
+                    "(story S9.3.1). Absent for every site not yet decommissioned."),
+            _p("licence_release_value", T.FLOAT,
+               note="The licence cost released by decommissioning this site, recorded at "
+                    "G4 approval time (spec §21's own site_record.licence_released_value, "
+                    "story S9.3.1) -- copied from this same node's own licence_cost_annual "
+                    "at the moment of approval, honestly absent if that was never known."),
         ),
     ),
     NodeType(
@@ -858,14 +866,16 @@ NODE_TYPES: tuple[NodeType, ...] = (
             _p("subject_ref", T.STRING, required=True),
             _p("decision", T.ENUM, required=True,
                enum=("APPROVED", "REJECTED", "CHANGES_REQUESTED", "WAIVED",
-                     "PATCHED", "REDESIGN", "MODEL_DEFECT", "SOURCE_DEFECT"),
-               note="The last four values are story S8.3.1's own addition -- the "
+                     "PATCHED", "REDESIGN", "MODEL_DEFECT", "SOURCE_DEFECT", "DEFERRED"),
+               note="The middle four values are story S8.3.1's own addition -- the "
                     "Exception Desk's own four decision types (§11.3), each recorded "
                     "as a real `GateDecision(gate='G3')` even though no real G3 gate "
                     "workflow exists yet (S9.1.1/S9.1.2's own later, unbuilt scope) -- "
                     "'the choice is a G3 matter' (§11.3's own words for the source-"
                     "defect decision) read as 'this is what G3 will one day read', not "
-                    "'this story builds G3'."),
+                    "'this story builds G3'. DEFERRED is story S9.3.1's own addition -- "
+                    "the G4 gate's own 'defer with reason' action (§15.3.4), paired with "
+                    "this same node's new `target_date` property."),
             _p("approver", T.STRING, required=True,
                note="A gate decision without a named approver is not a decision (spec P4)."),
             _p("rationale", T.TEXT),
@@ -882,6 +892,10 @@ NODE_TYPES: tuple[NodeType, ...] = (
                note="§13.1's approver/countersign pairs (e.g. G2: data owner approves, "
                     "Semantic Model Engineer countersigns). Absent when a gate has none."),
             _p("countersigner_role", T.STRING),
+            _p("target_date", T.TIMESTAMP,
+               note="Only set on a DEFERRED decision -- the new target date §15.3.4's own "
+                    "'defer with reason' names, alongside `rationale` for the reason itself "
+                    "(story S9.3.1)."),
         ),
     ),
     NodeType(
@@ -1588,5 +1602,27 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
         detail="A real human review is a fact about one visual's own mapping, the same "
                "'store it on the node the fact is actually about' reasoning the score "
                "properties immediately above already applied.",
+    ),
+    SpecDeviation(
+        element="Site.decommissioned_at, Site.licence_release_value",
+        reason="§4.1.1's own Site row does not list either; both are named only in §21's "
+               "own site_record platform table (decommissioned_at, licence_released_value), "
+               "a different data-model row than the Site node itself.",
+        detail="Story S9.3.1's own G4 approval writes both directly onto the real Site "
+               "node it decommissions, rather than duplicating a second site_record table "
+               "nowhere else in this codebase has ever needed -- the same 'the row IS the "
+               "fact, not a second echo of it' reasoning `promotion_run`/`report_deploy_run` "
+               "already established for history, applied here to a current-state fact "
+               "about the node itself. `licence_release_value` is spelled without the extra "
+               "'d' §21 itself uses ('licence_released_value') to match this ontology's own "
+               "adjective-first property-naming convention elsewhere (e.g. `licence_tier`, "
+               "`licence_cost_annual` on this identical node).",
+    ),
+    SpecDeviation(
+        element="GateDecision.target_date",
+        reason="§4.1.1/§13.3 name no such property on GateDecision.",
+        detail="Story S9.3.1's own G4 'defer with reason' action (§15.3.4) needs a real, "
+               "queryable new target date alongside the existing `rationale` -- only ever "
+               "set on a DEFERRED decision, absent otherwise.",
     ),
 )
