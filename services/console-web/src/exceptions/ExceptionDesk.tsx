@@ -24,6 +24,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { Explain } from '../components/Explain';
 import type {
   Api,
   ExceptionCaseDetail,
@@ -38,6 +39,10 @@ interface Props {
   identity: Identity;
   /** Deep-links straight to this one case (story S10.1.1's own "a case" noun). */
   initialCaseId?: string;
+  /** A live-updates tick (story S10.1.2) -- incrementing it re-runs the queue's own
+   * fetch effect, the identical "increment a number, the existing effect re-fetches"
+   * shape `reloadQueue` already uses for the Filter button. */
+  liveTick?: number;
 }
 
 type DecisionKind = 'patch' | 'redesign' | 'model_defect' | 'source_defect';
@@ -52,7 +57,7 @@ function formatAge(seconds: number | null): string {
   return `${days}d`;
 }
 
-export function ExceptionDesk({ api, identity, initialCaseId }: Props): JSX.Element {
+export function ExceptionDesk({ api, identity, initialCaseId, liveTick }: Props): JSX.Element {
   const [trainFilter, setTrainFilter] = useState('');
   const [classFilter, setClassFilter] = useState('');
   const [siteFilter, setSiteFilter] = useState('');
@@ -117,7 +122,7 @@ export function ExceptionDesk({ api, identity, initialCaseId }: Props): JSX.Elem
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, identity, queueNonce]);
+  }, [api, identity, queueNonce, liveTick]);
 
   const reloadQueue = useCallback(() => setQueueNonce((value) => value + 1), []);
 
@@ -239,7 +244,12 @@ export function ExceptionDesk({ api, identity, initialCaseId }: Props): JSX.Elem
       <section className="pane" aria-label="Exception Desk">
         <header className="pane-header">
           <h2>Exception Desk</h2>
-          {entries && <span className="pill idle mono">{entries.length} in queue</span>}
+          {entries && (
+            <span className="pill idle mono">
+              {entries.length} in queue
+              <Explain api={api} identity={identity} metricKey="exceptions.queue_count" />
+            </span>
+          )}
         </header>
         <div className="pane-body">
           <div className="row-actions">

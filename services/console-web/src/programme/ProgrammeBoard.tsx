@@ -52,6 +52,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { Explain } from '../components/Explain';
 import type {
   AcceptanceSummary,
   AwaitingG2Review,
@@ -68,9 +69,14 @@ import { ApiError } from '../lib/api';
 interface Props {
   api: Api;
   identity: Identity;
+  /** A live-updates tick (story S10.1.2) -- incrementing it re-runs every pane's own
+   * fetch effect, the identical "increment a number, the existing effect re-fetches"
+   * shape each pane's own `nonce` already uses for its own actions. Every pane below
+   * shares this one `Props` shape, so one prop threads through all six. */
+  liveTick?: number;
 }
 
-export function ProgrammeBoard({ api, identity }: Props): JSX.Element {
+export function ProgrammeBoard({ api, identity, liveTick }: Props): JSX.Element {
   const [programmes, setProgrammes] = useState<ProgrammeRecord[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,7 +104,7 @@ export function ProgrammeBoard({ api, identity }: Props): JSX.Element {
     return () => {
       live = false;
     };
-  }, [api, identity, nonce]);
+  }, [api, identity, nonce, liveTick]);
 
   const reload = useCallback(() => setNonce((value) => value + 1), []);
 
@@ -152,7 +158,10 @@ export function ProgrammeBoard({ api, identity }: Props): JSX.Element {
             <div className="detail">
               <div className="family-count-figures">
                 <div className="figure">
-                  <span className="section-title">Planned</span>
+                  <span className="section-title">
+                    Planned
+                    <Explain api={api} identity={identity} metricKey="programme.family_count" />
+                  </span>
                   <span className="figure-value numeric">{programme.planned_family_count}</span>
                 </div>
                 <div className="figure">
@@ -197,12 +206,12 @@ export function ProgrammeBoard({ api, identity }: Props): JSX.Element {
         </footer>
       </section>
 
-      <TrainProjectionsPane api={api} identity={identity} />
-      <G2ReviewsPane api={api} identity={identity} />
-      <ClassMixPane api={api} identity={identity} />
-      <RuleCoveragePane api={api} identity={identity} />
-      <ExceptionAgeingPane api={api} identity={identity} />
-      <AcceptanceByTierPane api={api} identity={identity} />
+      <TrainProjectionsPane api={api} identity={identity} liveTick={liveTick} />
+      <G2ReviewsPane api={api} identity={identity} liveTick={liveTick} />
+      <ClassMixPane api={api} identity={identity} liveTick={liveTick} />
+      <RuleCoveragePane api={api} identity={identity} liveTick={liveTick} />
+      <ExceptionAgeingPane api={api} identity={identity} liveTick={liveTick} />
+      <AcceptanceByTierPane api={api} identity={identity} liveTick={liveTick} />
     </div>
   );
 }
@@ -215,7 +224,7 @@ function formatDelta(delta: number | null): string {
 
 // ---------------------------------------------------------- projected vs. planned (S3.2.3)
 
-function TrainProjectionsPane({ api, identity }: Props): JSX.Element {
+function TrainProjectionsPane({ api, identity, liveTick }: Props): JSX.Element {
   const [projections, setProjections] = useState<TrainProjection[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -240,7 +249,7 @@ function TrainProjectionsPane({ api, identity }: Props): JSX.Element {
     return () => {
       live = false;
     };
-  }, [api, identity]);
+  }, [api, identity, liveTick]);
 
   const flaggedCount = (projections ?? []).filter((p) => p.flagged).length;
 
@@ -311,7 +320,7 @@ function TrainProjectionsPane({ api, identity }: Props): JSX.Element {
 
 // -------------------------------------------------------------- G2 cycle time (S4.2.2)
 
-function G2ReviewsPane({ api, identity }: Props): JSX.Element {
+function G2ReviewsPane({ api, identity, liveTick }: Props): JSX.Element {
   const [slaWorkingDays, setSlaWorkingDays] = useState<number | null>(null);
   const [reviews, setReviews] = useState<AwaitingG2Review[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -341,7 +350,7 @@ function G2ReviewsPane({ api, identity }: Props): JSX.Element {
     return () => {
       live = false;
     };
-  }, [api, identity, nonce]);
+  }, [api, identity, nonce, liveTick]);
 
   const sendReminders = useCallback(async () => {
     setBusy(true);
@@ -432,7 +441,7 @@ function G2ReviewsPane({ api, identity }: Props): JSX.Element {
 
 const CLASS_KEYS = ['C1', 'C2', 'C3', 'C4'] as const;
 
-function ClassMixPane({ api, identity }: Props): JSX.Element {
+function ClassMixPane({ api, identity, liveTick }: Props): JSX.Element {
   const [mix, setMix] = useState<ClassMix | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -458,7 +467,7 @@ function ClassMixPane({ api, identity }: Props): JSX.Element {
     return () => {
       live = false;
     };
-  }, [api, identity, nonce]);
+  }, [api, identity, nonce, liveTick]);
 
   const canReclassify = identity.roles.includes('parity_engineer');
 
@@ -491,7 +500,10 @@ function ClassMixPane({ api, identity }: Props): JSX.Element {
       <header className="pane-header">
         <h2>Calculation classes</h2>
         {mix && mix.total > 0 && (
-          <span className="pill idle">{mix.total - mix.unclassified} of {mix.total} classified</span>
+          <span className="pill idle">
+            {mix.total - mix.unclassified} of {mix.total} classified
+            <Explain api={api} identity={identity} metricKey="programme.class_mix" />
+          </span>
         )}
       </header>
       <div className="pane-body">
@@ -562,7 +574,7 @@ function ClassMixPane({ api, identity }: Props): JSX.Element {
 
 // ----------------------------------------------------------- rule coverage report (S5.2.1)
 
-function RuleCoveragePane({ api, identity }: Props): JSX.Element {
+function RuleCoveragePane({ api, identity, liveTick }: Props): JSX.Element {
   const [coverage, setCoverage] = useState<RuleCoverage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -588,7 +600,7 @@ function RuleCoveragePane({ api, identity }: Props): JSX.Element {
     return () => {
       live = false;
     };
-  }, [api, identity, nonce]);
+  }, [api, identity, nonce, liveTick]);
 
   const canApplyRules = identity.roles.includes('platform_engineer');
 
@@ -623,7 +635,10 @@ function RuleCoveragePane({ api, identity }: Props): JSX.Element {
       <header className="pane-header">
         <h2>Rule coverage</h2>
         {coverage && coverage.total > 0 && (
-          <span className="pill idle">{coverage.matched} of {coverage.total} converted</span>
+          <span className="pill idle">
+            {coverage.matched} of {coverage.total} converted
+            <Explain api={api} identity={identity} metricKey="programme.rule_coverage" />
+          </span>
         )}
       </header>
       <div className="pane-body">
@@ -682,7 +697,7 @@ function closeRatePillClass(meetsTarget: boolean | null): string {
   return meetsTarget ? 'pill ok' : 'pill bad';
 }
 
-function ExceptionAgeingPane({ api, identity }: Props): JSX.Element {
+function ExceptionAgeingPane({ api, identity, liveTick }: Props): JSX.Element {
   const [ageing, setAgeing] = useState<ExceptionAgeingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -705,7 +720,7 @@ function ExceptionAgeingPane({ api, identity }: Props): JSX.Element {
     return () => {
       live = false;
     };
-  }, [api, identity]);
+  }, [api, identity, liveTick]);
 
   const classes = Array.from(
     new Set((ageing?.open_by_class_and_age_band ?? []).map((entry) => entry.class)),
@@ -790,7 +805,7 @@ function formatCurrency(value: number): string {
   return `$${Math.round(value).toLocaleString('en-US')}`;
 }
 
-function AcceptanceByTierPane({ api, identity }: Props): JSX.Element {
+function AcceptanceByTierPane({ api, identity, liveTick }: Props): JSX.Element {
   const [summary, setSummary] = useState<AcceptanceSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -813,7 +828,7 @@ function AcceptanceByTierPane({ api, identity }: Props): JSX.Element {
     return () => {
       live = false;
     };
-  }, [api, identity]);
+  }, [api, identity, liveTick]);
 
   return (
     <section className="pane" aria-label="Accepted units by tier">
@@ -822,6 +837,7 @@ function AcceptanceByTierPane({ api, identity }: Props): JSX.Element {
         {summary && (
           <span className="pill idle mono">
             {summary.total_accepted} of {summary.total_planned} planned
+            <Explain api={api} identity={identity} metricKey="invoicing.accepted_by_tier" />
           </span>
         )}
       </header>

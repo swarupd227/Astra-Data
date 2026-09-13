@@ -18,11 +18,17 @@ import {
   constructsResponse,
   fakeApi,
   queueResponse,
+  rebuildStatus,
 } from './fixtures';
 
 const ENGINEER: Identity = {
   principal: 'user:p.eng@artizent.example',
   roles: ['platform_engineer'],
+};
+
+const REPORT_OWNER: Identity = {
+  principal: 'user:owner@client.example',
+  roles: ['client_report_owner'],
 };
 
 function renderQueue(api = fakeApi()) {
@@ -293,5 +299,110 @@ describe('the shell', () => {
     expect(surfaceFromPath('/lineage')).toBe('lineage');
     expect(surfaceFromPath('/')).toBe('estate');
     expect(surfaceFromPath('/nonsense')).toBe('estate');
+  });
+});
+
+// ---------------------------------------------------- event rebuild (S10.1.2, verification)
+
+describe('the event rebuild panel', () => {
+  it('is hidden for anyone but the platform engineer', async () => {
+    const api = fakeApi();
+    render(<ParseQualityQueue api={api} identity={REPORT_OWNER} />);
+
+    await screen.findByRole('region', { name: 'Unrecognised constructs' });
+    expect(screen.queryByRole('region', { name: 'Event rebuild (verification)' })).not.toBeInTheDocument();
+  });
+
+  it('discloses that nothing has been run yet', async () => {
+    const api = fakeApi();
+    api.rebuildStatus = async () => rebuildStatus();
+    render(<ParseQualityQueue api={api} identity={ENGINEER} />);
+
+    expect(
+      await screen.findByText('No rebuild has been run yet on this deployment.'),
+    ).toBeInTheDocument();
+  });
+
+  it('starts a rebuild and shows real progress while it runs', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    let polls = 0;
+    api.rebuildStatus = async () => {
+      polls += 1;
+      if (polls === 1) return rebuildStatus();
+      return rebuildStatus({ running: true, events_total: 22, events_applied: 11 });
+    };
+    let started = false;
+    api.startRebuild = async () => {
+      started = true;
+      return { state: 'QUEUED', events_total: 22 };
+    };
+    render(<ParseQualityQueue api={api} identity={ENGINEER} />);
+
+    await screen.findByText('No rebuild has been run yet on this deployment.');
+    await user.click(screen.getByRole('button', { name: 'Start rebuild' }));
+
+    expect(await screen.findByText(/11 of 22 events applied/)).toBeInTheDocument();
+    expect(started).toBe(true);
+    expect(screen.getByRole('button', { name: 'Rebuilding…' })).toBeDisabled();
+  });
+
+  it('shows the real comparison once a rebuild finishes', async () => {
+    const api = fakeApi();
+    api.rebuildStatus = async () =>
+      rebuildStatus({
+        events_total: 22,
+        events_applied: 22,
+        finished_at: '2027-06-01T09:05:00.000Z',
+        last_result: {
+          events_applied: 22, nodes: 11, edges: 11, retirements: 0, notices: 0,
+          identical: true, live_nodes: 11, live_edges: 11,
+          summary: 'identical: 11 nodes, 11 edges reproduced exactly',
+          differences: [], principal: 'user:p.eng@artizent.example',
+        },
+      });
+    render(<ParseQualityQueue api={api} identity={ENGINEER} />);
+
+    expect(await screen.findByText('identical')).toBeInTheDocument();
+    expect(
+      screen.getByText('identical: 11 nodes, 11 edges reproduced exactly'),
+    ).toBeInTheDocument();
+  });
+
+  it('discloses a real disagreement rather than hiding it', async () => {
+    const api = fakeApi();
+    api.rebuildStatus = async () =>
+      rebuildStatus({
+        events_total: 22,
+        events_applied: 22,
+        last_result: {
+          events_applied: 22, nodes: 10, edges: 11, retirements: 0, notices: 0,
+          identical: false, live_nodes: 11, live_edges: 11,
+          summary: '1 difference(s) across 11 nodes',
+          differences: [{ kind: 'nodes', element_id: 'wb_1', detail: "property 'name': 'A' vs 'B'" }],
+          principal: 'user:p.eng@artizent.example',
+        },
+      });
+    render(<ParseQualityQueue api={api} identity={ENGINEER} />);
+
+    expect(await screen.findByText('disagrees')).toBeInTheDocument();
+    expect(screen.getByText('1 difference(s) across 11 nodes')).toBeInTheDocument();
+  });
+
+  it('surfaces a forbidden refusal rather than a generic failure', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    api.rebuildStatus = async () => rebuildStatus();
+    api.startRebuild = async () => {
+      throw new ApiError(403, 'forbidden', "rebuilding the estate is the platform engineer's action");
+    };
+    render(<ParseQualityQueue api={api} identity={ENGINEER} />);
+
+    await screen.findByText('No rebuild has been run yet on this deployment.');
+    await user.click(screen.getByRole('button', { name: 'Start rebuild' }));
+
+    expect(
+      await screen.findByText('Rebuilding the estate from the event stream is the platform engineer\'s action.'),
+    ).toBeInTheDocument();
   });
 });

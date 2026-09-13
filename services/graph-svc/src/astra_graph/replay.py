@@ -17,7 +17,7 @@ approximately.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -101,8 +101,19 @@ class ComparisonResult:
         return f"{len(self.differences)} difference(s) across {self.live_nodes} nodes"
 
 
-async def replay(source: ReplaySource, target: ReplayTarget) -> ReplayResult:
-    """Apply the whole event stream to ``target``, in sequence order."""
+async def replay(
+    source: ReplaySource,
+    target: ReplayTarget,
+    *,
+    on_progress: Callable[[int], None] | None = None,
+) -> ReplayResult:
+    """Apply the whole event stream to ``target``, in sequence order.
+
+    ``on_progress``, if given, is called with the cumulative ``events_applied`` after
+    each page — story S10.1.2's own "a rebuild from empty is a supported operation with
+    a progress indicator". Optional and additive: the nightly CI job (``tools/verify_
+    replay.py``) calls this identical function with no callback at all, unchanged.
+    """
     result = ReplayResult()
     after = 0
 
@@ -115,6 +126,8 @@ async def replay(source: ReplaySource, target: ReplayTarget) -> ReplayResult:
             result.events_applied += 1
             result.last_sequence = event.sequence
         after = page[-1].sequence
+        if on_progress is not None:
+            on_progress(result.events_applied)
 
     return result
 

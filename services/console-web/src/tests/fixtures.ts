@@ -31,6 +31,7 @@ import type {
   ExceptionCaseDetail,
   ExceptionQueueEntry,
   ExceptionQueueResponse,
+  ExplainEntry,
   FailingCellRow,
   FamiliesResponse,
   FamilyRecord,
@@ -60,6 +61,7 @@ import type {
   QueueResponse,
   ReadinessItem,
   ReclassifyResult,
+  RebuildStatus,
   RegressionExportRecord,
   RegressionMonitorResponse,
   RegressionMonitorRow,
@@ -74,6 +76,7 @@ import type {
   RunVisualParityResult,
   SheetParityStats,
   SimulateResult,
+  SubjectEventsResponse,
   ToleranceCharter,
   ToleranceCharterFieldMetadata,
   ToleranceCharterVersion,
@@ -1332,6 +1335,47 @@ export function decommissionConfirmation(
   return {
     workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', confirmed_by: 'user:owner@client.example',
     confirmed_at: '2027-06-01T09:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function explainEntry(overrides: Partial<ExplainEntry> = {}): ExplainEntry {
+  return {
+    metric_key: 'estate.total',
+    title: 'Estate Explorer — workbook count',
+    kind: 'computation',
+    text: "matching = [row for row in self.rows if where.matches(row)]\n\"total\": len(matching),",
+    source: 'astra_graph/estate.py:271-283 (Estate.page)',
+    subject_kind: null,
+    ...overrides,
+  };
+}
+
+export function subjectEventsResponse(
+  overrides: Partial<SubjectEventsResponse> = {},
+): SubjectEventsResponse {
+  return {
+    events: [
+      {
+        sequence: 42,
+        event: { subject: '01ARZ3NDEKTSV4RRFFQ69G5FAV', type: 'estate.node.upserted', time: '2027-06-01T09:00:00.000Z' },
+      },
+    ],
+    next_after: 42,
+    has_more: false,
+    ...overrides,
+  };
+}
+
+export function rebuildStatus(overrides: Partial<RebuildStatus> = {}): RebuildStatus {
+  return {
+    running: false,
+    started_at: null,
+    finished_at: null,
+    events_total: 0,
+    events_applied: 0,
+    last_result: null,
+    last_error: null,
     ...overrides,
   };
 }
@@ -2637,6 +2681,24 @@ export function fakeApi(
       maybeFail();
       recorded.push({ kind: 'CONFIRM_DECOMMISSION', id: workbookId, reason: '' });
       return decommissionConfirmation({ workbook_id: workbookId, confirmed_by: identity.principal });
+    },
+    // These four deliberately do not call `maybeFail()`: `RebuildPanel` (S10.1.2) polls
+    // `rebuildStatus` in the background on every screen a platform engineer's identity
+    // renders, and `Explain` fetches on demand from several screens -- either consuming
+    // the single shared `failNext()` slot meant for a test's own intentional action
+    // elsewhere in the same render would silently steal that failure, exactly what broke
+    // `quality.test.tsx`'s own "shows the API refusal" test the one time this was tried.
+    async explain(metricKey: string, _identity: Identity) {
+      return explainEntry({ metric_key: metricKey });
+    },
+    async subjectEvents(_subjectId: string, _identity: Identity, _limit?: number) {
+      return subjectEventsResponse();
+    },
+    async startRebuild(_identity: Identity) {
+      return { state: 'QUEUED', events_total: 22 };
+    },
+    async rebuildStatus(_identity: Identity) {
+      return rebuildStatus();
     },
   };
 }

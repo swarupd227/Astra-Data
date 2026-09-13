@@ -316,6 +316,21 @@ async def test_replay_from_empty_reproduces_the_graph(repository, writer) -> Non
     assert result.live_edges == 11
 
 
+async def test_replay_reports_progress(repository, writer) -> None:
+    """Story S10.1.2's own "a rebuild ... is a supported operation with a progress
+    indicator" -- `on_progress` is called with the cumulative count after each page,
+    ending at the real total, with the default (no callback) still working unchanged."""
+    await seed_estate(writer)
+    target = InMemoryGraphRepository()
+    progress: list[int] = []
+
+    result = await replay(repository, target, on_progress=progress.append)
+
+    assert progress, "on_progress was never called"
+    assert progress[-1] == result.events_applied == 22
+    assert progress == sorted(progress), "progress must never go backwards"
+
+
 async def test_replay_reproduces_retirement(repository, writer, seeded) -> None:
     await writer.retire_node(
         seeded["dashboard"], reason="Superseded by the overview", principal=PRINCIPAL

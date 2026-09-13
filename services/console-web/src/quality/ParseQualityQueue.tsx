@@ -20,6 +20,7 @@ import type {
   HeldWorkbook,
   Identity,
   QueueResponse,
+  RebuildStatus,
 } from '../lib/api';
 import { ApiError } from '../lib/api';
 import { ConstructPanel } from './ConstructPanel';
@@ -246,7 +247,130 @@ export function ParseQualityQueue({ api, identity }: Props): JSX.Element {
           </div>
         </section>
       </div>
+
+      <RebuildPanel api={api} identity={identity} />
     </>
+  );
+}
+
+/**
+ * Story S10.1.2's second AC: "a rebuild from empty is a supported operation with a
+ * progress indicator." A sibling of the three-pane `.workspace` above, not a fourth
+ * pane inside it -- that grid is built for the queue's own three-column shape (see
+ * `styles.css`'s own multi-pane fix), and this is an unrelated, occasional ops action,
+ * not a fourth column of the same data.
+ *
+ * Visible only to the platform engineer -- the story's own "As a platform engineer, I
+ * want..." -- the identical hide-not-disable convention every other role-gated action
+ * in this console already uses; the real gate is `PlatformEngineerDep` on `POST /v1/
+ * graph:rebuild` itself, this is nav-level convenience only.
+ */
+function RebuildPanel({ api, identity }: Props): JSX.Element | null {
+  const [status, setStatus] = useState<RebuildStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [pollNonce, setPollNonce] = useState(0);
+
+  const canRebuild = identity.roles.includes('platform_engineer');
+
+  useEffect(() => {
+    if (!canRebuild) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    // Polls once immediately (so a page reload mid-rebuild, or right after one
+    // finishes, shows the real current state), then keeps polling only while a
+    // rebuild is actually running.
+    const poll = () => {
+      api
+        .rebuildStatus(identity)
+        .then((response) => {
+          if (!live) return;
+          setStatus(response);
+          setError(null);
+          if (response.running) timer = setTimeout(poll, 1000);
+        })
+        .catch((caught: unknown) => {
+          if (!live) return;
+          setError(caught instanceof ApiError ? caught.message : 'Rebuild status could not be read.');
+        });
+    };
+    poll();
+
+    return () => {
+      live = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [api, identity, canRebuild, pollNonce]);
+
+  const start = useCallback(async () => {
+    setStarting(true);
+    setError(null);
+    try {
+      await api.startRebuild(identity);
+      setPollNonce((value) => value + 1);
+    } catch (caught: unknown) {
+      setError(
+        caught instanceof ApiError
+          ? caught.forbidden
+            ? 'Rebuilding the estate from the event stream is the platform engineer\'s action.'
+            : caught.message
+          : 'The rebuild could not be started.',
+      );
+    } finally {
+      setStarting(false);
+    }
+  }, [api, identity]);
+
+  if (!canRebuild) return null;
+
+  const progressPercent =
+    status && status.events_total > 0 ? Math.round((status.events_applied / status.events_total) * 100) : 0;
+
+  return (
+    <section className="pane" aria-label="Event rebuild (verification)">
+      <header className="pane-header">
+        <h2>Event rebuild</h2>
+        <span className="faint">verifies the event stream, does not switch the console over to it</span>
+      </header>
+      <div className="pane-body">
+        {error && <div className="banner">{error}</div>}
+        {status?.running ? (
+          <div className="detail">
+            <p>
+              Rebuilding from empty -- {status.events_applied.toLocaleString('en-GB')} of{' '}
+              {status.events_total.toLocaleString('en-GB')} events applied.
+            </p>
+            <div className="rebuild-progress" role="progressbar" aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100}>
+              <div className="rebuild-progress-fill" style={{ width: `${progressPercent}%` }} />
+            </div>
+          </div>
+        ) : status?.last_result ? (
+          <div className="detail">
+            <p className={status.last_result.identical ? undefined : 'banner'}>
+              {status.last_result.identical ? (
+                <span className="pill ok">identical</span>
+              ) : (
+                <span className="pill bad">disagrees</span>
+              )}{' '}
+              {status.last_result.summary}
+            </p>
+            <p className="faint">
+              {status.last_result.events_applied.toLocaleString('en-GB')} events applied ·{' '}
+              {status.finished_at ?? '—'}
+            </p>
+          </div>
+        ) : (
+          <p className="empty">No rebuild has been run yet on this deployment.</p>
+        )}
+      </div>
+      <footer className="statusbar">
+        <span className="spacer" />
+        <button type="button" className="btn" onClick={() => void start()} disabled={starting || status?.running}>
+          {starting || status?.running ? 'Rebuilding…' : 'Start rebuild'}
+        </button>
+      </footer>
+    </section>
   );
 }
 

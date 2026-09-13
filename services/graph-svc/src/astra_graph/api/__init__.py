@@ -12,7 +12,9 @@ from .routes_conformance import router as conformance_router
 from .routes_context import router as context_router
 from .routes_cypher import router as cypher_router
 from .routes_estate import router as estate_router
+from .routes_events_stream import router as events_stream_router
 from .routes_exceptions import router as exceptions_router
+from .routes_explain import router as explain_router
 from .routes_failure_classification import router as failure_classification_router
 from .routes_families import router as families_router
 from .routes_g2 import router as g2_router
@@ -29,6 +31,7 @@ from .routes_patterns import router as patterns_router
 from .routes_platform import router as platform_router
 from .routes_provenance import router as provenance_router
 from .routes_quality import router as quality_router
+from .routes_rebuild import router as rebuild_router
 from .routes_redesign import router as redesign_router
 from .routes_regression import router as regression_router
 from .routes_release import router as release_router
@@ -51,7 +54,9 @@ __all__ = [
     "context_router",
     "cypher_router",
     "estate_router",
+    "events_stream_router",
     "exceptions_router",
+    "explain_router",
     "failure_classification_router",
     "families_router",
     "g2_router",
@@ -68,6 +73,7 @@ __all__ = [
     "platform_router",
     "provenance_router",
     "quality_router",
+    "rebuild_router",
     "redesign_router",
     "regression_router",
     "release_router",

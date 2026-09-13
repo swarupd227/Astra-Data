@@ -27,6 +27,10 @@ const MIN_REASON = 8;
 interface Props {
   api: Api;
   identity: Identity;
+  /** A live-updates tick (story S10.1.2) -- incrementing it re-runs this board's own
+   * fetch effects, the identical "increment a number, the existing effect re-fetches"
+   * shape the board's own manual `reload` already uses for its own actions. */
+  liveTick?: number;
 }
 
 interface DragState {
@@ -50,7 +54,7 @@ function groupByState(members: TrainMember[]): [string, TrainMember[]][] {
   return [...groups.entries()];
 }
 
-export function WaveBoard({ api, identity }: Props): JSX.Element {
+export function WaveBoard({ api, identity, liveTick }: Props): JSX.Element {
   const [trains, setTrains] = useState<Train[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +87,7 @@ export function WaveBoard({ api, identity }: Props): JSX.Element {
     return () => {
       live = false;
     };
-  }, [api, identity, nonce]);
+  }, [api, identity, nonce, liveTick]);
 
   useEffect(() => {
     // Best-effort: a projection badge is a nice-to-have on this board (the Programme
@@ -100,7 +104,7 @@ export function WaveBoard({ api, identity }: Props): JSX.Element {
     return () => {
       live = false;
     };
-  }, [api, identity, nonce]);
+  }, [api, identity, nonce, liveTick]);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
   const trainName = useCallback(

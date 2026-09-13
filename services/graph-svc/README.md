@@ -3733,6 +3733,38 @@ element — ids, labels, properties, edge endpoints — exiting non-zero and nam
 differs otherwise. A nightly CI job runs it against a seeded test estate
 (`make seed`).
 
+`graph/scratch.py` (`prepare_scratch_graph`/`teardown_scratch_graph`) holds the scratch-
+graph DDL this tool and `POST /v1/graph:rebuild` (below) both call — one implementation,
+so the CI job and the console-triggered rebuild provably run the identical code.
+
+## Rebuild, live stream and explain (story S10.1.2)
+
+Screens are already event-sourced in the sense that matters: every one reads the live
+graph, which is itself built incrementally from `estate_event`. This story proves and
+exposes that record rather than adding a second projection layer.
+
+- `POST /v1/graph:rebuild` (`PlatformEngineerDep`) runs `replay`/`compare` into a scratch
+  graph and reports whether it reproduces the live graph exactly — the identical
+  machinery `make verify-replay` runs, triggered from the console with a progress
+  indicator instead of a CLI exit code. `GET /v1/graph:rebuild/status` (`ArtizentDep`)
+  polls the in-memory `RebuildStatus` (`routes_rebuild.py`) — one per process, the
+  identical shape `TrainProposalStatus` already set, for the identical reason: a rebuild
+  is a rare, operator-triggered verification, not a fact this platform depends on later.
+  `AgeGraphRepository.count_events()` is the real per-graph event count for the progress
+  denominator — `current_version()`'s own `seq` is one `bigserial` shared across every
+  graph this table has ever recorded, not a count of any one graph's own events.
+- `GET /v1/events:stream` is `GET /v1/events` pushed instead of polled: it loops
+  `repository.read_events(after=...)` on a 0.5 s interval and forwards each new row as a
+  server-sent event. No message bus exists yet (`published_at` stays `NULL`), so this is
+  poll-under-the-hood by design, bounded well inside the 2 s budget. Carries no role gate
+  — the identical posture `GET /v1/events` already has, and the only one a browser's
+  native `EventSource` (no custom headers) could ever satisfy.
+- `GET /v1/explain/{metric_key}` reads `explain.EXPLAIN_REGISTRY` — a metric key to the
+  real query or computation text (copied from the actual implementation, not
+  paraphrased) and the file/line it came from. Coverage is a representative first pass
+  (see `explain.py`'s own module docstring); "the events behind it" reuses `GET /v1/
+  events?subject=` directly, no new route needed for that half.
+
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,
@@ -3756,6 +3788,7 @@ src/astra_graph/
   credentials.py  credential references, resolved behind a provider
   provisioning.py reconciles the graph, its labels and its indexes
   replay.py       rebuild from events, and compare against the live graph
+  explain.py      the console's "explain" registry -- real query/computation text
   cypher.py       the read-only Cypher guard
   contracts.py    named context contracts (spec §4.1.3)
   roles.py        roles and organisations (spec §2.4)

@@ -121,6 +121,7 @@ import { ModelProposal } from './g2/ModelProposal';
 import { G3Card } from './g3/G3Card';
 import { createApi, type Identity } from './lib/api';
 import { getDeepLinkParam } from './lib/deep-link';
+import { useLiveTick } from './lib/live-events';
 import { isArtizentRole } from './lib/roles';
 import { LineageView } from './lineage/LineageView';
 import { ModelDetail } from './modeller/ModelDetail';
@@ -299,6 +300,9 @@ export function App({
   initialSurface,
 }: AppProps): JSX.Element {
   const api = useMemo(() => injected ?? createApi(), [injected]);
+  // Story S10.1.2: one shared live-updates signal for the whole shell, not one
+  // `EventSource` per screen -- see `lib/live-events.ts`'s own docstring for why.
+  const liveTick = useLiveTick();
   const [role, setRole] = useState(initialRole ?? ROLES[0]!.value);
   // The screen is in the path, so a lineage view can be linked to like anything else.
   // At the bare root path (no surface requested) a role lands where its own day starts,
@@ -393,8 +397,8 @@ export function App({
       {surface === 'estate' && <EstateExplorer api={api} identity={identity} />}
       {surface === 'lineage' && <LineageView api={api} identity={identity} />}
       {surface === 'quality' && <ParseQualityQueue api={api} identity={identity} />}
-      {surface === 'programme' && <ProgrammeBoard api={api} identity={identity} />}
-      {surface === 'trains' && <WaveBoard api={api} identity={identity} />}
+      {surface === 'programme' && <ProgrammeBoard api={api} identity={identity} liveTick={liveTick} />}
+      {surface === 'trains' && <WaveBoard api={api} identity={identity} liveTick={liveTick} />}
       {surface === 'models' && <ModelDetail api={api} identity={identity} />}
       {surface === 'proposal' && <ModelProposal api={api} identity={identity} />}
       {surface === 'admin' && <Admin api={api} identity={identity} />}
@@ -404,10 +408,20 @@ export function App({
         <ParityDashboard api={api} identity={identity} initialWorkbookId={getDeepLinkParam('workbook') ?? undefined} />
       )}
       {surface === 'regression' && (
-        <RegressionMonitor api={api} identity={identity} initialWorkbookId={getDeepLinkParam('workbook') ?? undefined} />
+        <RegressionMonitor
+          api={api}
+          identity={identity}
+          initialWorkbookId={getDeepLinkParam('workbook') ?? undefined}
+          liveTick={liveTick}
+        />
       )}
       {surface === 'exceptions' && (
-        <ExceptionDesk api={api} identity={identity} initialCaseId={getDeepLinkParam('case') ?? undefined} />
+        <ExceptionDesk
+          api={api}
+          identity={identity}
+          initialCaseId={getDeepLinkParam('case') ?? undefined}
+          liveTick={liveTick}
+        />
       )}
       {surface === 'g3' && (
         <G3Card api={api} identity={identity} initialWorkbookId={getDeepLinkParam('workbook') ?? undefined} />

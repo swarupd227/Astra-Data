@@ -30,7 +30,9 @@ from .api import (
     context_router,
     cypher_router,
     estate_router,
+    events_stream_router,
     exceptions_router,
+    explain_router,
     failure_classification_router,
     families_router,
     g2_router,
@@ -47,6 +49,7 @@ from .api import (
     platform_router,
     provenance_router,
     quality_router,
+    rebuild_router,
     redesign_router,
     regression_router,
     release_router,
@@ -61,6 +64,7 @@ from .api import (
 from .api.graphql import build_router as build_graphql_router
 from .api.routes_families import ClusteringStatus
 from .api.routes_quality import DEFAULT_THRESHOLD
+from .api.routes_rebuild import RebuildStatus
 from .api.routes_trains import TrainProposalStatus
 from .artefacts import PostgresArtefactStore
 from .build import PostgresBuildStore
@@ -426,6 +430,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         confirmation_store=app.state.decommission_confirmation_store,
         regression_store=app.state.regression_schedule_store, scope_store=app.state.scope_store,
     )
+    # Story S10.1.2, opening F10.1's second AC: rebuild-from-empty as a real, console-
+    # facing operation, with progress -- see routes_rebuild.py's own docstring for why
+    # this proves the event stream rather than switching the console over to it.
+    app.state.rebuild_status = RebuildStatus()
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(
         quality=quality_store,
@@ -540,6 +548,9 @@ def create_app() -> FastAPI:
     app.include_router(adoption_router)
     app.include_router(failure_classification_router)
     app.include_router(mender_router)
+    app.include_router(rebuild_router)
+    app.include_router(events_stream_router)
+    app.include_router(explain_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

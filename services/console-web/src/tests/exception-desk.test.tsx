@@ -23,6 +23,25 @@ const REPORT_OWNER: Identity = {
   roles: ['client_report_owner'],
 };
 
+describe('live updates (story S10.1.2)', () => {
+  it('re-reads the queue when the live tick changes', async () => {
+    let calls = 0;
+    const api = fakeApi();
+    api.exceptionQueue = async () => {
+      calls += 1;
+      return exceptionQueueResponse({ entries: [exceptionQueueEntry({ id: 'exc_1' })] });
+    };
+    const { rerender } = render(<ExceptionDesk api={api} identity={ENGINEER} liveTick={0} />);
+    await screen.findByText('01ARZ3NDEKTSV4RRFFQ69G5FAV');
+    expect(calls).toBe(1);
+
+    rerender(<ExceptionDesk api={api} identity={ENGINEER} liveTick={1} />);
+
+    await screen.findByText('01ARZ3NDEKTSV4RRFFQ69G5FAV');
+    expect(calls).toBe(2);
+  });
+});
+
 describe('a deep link to a case (story S10.1.1)', () => {
   it('auto-loads a case passed in as an initial id', async () => {
     const api = fakeApi();

@@ -27,6 +27,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { Explain } from '../components/Explain';
 import type { Api, G3Card as G3CardData, G3Question, Identity } from '../lib/api';
 import { ApiError } from '../lib/api';
 import { setDeepLinkParam } from '../lib/deep-link';
@@ -211,7 +212,15 @@ export function G3Card({ api, identity, initialWorkbookId }: Props): JSX.Element
                 {card.what.visuals} visual(s)
               </p>
 
-              <h3>Proof</h3>
+              <h3>
+                Proof
+                <Explain
+                  api={api}
+                  identity={identity}
+                  metricKey="g3.parity_cases"
+                  subjectId={loadedWorkbookId ?? undefined}
+                />
+              </h3>
               <p>
                 {card.proof.cases_pass}/{card.proof.cases_run} parity cases PASS -- charter{' '}
                 {card.proof.charter_version ?? '—'}

@@ -112,6 +112,9 @@ def _parse_timestamp(value: Any) -> datetime | None:
 class GraphRepository(Protocol):
     """What the write path needs from a graph store."""
 
+    @property
+    def graph_name(self) -> str: ...
+
     async def create_node(
         self, label: str, properties: dict[str, Any], event: PlatformEvent | None = None
     ) -> dict[str, Any]: ...
@@ -224,6 +227,8 @@ class GraphRepository(Protocol):
 
     async def current_version(self) -> tuple[int, str | None]: ...
 
+    async def count_events(self) -> int: ...
+
     async def read_events(
         self, *, after: int = 0, limit: int = 1000, subject: str | None = None
     ) -> list[StoredEvent]: ...
@@ -247,6 +252,15 @@ class AgeGraphRepository:
         if not graph_name.replace("_", "").isalnum():
             raise ValueError(f"unsafe graph name {graph_name!r}")
         self._graph = graph_name
+
+    @property
+    def graph_name(self) -> str:
+        """Which graph this repository reads and writes — story S10.1.2's own rebuild
+        route reads this rather than re-deriving it from global `settings()`, so a
+        deployment (or a test) whose repository was wired to a graph other than the
+        process-wide default rebuilds and compares the graph it was actually given, not
+        whichever graph the environment happens to name."""
+        return self._graph
 
     # ------------------------------------------------------------------ internals
 
@@ -822,6 +836,21 @@ class AgeGraphRepository:
         if row is None:
             return 0, None
         return int(row["seq"]), _iso(row["time"])
+
+    async def count_events(self) -> int:
+        """How many events this graph has of its own — a real count, not the highest
+        `seq` (`current_version`'s own value, misleading here: `seq` is one shared
+        `bigserial` across every graph the table has ever recorded, so a graph's own
+        highest sequence number can already be in the millions before its own first
+        event). Story S10.1.2's own rebuild-progress indicator needs a real denominator
+        to show "N of M applied" against, not a number that could exceed this graph's own
+        entire event history by orders of magnitude."""
+        async with self._pool.acquire() as conn:
+            return int(
+                await conn.fetchval(
+                    f"SELECT count(*) FROM {_EVENT_TABLE} WHERE graph = $1", self._graph
+                )
+            )
 
     async def events_of_type(
         self, event_type: EventType, *, limit: int = 100

@@ -33,6 +33,25 @@ function renderMonitor(identity: Identity = PM, api = fakeApi()) {
   return { api, ...render(<RegressionMonitor api={api} identity={identity} />) };
 }
 
+describe('live updates (story S10.1.2)', () => {
+  it('re-reads the monitor when the live tick changes', async () => {
+    let calls = 0;
+    const api = fakeApi();
+    api.regressionMonitor = async () => {
+      calls += 1;
+      return regressionMonitorResponse({ workbooks: [regressionMonitorRow({ workbook_id: 'wb_1' })] });
+    };
+    const { rerender } = render(<RegressionMonitor api={api} identity={PM} liveTick={0} />);
+    await screen.findByText('Daily VaR');
+    expect(calls).toBe(1);
+
+    rerender(<RegressionMonitor api={api} identity={PM} liveTick={1} />);
+
+    await screen.findByText('Daily VaR');
+    expect(calls).toBe(2);
+  });
+});
+
 describe('a deep link to a run (story S10.1.1)', () => {
   it('shows only the workbook passed in as an initial id', async () => {
     const api = fakeApi();

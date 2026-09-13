@@ -32,45 +32,16 @@ sys.path.insert(0, str(SERVICE_ROOT / "src"))
 import asyncpg  # noqa: E402
 
 from astra_graph.config import settings  # noqa: E402
-from astra_graph.graph import AgeGraphRepository, create_pool  # noqa: E402
-from astra_graph.graph.queries import accessor  # noqa: E402
+from astra_graph.graph import (  # noqa: E402
+    AgeGraphRepository,
+    create_pool,
+    prepare_scratch_graph,
+    teardown_scratch_graph,
+)
 from astra_graph.logging_setup import configure_logging  # noqa: E402
-from astra_graph.ontology import EDGE_LABELS, NODE_LABELS  # noqa: E402
 from astra_graph.replay import compare, replay  # noqa: E402
 
 MAX_REPORTED_DIFFERENCES = 40
-
-
-async def _prepare_scratch_graph(conn: asyncpg.Connection, graph: str) -> None:
-    """An empty graph with the same labels and indexes as a migrated one."""
-    await conn.execute("LOAD 'age'")
-    await conn.execute('SET search_path = ag_catalog, "$user", public')
-    exists = await conn.fetchval(
-        "SELECT EXISTS (SELECT 1 FROM ag_catalog.ag_graph WHERE name = $1)", graph
-    )
-    if exists:
-        await conn.execute("SELECT ag_catalog.drop_graph($1, true)", graph)
-    await conn.execute("SELECT ag_catalog.create_graph($1)", graph)
-
-    for label in sorted(NODE_LABELS):
-        await conn.execute("SELECT ag_catalog.create_vlabel($1, $2)", graph, label)
-        await conn.execute(f'CREATE INDEX ON {graph}."{label}" USING BTREE ({accessor("id")})')
-    for label in sorted(EDGE_LABELS):
-        await conn.execute("SELECT ag_catalog.create_elabel($1, $2)", graph, label)
-        await conn.execute(f'CREATE INDEX ON {graph}."{label}" USING BTREE ({accessor("id")})')
-
-    await _drop_scratch_index_rows(conn, graph)
-
-
-async def _drop_scratch_index_rows(conn: asyncpg.Connection, graph: str) -> None:
-    await conn.execute("DELETE FROM public.estate_edge_index WHERE graph = $1", graph)
-    await conn.execute("DELETE FROM public.estate_element_index WHERE graph = $1", graph)
-
-
-async def _teardown(conn: asyncpg.Connection, graph: str) -> None:
-    await conn.execute("LOAD 'age'")
-    await _drop_scratch_index_rows(conn, graph)
-    await conn.execute("SELECT ag_catalog.drop_graph($1, true)", graph)
 
 
 async def verify(scratch_graph: str, *, keep: bool) -> int:
@@ -81,7 +52,7 @@ async def verify(scratch_graph: str, *, keep: bool) -> int:
 
     conn = await asyncpg.connect(dsn=config.dsn)
     try:
-        await _prepare_scratch_graph(conn, scratch_graph)
+        await prepare_scratch_graph(conn, scratch_graph)
     finally:
         await conn.close()
 
@@ -105,7 +76,7 @@ async def verify(scratch_graph: str, *, keep: bool) -> int:
     if not keep:
         conn = await asyncpg.connect(dsn=config.dsn)
         try:
-            await _teardown(conn, scratch_graph)
+            await teardown_scratch_graph(conn, scratch_graph)
         finally:
             await conn.close()
 

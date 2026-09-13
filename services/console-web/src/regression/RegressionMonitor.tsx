@@ -27,6 +27,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { Explain } from '../components/Explain';
 import type { Api, Identity, RegressionMonitorRow } from '../lib/api';
 import { ApiError } from '../lib/api';
 import { setDeepLinkParam } from '../lib/deep-link';
@@ -38,6 +39,10 @@ interface Props {
   /** Deep-links to this one workbook's own run (story S10.1.1) -- a stable link to "a
    * run" the AC names, since this screen has no other per-row detail view to link to. */
   initialWorkbookId?: string;
+  /** A live-updates tick (story S10.1.2) -- incrementing it re-runs the monitor's own
+   * fetch effect, the identical "increment a number, the existing effect re-fetches"
+   * shape `reload` already uses after scheduling/exporting. */
+  liveTick?: number;
 }
 
 function resultPillClass(result: string | null): string {
@@ -47,7 +52,7 @@ function resultPillClass(result: string | null): string {
   return 'pill idle';
 }
 
-export function RegressionMonitor({ api, identity, initialWorkbookId }: Props): JSX.Element {
+export function RegressionMonitor({ api, identity, initialWorkbookId, liveTick }: Props): JSX.Element {
   const [rows, setRows] = useState<RegressionMonitorRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +85,7 @@ export function RegressionMonitor({ api, identity, initialWorkbookId }: Props): 
     return () => {
       live = false;
     };
-  }, [api, identity, nonce]);
+  }, [api, identity, nonce, liveTick]);
 
   const reload = useCallback(() => setNonce((value) => value + 1), []);
 
@@ -149,7 +154,12 @@ export function RegressionMonitor({ api, identity, initialWorkbookId }: Props): 
           <h2>Regression Monitor</h2>
           {rows && rows.length > 0 && !focusWorkbookId && (
             <>
-              {driftCount > 0 && <span className="pill bad">{driftCount} drift alert{driftCount === 1 ? '' : 's'}</span>}
+              {driftCount > 0 && (
+                <span className="pill bad">
+                  {driftCount} drift alert{driftCount === 1 ? '' : 's'}
+                  <Explain api={api} identity={identity} metricKey="regression.drift_unaddressed" />
+                </span>
+              )}
               {unscheduledCount > 0 && (
                 <span className="pill idle">{unscheduledCount} not scheduled</span>
               )}

@@ -57,6 +57,26 @@ function renderBoard(identity: Identity = PM, api = fakeApi()) {
   return { api, ...render(<ProgrammeBoard api={api} identity={identity} />) };
 }
 
+describe('live updates (story S10.1.2)', () => {
+  it('re-reads the programme record when the live tick changes', async () => {
+    let calls = 0;
+    const api = fakeApi();
+    const realProgrammes = api.programmes;
+    api.programmes = async (identity) => {
+      calls += 1;
+      return realProgrammes(identity);
+    };
+    const { rerender } = render(<ProgrammeBoard api={api} identity={PM} liveTick={0} />);
+    await screen.findByRole('region', { name: 'Family count calibration' });
+    expect(calls).toBe(1);
+
+    rerender(<ProgrammeBoard api={api} identity={PM} liveTick={1} />);
+
+    await screen.findByRole('region', { name: 'Family count calibration' });
+    expect(calls).toBe(2);
+  });
+});
+
 describe('the figures', () => {
   it('shows the planned figure against an unconfirmed measured one', async () => {
     renderBoard();

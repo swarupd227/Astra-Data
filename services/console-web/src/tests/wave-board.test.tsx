@@ -38,6 +38,24 @@ function drag(card: HTMLElement, target: HTMLElement): void {
   fireEvent.drop(target);
 }
 
+describe('live updates (story S10.1.2)', () => {
+  it('re-reads the trains when the live tick changes', async () => {
+    let calls = 0;
+    const api = fakeApi();
+    api.trains = async () => {
+      calls += 1;
+      return trainsResponse();
+    };
+    const { rerender } = render(<WaveBoard api={api} identity={PM} liveTick={0} />);
+    await screen.findByRole('region', { name: 'Train 1' });
+    expect(calls).toBe(1);
+
+    rerender(<WaveBoard api={api} identity={PM} liveTick={1} />);
+
+    await waitFor(() => expect(calls).toBe(2));
+  });
+});
+
 describe('the board', () => {
   it('shows every train as a column with its members', async () => {
     renderBoard();

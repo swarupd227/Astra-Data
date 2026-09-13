@@ -573,6 +573,70 @@ table.estate td {
   font-size: 12.5px;
 }
 
+/* ------------------------------------------------------------------- explain (S10.1.2) */
+
+.explain { position: relative; display: inline-block; margin-left: 4px; }
+
+.explain-trigger {
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: var(--radius-sm);
+}
+.explain-trigger:hover { color: var(--accent); background: var(--bg-hover); }
+
+.explain-panel {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  width: 360px;
+  max-width: 80vw;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  font-size: 12px;
+}
+.explain-panel h4 { margin: 8px 0 4px; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.02em; color: var(--text-muted); }
+.explain-panel h4:first-child { margin-top: 0; }
+.explain-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin: 0;
+}
+.explain-events { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.explain-events li { font-size: 11px; color: var(--text-muted); }
+
+/* ---------------------------------------------------------- rebuild progress (S10.1.2) */
+
+.rebuild-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.rebuild-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

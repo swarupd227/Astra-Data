@@ -861,6 +861,56 @@ export interface TrainEventsResponse {
   window: number;
 }
 
+/** Story S10.1.2's own "explain" affordance -- the real query or computation text
+ * behind one console figure, and (via `subjectEvents`) the real events behind one
+ * subject. See `explain.py`'s own module docstring for what the registry holds. */
+export interface ExplainEntry {
+  metric_key: string;
+  title: string;
+  kind: 'sql' | 'computation';
+  text: string;
+  source: string;
+  subject_kind: string | null;
+}
+
+export interface SubjectEvent {
+  sequence: number;
+  event: {
+    subject: string;
+    type: string;
+    time: string;
+    [key: string]: unknown;
+  };
+}
+
+export interface SubjectEventsResponse {
+  events: SubjectEvent[];
+  next_after: number;
+  has_more: boolean;
+}
+
+export interface RebuildStatus {
+  running: boolean;
+  started_at: string | null;
+  finished_at: string | null;
+  events_total: number;
+  events_applied: number;
+  last_result: {
+    events_applied: number;
+    nodes: number;
+    edges: number;
+    retirements: number;
+    notices: number;
+    identical: boolean;
+    live_nodes: number;
+    live_edges: number;
+    summary: string;
+    differences: { kind: string; element_id: string; detail: string }[];
+    principal: string;
+  } | null;
+  last_error: string | null;
+}
+
 export interface TrainProjection {
   train_id: string;
   train_name: string;
@@ -1827,6 +1877,10 @@ export interface Api {
   approveG4(siteId: string, rationale: string, countersignedBy: string, identity: Identity): Promise<G4DecisionResult>;
   deferG4(siteId: string, reason: string, targetDate: string, identity: Identity): Promise<G4DecisionResult>;
   confirmDecommission(workbookId: string, identity: Identity): Promise<DecommissionConfirmation>;
+  explain(metricKey: string, identity: Identity): Promise<ExplainEntry>;
+  subjectEvents(subjectId: string, identity: Identity, limit?: number): Promise<SubjectEventsResponse>;
+  startRebuild(identity: Identity): Promise<{ state: string; events_total: number }>;
+  rebuildStatus(identity: Identity): Promise<RebuildStatus>;
 }
 
 export function createApi(base = ''): Api {
@@ -2277,6 +2331,21 @@ export function createApi(base = ''): Api {
     },
     async confirmDecommission(workbookId, identity) {
       return (await post(`/v1/workbooks/${workbookId}:confirm-decommission`, {}, identity)) as DecommissionConfirmation;
+    },
+    async explain(metricKey, identity) {
+      return (await get(`/v1/explain/${metricKey}`, identity)) as ExplainEntry;
+    },
+    async subjectEvents(subjectId, identity, limit = 20) {
+      return (await get(
+        `/v1/events?subject=${encodeURIComponent(subjectId)}&limit=${limit}`,
+        identity,
+      )) as SubjectEventsResponse;
+    },
+    async startRebuild(identity) {
+      return (await post('/v1/graph:rebuild', {}, identity)) as { state: string; events_total: number };
+    },
+    async rebuildStatus(identity) {
+      return (await get('/v1/graph:rebuild/status', identity)) as RebuildStatus;
     },
   };
 }

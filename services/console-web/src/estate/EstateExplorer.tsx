@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { Explain } from '../components/Explain';
 import type { Api, Identity, Workbook, WorkbookDetail } from '../lib/api';
 import { ApiError } from '../lib/api';
 import { Filters } from './Filters';
@@ -252,6 +253,7 @@ export function EstateExplorer({ api, identity }: Props): JSX.Element {
           {data
             ? `${data.total.toLocaleString('en-GB')} of ${data.estate_total.toLocaleString('en-GB')} workbooks`
             : '—'}
+          {data && <Explain api={api} identity={identity} metricKey="estate.total" />}
         </span>
         {notice && <span>{notice}</span>}
         <span className="spacer" />
