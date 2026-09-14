@@ -41,6 +41,7 @@ from typing import Any, Protocol
 
 import asyncpg
 
+from .agent_identity import authorize_artefact_kind
 from .ids import new_ulid
 
 logger = logging.getLogger(__name__)
@@ -153,6 +154,10 @@ class PostgresArtefactStore:
         interface_version: str | None = None,
         created_by: str,
     ) -> ArtefactRecord:
+        # Story S11.1.2: an agent's own declared charter, checked before anything else --
+        # see agent_identity.py's own module docstring for why the Transpiler is the one
+        # real, evidence-backed refusal this codebase can demonstrate here.
+        authorize_artefact_kind(created_by, kind)
         if not content:
             raise ArtefactError("an artefact with no bytes is not an artefact")
         artefact_id = f"af_{new_ulid()}"
@@ -276,6 +281,7 @@ class InMemoryArtefactStore:
         interface_version: str | None = None,
         created_by: str,
     ) -> ArtefactRecord:
+        authorize_artefact_kind(created_by, kind)
         if not content:
             raise ArtefactError("an artefact with no bytes is not an artefact")
         record = ArtefactRecord(

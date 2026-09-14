@@ -18,17 +18,40 @@ the reason S2.1.1 asks for out-of-process adapters at all.
 
 from __future__ import annotations
 
+import logging
 import traceback
 from collections.abc import Awaitable, Callable
 
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from ..contract import INTERFACE_VERSION, AdapterError, SourceAdapter, UnsupportedCapability
 from ..faults import Fault, FaultInjector, RateLimited
 from . import wire
+from .identity import PRINCIPAL_HEADER, RUN_HEADER
+
+logger = logging.getLogger(__name__)
+
+
+class _IdentityAttributionMiddleware(BaseHTTPMiddleware):
+    """Story S11.1.2: "every adapter call ... carries the agent's identity" -- logged
+    here, on the receiving end, whenever a caller's own `rpc.identity.identity(...)`
+    block attached one. Attribution only: a request with no identity headers at all
+    (every call before this story) is served exactly as it always was, not refused --
+    enforcement is graph-svc's own job (`agent_identity.py`), not this worker's."""
+
+    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        principal = request.headers.get(PRINCIPAL_HEADER)
+        if principal:
+            logger.info(
+                "adapter call: path=%s principal=%s run_id=%s",
+                request.url.path, principal, request.headers.get(RUN_HEADER),
+            )
+        return await call_next(request)
 
 #: Said by the adapter, so the suite reports the adapter's own answer rather than an
 #: inference drawn from a missing route.
@@ -233,7 +256,8 @@ def create_app(adapter: SourceAdapter) -> Starlette:
             Route("/v1/sites", sites, methods=["POST"]),
             Route("/v1/execute-case", execute_case, methods=["POST"]),
             Route("/v1/capture-visual", capture_visual, methods=["POST"]),
-        ]
+        ],
+        middleware=[Middleware(_IdentityAttributionMiddleware)],
     )
 
 

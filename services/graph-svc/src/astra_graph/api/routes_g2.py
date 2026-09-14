@@ -38,6 +38,7 @@ from ..g2_reminders import (
 )
 from ..modeller import Modeller
 from ..principal import Principal
+from ..workload_identity import record_from_svid
 from .deps import ArtizentDep, ClientDataOwnerDep, DomainScopeDep, PrincipalDep
 
 #: States a data owner's own G2 review actually concerns — not the whole estate's family
@@ -83,6 +84,22 @@ async def _build_on_approval(request: Request, family_id: str, *, gate_decision_
         return
     engine = _modeller_engine(request)
     workspace = getattr(request.app.state, "target_workspace", "dev")
+    steward_principal = Principal("agent:steward", run_id="run-build")
+
+    # Story S11.1.2: "agents receive SPIFFE identities (SVIDs) at start" -- this is the
+    # real, automatic post-G2-approval Steward run (this module's own docstring: "the
+    # first story to make that principal do something, not just name it"). Best effort,
+    # the identical posture every other real SVID issuance site in this story already
+    # takes: an identity-recording hiccup must not block the build itself.
+    identity_provider = getattr(request.app.state, "svid_provider", None)
+    svid_store = getattr(request.app.state, "svid_store", None)
+    if identity_provider is not None and svid_store is not None:
+        try:
+            svid = await identity_provider.issue(agent_id="steward", run_id=steward_principal.run_id or "run-build")
+            await svid_store.record(record_from_svid(svid))
+        except Exception:
+            logger.exception("could not issue/record an SVID for the automatic Steward build")
+
     try:
         await build_family(
             engine.pool,
@@ -95,7 +112,7 @@ async def _build_on_approval(request: Request, family_id: str, *, gate_decision_
             family_id,
             gate_decision_id=gate_decision_id,
             workspace=workspace,
-            principal=Principal("agent:steward", run_id="run-build"),
+            principal=steward_principal,
         )
     except Exception:
         logger.exception("automatic build failed to even start for family %s", family_id)

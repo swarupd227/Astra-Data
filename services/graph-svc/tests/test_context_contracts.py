@@ -40,6 +40,11 @@ from .conftest import ARTIZENT_HEADERS, CLIENT_HEADERS
 from .fakes import InMemoryGraphRepository
 
 PRINCIPAL = Principal("agent:transpiler", run_id="run-context")
+#: Story S11.1.2 narrowly scopes `agent:transpiler` to what the real Transpiler actually
+#: writes (`CalculatedField`/`Measure`/`ExceptionCase`) -- this file's own fixture helpers
+#: also write `Pattern`/`Field` nodes that have nothing to do with the Transpiler (pattern
+#: seeding, budget-exhaustion fixtures), so they use this unrestricted principal instead.
+FIXTURE_PRINCIPAL = Principal("agent:harvester", run_id="run-context-fixture")
 
 #: The AST the seeded "Margin %" would really carry, once E2's parser writes one.
 MARGIN_AST = {
@@ -420,7 +425,7 @@ async def test_a_parameters_observed_values_do_not_cross_the_boundary(
     await writer.set_node_properties(
         seeded["parameter"],
         {"current_values_seen": ["2027-01-14", "2027-01-15"]},
-        principal=PRINCIPAL,
+        principal=FIXTURE_PRINCIPAL,
     )
 
     document = (await assemble(repository, seeded)).document
@@ -493,7 +498,7 @@ async def test_a_context_over_its_node_budget_fails_the_call(repository, seeded,
             )
             for i in range(contract.budget.nodes + 1)
         ],
-        principal=PRINCIPAL,
+        principal=FIXTURE_PRINCIPAL,
     )
     for record in extra:
         await writer.write_edge(
@@ -699,7 +704,7 @@ async def _pattern(
                 },
             )
         ],
-        principal=PRINCIPAL,
+        principal=FIXTURE_PRINCIPAL,
     )
     return str(created[0]["properties"]["id"])
 

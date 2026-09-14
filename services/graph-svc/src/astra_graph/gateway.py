@@ -64,6 +64,7 @@ from typing import Any, Protocol
 import anthropic
 import asyncpg
 
+from .agent_identity import authorize_gateway_call
 from .config import Settings
 from .context.canonical import context_hash
 from .credentials import CredentialProvider
@@ -145,7 +146,12 @@ class Gateway(Protocol):
     AC's own literal call shape. Never a provider name."""
 
     async def generate(
-        self, *, task_class: TaskClass, request: SupportsAsDict, previous_error: str | None
+        self,
+        *,
+        task_class: TaskClass,
+        request: SupportsAsDict,
+        previous_error: str | None,
+        principal: str | None = None,
     ) -> RawModelResponse: ...
 
 
@@ -308,8 +314,18 @@ class ModelGateway:
         return self._policy
 
     async def generate(
-        self, *, task_class: TaskClass, request: SupportsAsDict, previous_error: str | None
+        self,
+        *,
+        task_class: TaskClass,
+        request: SupportsAsDict,
+        previous_error: str | None,
+        principal: str | None = None,
     ) -> RawModelResponse:
+        # Story S11.1.2: additive -- `principal` is optional and every existing caller
+        # (there were none before this story; both real call sites now pass one, see
+        # generation.py/mender.py) that omits it gets the identical, unchanged behaviour.
+        if principal is not None:
+            authorize_gateway_call(principal, task_class)
         routable = await self._policy.routable_providers(task_class)
         candidates = [name for name in routable if name in self._providers]
         if not candidates:
@@ -328,8 +344,15 @@ class StaticGateway:
         self._caller = caller
 
     async def generate(
-        self, *, task_class: TaskClass, request: SupportsAsDict, previous_error: str | None
+        self,
+        *,
+        task_class: TaskClass,
+        request: SupportsAsDict,
+        previous_error: str | None,
+        principal: str | None = None,
     ) -> RawModelResponse:
+        if principal is not None:
+            authorize_gateway_call(principal, task_class)
         return await self._caller.generate(request, previous_error=previous_error)
 
 
@@ -517,7 +540,12 @@ class _NoGateway:
     this just skips needing a `Settings`/`asyncpg.Pool` to construct one."""
 
     async def generate(
-        self, *, task_class: TaskClass, request: SupportsAsDict, previous_error: str | None
+        self,
+        *,
+        task_class: TaskClass,
+        request: SupportsAsDict,
+        previous_error: str | None,
+        principal: str | None = None,
     ) -> RawModelResponse:
         raise GatewayRoutingError(task_class, considered=())
 

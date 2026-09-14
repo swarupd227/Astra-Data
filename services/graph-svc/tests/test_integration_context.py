@@ -42,6 +42,11 @@ from astra_graph.writes import GraphWriter, NodeWrite  # noqa: E402
 from .conftest import seed_estate  # noqa: E402
 
 PRINCIPAL = Principal("agent:transpiler", run_id="run-context-integration")
+#: Story S11.1.2 narrowly scopes `agent:transpiler` to what the real Transpiler actually
+#: writes (`CalculatedField`/`Measure`/`ExceptionCase`) -- this file's own `Pattern`
+#: fixture (below) has nothing to do with the Transpiler, so it uses this unrestricted
+#: principal instead, the identical fix `test_context_contracts.py` already makes.
+FIXTURE_PRINCIPAL = Principal("agent:harvester", run_id="run-context-integration-fixture")
 
 MARGIN_AST = {
     "op": "DIV",
@@ -227,7 +232,7 @@ async def test_a_matching_pattern_is_carried_from_the_real_store(stack) -> None:
                 },
             )
         ],
-        principal=PRINCIPAL,
+        principal=FIXTURE_PRINCIPAL,
     )
     pattern_id = str(created[0]["properties"]["id"])
 

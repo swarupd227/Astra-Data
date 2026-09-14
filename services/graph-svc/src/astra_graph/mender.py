@@ -689,7 +689,7 @@ async def apply_pattern_repair(
 
 
 async def call_model_repair(
-    gateway: Gateway, request: RepairContext,
+    gateway: Gateway, request: RepairContext, *, principal: Principal | None = None,
 ) -> tuple[str | None, str, dict[str, Any]]:
     """Passes 2/3 -- calls the real gateway under `MENDER_REPAIR` (genuinely unroutable
     in this deployment today, see this module's own docstring), checks §16.1 rungs 1-2
@@ -700,7 +700,10 @@ async def call_model_repair(
     and an unroutable gateway will not become routable within the same pass, the
     identical reasoning `_run_ladder` already gives both outcomes."""
     try:
-        response = await gateway.generate(task_class=MENDER_REPAIR, request=request, previous_error=None)
+        response = await gateway.generate(
+            task_class=MENDER_REPAIR, request=request, previous_error=None,
+            principal=principal.value if principal is not None else None,
+        )
     except GatewayRoutingError as exc:
         return None, "MODEL_UNAVAILABLE", {"gateway_error": str(exc)}
 
@@ -1082,7 +1085,7 @@ async def mend_exception(
                 pool, graph_name, artefact_store, exception_properties=exception_properties,
                 calc=calc, current_dax=current_dax, widened=widened,
             )
-            dax, model_result, detail = await call_model_repair(gateway, request)
+            dax, model_result, detail = await call_model_repair(gateway, request, principal=principal)
             evidence["request"] = request.as_dict()
             evidence["response"] = detail
             if model_result != "OK" or dax is None:

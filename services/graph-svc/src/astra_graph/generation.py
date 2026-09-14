@@ -589,7 +589,11 @@ class GenerationOutcome:
 
 
 async def _run_ladder(
-    request: GenerationRequest, *, gateway: Gateway, task_class: str = TRANSPILE_C3
+    request: GenerationRequest,
+    *,
+    gateway: Gateway,
+    task_class: str = TRANSPILE_C3,
+    principal: Principal | None = None,
 ) -> tuple[tuple[LadderAttempt, ...], LadderAttempt | None]:
     """Runs the request through the ladder, up to `MAX_ATTEMPTS` times, calling
     `gateway.generate(task_class=..., ...)` -- never a provider by name (S5.3.2's own AC).
@@ -602,7 +606,8 @@ async def _run_ladder(
     for attempt_number in range(1, MAX_ATTEMPTS + 1):
         try:
             response = await gateway.generate(
-                task_class=task_class, request=request, previous_error=previous_error
+                task_class=task_class, request=request, previous_error=previous_error,
+                principal=principal.value if principal is not None else None,
             )
         except GatewayRoutingError as exc:
             attempts.append(
@@ -842,7 +847,9 @@ async def generate_c3_field(
         if await calibration_store.is_below_floor(TRANSPILE_C3)
         else TRANSPILE_C3
     )
-    attempts, success = await _run_ladder(request, gateway=gateway, task_class=task_class)
+    attempts, success = await _run_ladder(
+        request, gateway=gateway, task_class=task_class, principal=principal
+    )
 
     # A real observation for every attempt that got far enough to declare a confidence --
     # under TRANSPILE_C3's own identity always: a rerouted call never reaches a real model

@@ -293,6 +293,15 @@ them, at any width. Notification Preferences (`notifications/NotificationPrefere
 tsx`) is the one screen in this console with no role gate at all — self-service, every
 role sees it, unlike everything else in `App.tsx`'s own `CLIENT_VISIBLE_SURFACES` table.
 
+**Story S11.1.2 (agent identity and least privilege) added a 22nd real top-level
+surface, Tenant & Access — a narrow, real screen under that name, not §15.3.7's own
+broader described scope** (roles, users, Entra groups, site/domain scoping, service
+principals, secrets references, none of which is real anywhere in this codebase yet;
+disclosed in the component's own header comment) — see ADR 0080. Its own workspace class
+was added to the single-column override list and both narrow-viewport `:not(...)`
+exclusion chains in the same pass as building the component, proactively — the identical
+mistake made twice before (S10.5.1, then again at S10.5.2) is not repeated a third time.
+
 ## Identity
 
 **Story S11.1.1 added real Entra ID sign-in — disclosed, not yet connected.**
@@ -320,6 +329,17 @@ why that is a disclosed limitation, not an oversight.
 the existing `VITE_ASTRA_ENV` pattern), not a Helm-configurable runtime setting — see
 `deploy/helm/astra-data/README.md` for the real `docker build --build-arg` command a
 deployment pipeline runs.
+
+**Story S11.1.2 added `Tenant & Access` (`tenant-access/TenantAccess.tsx`)** — the
+declared agent catalog (all eight of §8.3's real agents, each showing its own real scope
+or "unrestricted", the Transpiler alone genuinely narrowed) and the real SVID issuance/
+rotation/revocation trail, read via `lib/api.ts`'s new `agentRecords`/`svidRecords`. This
+is about an *agent's* own identity, not a human's — the role picker/Entra sign-in above
+are unaffected; the screen itself is gated to Artizent roles and
+`client_infosec_reviewer` (`TenantAccessReaderDep`'s own console-side mirror), with
+Revoke additionally hidden client-side unless `identity.roles` includes
+`platform_engineer` — hidden, not disabled, the same convention every other gated action
+in this console already follows.
 
 ## Performance
 

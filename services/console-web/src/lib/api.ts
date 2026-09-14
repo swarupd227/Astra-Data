@@ -1369,6 +1369,60 @@ export interface SendDigestsResponse {
   count: number;
 }
 
+// Story S11.1.2: Tenant & Access -- the declared agent catalog (spec §8.1) and the real
+// SVID issuance/rotation/revocation trail (workload_identity.py).
+export interface AgentScope {
+  allowed_node_types: string[] | null;
+  forbidden_properties: string[];
+  allowed_task_classes: string[] | null;
+  allowed_artefact_kinds: string[] | null;
+  unrestricted: boolean;
+}
+
+export interface AgentCharter {
+  consumes: string[];
+  produces: string[];
+  prohibited: string[];
+}
+
+export interface AgentRecord {
+  id: string;
+  version: string;
+  charter: AgentCharter;
+  ai_mode: Record<string, string>;
+  validation: string[];
+  autonomy: string;
+  model_policy: Record<string, unknown>;
+  budgets: Record<string, unknown>;
+  owner: string;
+  scope: AgentScope;
+  real: boolean;
+}
+
+export interface AgentRecordsResponse {
+  agents: AgentRecord[];
+}
+
+export interface SvidRecord {
+  id: string;
+  jti: string;
+  agent_id: string;
+  run_id: string;
+  spiffe_id: string;
+  serial: number;
+  predecessor_jti: string | null;
+  issued_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  revoked_by: string | null;
+  revocation_reason: string | null;
+  status: 'active' | 'expired' | 'revoked';
+}
+
+export interface SvidRecordsResponse {
+  svids: SvidRecord[];
+}
+
 export interface RebuildStatus {
   running: boolean;
   started_at: string | null;
@@ -2396,6 +2450,9 @@ export interface Api {
   ): Promise<NotificationPreferences>;
   notificationPreferenceOptions(identity: Identity): Promise<NotificationPreferenceOptions>;
   sendNotificationDigests(identity: Identity): Promise<SendDigestsResponse>;
+  agentRecords(identity: Identity): Promise<AgentRecordsResponse>;
+  svidRecords(identity: Identity, agentId?: string): Promise<SvidRecordsResponse>;
+  revokeSvid(jti: string, reason: string, identity: Identity): Promise<SvidRecord>;
 }
 
 function decisionRegisterQueryString(filters: DecisionRegisterFilters): string {
@@ -2971,6 +3028,18 @@ export function createApi(base = ''): Api {
     },
     async sendNotificationDigests(identity) {
       return (await post('/v1/notifications:send-digests', {}, identity)) as SendDigestsResponse;
+    },
+    async agentRecords(identity) {
+      return (await get('/v1/tenant-access/agent-records', identity)) as AgentRecordsResponse;
+    },
+    async svidRecords(identity, agentId) {
+      const query = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : '';
+      return (await get(`/v1/tenant-access/svids${query}`, identity)) as SvidRecordsResponse;
+    },
+    async revokeSvid(jti, reason, identity) {
+      return (await post(
+        `/v1/tenant-access/svids/${encodeURIComponent(jti)}:revoke`, { reason }, identity,
+      )) as SvidRecord;
     },
   };
 }

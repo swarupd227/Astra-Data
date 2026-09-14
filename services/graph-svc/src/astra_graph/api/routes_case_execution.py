@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from astra_adapter.rpc.identity import identity as adapter_identity
 from fastapi import APIRouter, Path, Query, Request
 
 from ..case_execution import CaseExecutionError, CaseExecutionService
@@ -45,7 +46,10 @@ async def execute_parity_cases(
     workspace: str = Query(default="dev", min_length=1, max_length=100),
 ) -> dict[str, Any]:
     try:
-        return await _service(request).execute(workbook_id, workspace=workspace, principal=principal)
+        # Story S11.1.2: the executor call this makes (source + target) carries this
+        # identity -- see astra_adapter.rpc.identity's own module docstring.
+        with adapter_identity(principal.value, principal.run_id):
+            return await _service(request).execute(workbook_id, workspace=workspace, principal=principal)
     except CaseExecutionError as exc:
         raise InvalidRequestError(str(exc)) from exc
 

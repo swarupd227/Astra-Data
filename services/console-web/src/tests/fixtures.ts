@@ -10,6 +10,8 @@ import type {
   AcceptanceSummary,
   AdoptionConfig,
   AdoptionSnapshot,
+  AgentRecord,
+  AgentRecordsResponse,
   Api,
   AppliedRule,
   ApplyRulesResult,
@@ -95,6 +97,7 @@ import type {
   SimulateResult,
   StatusPackData,
   SubjectEventsResponse,
+  SvidRecord,
   ToleranceCharter,
   ToleranceCharterFieldMetadata,
   ToleranceCharterVersion,
@@ -1774,6 +1777,75 @@ export function notificationPreferenceOptions(
   };
 }
 
+// ------------------------------------------------------- S11.1.2: Tenant & Access
+
+export function agentRecord(overrides: Partial<AgentRecord> = {}): AgentRecord {
+  return {
+    id: 'harvester',
+    version: '1.0.0',
+    charter: { consumes: ['Tableau site/project/workbook metadata'], produces: ['Workbook'], prohibited: [] },
+    ai_mode: { C1: 'DETERMINISTIC' },
+    validation: ['SCHEMA'],
+    autonomy: 'L4',
+    model_policy: {},
+    budgets: {},
+    owner: 'platform_eng',
+    scope: {
+      allowed_node_types: null, forbidden_properties: [], allowed_task_classes: null,
+      allowed_artefact_kinds: null, unrestricted: true,
+    },
+    real: true,
+    ...overrides,
+  };
+}
+
+/** The real, narrowed catalog entry -- mirrors `agent_identity.py`'s own `AGENT_CATALOG['transpiler']`. */
+export function transpilerAgentRecord(): AgentRecord {
+  return agentRecord({
+    id: 'transpiler',
+    version: '1.4.2',
+    charter: {
+      consumes: ['CalculatedField + context contract (TRANSPILER_CALC)'],
+      produces: ['Measure'],
+      prohibited: ['write outside MU scope', 'call executor', 'modify Pattern.promotion_state'],
+    },
+    autonomy: 'L3',
+    scope: {
+      allowed_node_types: ['CalculatedField', 'ExceptionCase', 'Measure'],
+      forbidden_properties: ['Pattern.promotion_state'],
+      allowed_task_classes: ['transpile_c3', 'transpile_c3_small_model'],
+      allowed_artefact_kinds: [],
+      unrestricted: false,
+    },
+  });
+}
+
+export function agentRecordsResponse(overrides: Partial<AgentRecordsResponse> = {}): AgentRecordsResponse {
+  return {
+    agents: [
+      agentRecord({ id: 'harvester' }),
+      agentRecord({ id: 'cartographer' }),
+      agentRecord({ id: 'modeller' }),
+      transpilerAgentRecord(),
+      agentRecord({ id: 'compositor' }),
+      agentRecord({ id: 'arbiter', version: '0.0.0', real: false }),
+      agentRecord({ id: 'mender' }),
+      agentRecord({ id: 'steward' }),
+    ],
+    ...overrides,
+  };
+}
+
+export function svidRecord(overrides: Partial<SvidRecord> = {}): SvidRecord {
+  return {
+    id: 'svid_01M1', jti: 'jti_01M1', agent_id: 'transpiler', run_id: 'run-1',
+    spiffe_id: 'spiffe://astra-data.internal/agent/transpiler/run/run-1', serial: 1,
+    predecessor_jti: null, issued_at: '2027-06-01T00:00:00.000Z', expires_at: '2027-06-01T00:05:00.000Z',
+    revoked_at: null, revoked_by: null, revocation_reason: null, status: 'active',
+    ...overrides,
+  };
+}
+
 export const RAISED_ISSUE: ConstructIssue = {
   id: 'gi_01M1',
   state: 'OPEN',
@@ -1791,6 +1863,9 @@ export interface FakeApi extends Api {
   };
   readonly recorded: { kind: string; id: string; reason: string; tier?: string }[];
   failNext(error: ApiError): void;
+  /** Story S11.1.2: seed the SVID records `svidRecords`/`revokeSvid` operate over --
+   * empty by default, since most tests never issue one. */
+  seedSvids(svids: SvidRecord[]): void;
 }
 
 export function fakeApi(
@@ -1866,6 +1941,8 @@ export function fakeApi(
   let calibrationReportState: CalibrationReportResponse = calibrationReportResponse();
   let statusPackState: StatusPackData | null = null;
   let notificationPreferencesState: NotificationPreferences | null = null;
+  // Story S11.1.2. Empty by default -- a test that wants one calls `api.seedSvids(...)`.
+  const svidRows: SvidRecord[] = [];
   const programmeRows = programmes.programmes.map((row) => ({ ...row }));
   const trainRows = trains.trains.map((train) => ({
     ...train,
@@ -1955,6 +2032,9 @@ export function fakeApi(
     recorded,
     failNext(error) {
       queued = error;
+    },
+    seedSvids(svids) {
+      svidRows.splice(0, svidRows.length, ...svids.map((s) => ({ ...s })));
     },
     async estate(query: EstateQuery, _identity: Identity) {
       calls.estate.push(query);
@@ -3222,6 +3302,26 @@ export function fakeApi(
     async sendNotificationDigests(_identity: Identity) {
       maybeFail();
       return { digests_sent: [], count: 0 };
+    },
+    async agentRecords(_identity: Identity) {
+      maybeFail();
+      return agentRecordsResponse();
+    },
+    async svidRecords(_identity: Identity, agentId?: string) {
+      maybeFail();
+      return { svids: agentId ? svidRows.filter((s) => s.agent_id === agentId) : [...svidRows] };
+    },
+    async revokeSvid(jti: string, reason: string, identity: Identity) {
+      maybeFail();
+      const index = svidRows.findIndex((s) => s.jti === jti);
+      if (index === -1) throw new ApiError(400, 'invalid_request', `no SVID record with jti '${jti}'`);
+      const updated: SvidRecord = {
+        ...svidRows[index]!, status: 'revoked', revoked_at: new Date().toISOString(),
+        revoked_by: identity.principal, revocation_reason: reason,
+      };
+      svidRows[index] = updated;
+      recorded.push({ kind: 'REVOKE_SVID', id: jti, reason });
+      return updated;
     },
   };
 }

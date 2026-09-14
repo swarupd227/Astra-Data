@@ -147,6 +147,7 @@ import { RegressionMonitor } from './regression/RegressionMonitor';
 import { DecommissionTracker } from './release/DecommissionTracker';
 import { ReleaseBoard } from './release/ReleaseBoard';
 import { StatusPack } from './status-pack/StatusPack';
+import { TenantAccess } from './tenant-access/TenantAccess';
 import { WaveBoard } from './trains/WaveBoard';
 
 /** The Estate surface's screens (§15.3.2), plus the Programme Board's own figure (S3.1.3),
@@ -231,6 +232,7 @@ export const SURFACES = [
   { key: 'inbox', label: 'Gate Inbox' },
   { key: 'register', label: 'Decision Register' },
   { key: 'notifications', label: 'Notification Preferences' },
+  { key: 'tenant-access', label: 'Tenant & Access' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -346,7 +348,12 @@ const CLIENT_VISIBLE_SURFACES: Partial<Record<string, Surface[]>> = {
   // named client role (`deps.py`'s `DecisionRegisterReaderDep`) -- see `decision_
   // register.py`'s own module docstring for why this role stands in for "auditor,"
   // which names no real role of its own. Landing surface left unchanged.
-  client_infosec_reviewer: ['estate', 'register', NOTIFICATIONS],
+  // Story S11.1.2: Tenant & Access is real-gated to any Artizent role or this one named
+  // client role (`deps.py`'s `TenantAccessReaderDep`, the identical "Artizent, or the
+  // InfoSec reviewer" shape `DecisionRegisterReaderDep`/`DeploymentBomReaderDep` already
+  // set) -- agent SVID issuance/rotation/revocation is exactly the kind of evidence this
+  // role's own §15.1 remit ("reviews... evidence export") already covers.
+  client_infosec_reviewer: ['estate', 'register', 'tenant-access', NOTIFICATIONS],
   client_programme_sponsor: [NOTIFICATIONS],
 };
 
@@ -592,6 +599,7 @@ export function App({
         <DecisionRegister api={api} identity={identity} liveTick={liveTick} locale={locale} />
       )}
       {surface === 'notifications' && <NotificationPreferences api={api} identity={identity} />}
+      {surface === 'tenant-access' && <TenantAccess api={api} identity={identity} />}
     </div>
   );
 }

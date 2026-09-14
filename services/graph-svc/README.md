@@ -3983,6 +3983,66 @@ run against a live tenant or vault).
   no native Azure resource — both deploy onto this AKS via `deploy/helm/astra-data`'s own
   real upstream chart dependencies instead.
 
+## Agent identity: SVIDs and least-privilege enforcement (story S11.1.2, opens F11.1)
+
+Spec §8.1/§8.3: each agent runs under its own non-human identity with least privilege, so
+its actions are attributable and its reach is bounded. Per three explicit user decisions
+taken before any code was written — see [ADR 0080](../../docs/adr/0080-agent-identity-fail-open-by-default-narrowed-only-with-real-evidence.md)
+for the full design. In one line: **disclosed, not yet connected** for SVID issuance (a
+real local issuer, never a live SPIRE server); **included** for the adapter RPC boundary
+(`packages/adapter-sdk` carries identity, ambient, via `contextvars`); enforcement is
+**fail-open by default, narrowed only for the Transpiler** — the one agent §8.1's own
+worked example gives direct, checkable evidence for.
+
+- `agent_identity.py`: `AGENT_CATALOG` declares all eight of §8.3's real agents.
+  `AgentScope.unrestricted()` for every one of them except the Transpiler, whose own real
+  `generation.py` footprint (writes `Measure`/`ExceptionCase`, sets properties on
+  `CalculatedField`, never stores an artefact, never calls an adapter) grounds a real,
+  narrowed scope. An `agent:` id not in the catalog is also unrestricted, never refused —
+  a repo-wide search found this codebase's own test suite already uses over a dozen
+  ad-hoc `agent:` strings as generic non-human convenience identifiers, so a fail-closed
+  design would have broken large swaths of already-passing, production-shaped behaviour.
+  `authorize_node_write`/`authorize_property_write`/`authorize_gateway_call`/
+  `authorize_artefact_kind` are the four enforcement functions; a refusal raises
+  `AgentAuthorizationError` and logs via `logger.warning`.
+- Three real enforcement points: `GraphWriter._prepare_nodes` (before `validate_node`,
+  raising immediately rather than joining the existing `violations` batch — a refusal is
+  a different kind of question than an ontology violation), `ArtefactStore.store` (both
+  implementations), `Gateway.generate` (a new optional, backward-compatible `principal`
+  parameter — every pre-existing caller passes none and is unaffected).
+- `workload_identity.py`: `LocalWorkloadIdentityProvider` mints real, short-lived
+  (`DEFAULT_TTL_SECONDS = 300`) JWT-SVIDs, Ed25519/EdDSA-signed with a locally generated
+  key, a real SPIFFE ID (`spiffe://<trust-domain>/agent/<id>/run/<run-id>`). `SvidRecord`
+  (the durable, `PostgresSvidStore`-backed row — migration v0040, `public.svid_record`,
+  no ontology change) never carries the signed token itself, only `jti`/`spiffe_id`/
+  `serial`/timestamps/revocation fields — the same "a secret never crosses the API"
+  discipline `credentials.py` already set. Rotation appends a new row
+  (`predecessor_jti` set); revocation updates the existing row in place (the one
+  deliberate exception to append-only, since a revocation is a fact about an existing
+  issuance) and requires a real reason (`MIN_REVOCATION_REASON_LENGTH = 8`).
+- Best-effort SVID issuance wired into the three real, automated run-starting points this
+  service has: `HarvestScheduler._run`, `RegressionScheduler`'s own scheduled check, and
+  the G2-triggered automatic Steward build (`api/routes_g2.py`) — an issuance failure
+  never fails the real work it accompanies.
+- SVID issuance does **not** (yet) gate authorization — nothing in this codebase's own
+  running code has a channel to present a caller-provided SVID back for verification yet;
+  `agent_identity.py`'s checks still key off the existing `X-Astra-Principal` header,
+  exactly as before this story.
+- `packages/adapter-sdk`'s new `rpc/identity.py`: `identity(principal, run_id)` is a
+  context manager a caller wraps around one call or one run; `RemoteAdapter` reads the
+  ambient value and attaches it as `X-Astra-Principal`/`X-Astra-Run-Id` headers. The RPC
+  server's own new middleware only logs the headers — attribution, not enforcement,
+  matching the AC's own literal enforcement points (graph API, artefact store, gateway,
+  not the adapter). Wired at the two dominant real caller families — `Harvester.run` and
+  `CaseExecutionService.execute` — not every real adapter caller; the rest are disclosed,
+  not silently incomplete. No `INTERFACE_VERSION` bump — the headers are additive
+  transport metadata, not a §6.1 Protocol change.
+- `GET /v1/tenant-access/agent-records`, `GET /v1/tenant-access/svids`,
+  `POST /v1/tenant-access/svids/{jti}:revoke` (`routes_tenant_access.py`) — read gated
+  `TenantAccessReaderDep` (Artizent or the InfoSec reviewer, matching
+  `DeploymentBomReaderDep`'s own shape), revoke gated `PlatformEngineerDep`, this story's
+  own literal persona.
+
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,

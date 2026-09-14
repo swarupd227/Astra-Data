@@ -27,9 +27,12 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from astra_adapter.rpc.identity import identity as adapter_identity
+
 from ..adapters.contract import Scope
 from ..ids import new_ulid
 from ..principal import Principal
+from ..workload_identity import SvidStore, WorkloadIdentityProvider, record_from_svid
 from .model import HarvestMode, HarvestState
 from .runner import DEFAULT_CONCURRENCY, DEFAULT_PARSE_QUALITY_THRESHOLD, Harvester, HarvestRequest
 from .schedule import Schedule, ScheduleStore
@@ -60,6 +63,8 @@ class HarvestScheduler:
         harvester: Harvester,
         poll_seconds: int = DEFAULT_POLL_SECONDS,
         max_consecutive_failures: int = MAX_CONSECUTIVE_FAILURES,
+        identity_provider: WorkloadIdentityProvider | None = None,
+        svid_store: SvidStore | None = None,
     ) -> None:
         self._store = store
         self._harvester = harvester
@@ -68,6 +73,11 @@ class HarvestScheduler:
         self._running: dict[str, asyncio.Task[Any]] = {}
         self._last_tick_at: str | None = None
         self._ticks = 0
+        # Story S11.1.2: both optional and additive -- unset (every deployment before
+        # this story) leaves a scheduled harvest identical to what it always was, no SVID
+        # minted, nothing new written.
+        self._identity_provider = identity_provider
+        self._svid_store = svid_store
 
     # ------------------------------------------------------------------- reporting
 
@@ -146,13 +156,18 @@ class HarvestScheduler:
             ),
         )
         principal = Principal(SCHEDULER_PRINCIPAL, run_id=harvest_id)
+        await self._issue_svid(harvest_id)
 
         state = HarvestState.FAILED.value
         error: str | None = None
         try:
-            progress = await self._harvester.run(
-                request, principal=principal, harvest_id=harvest_id
-            )
+            # Story S11.1.2: every adapter call this run makes carries this identity --
+            # see astra_adapter.rpc.identity's own module docstring for why this is a
+            # context manager around the call, not a new Harvester.run parameter.
+            with adapter_identity(principal.value, harvest_id):
+                progress = await self._harvester.run(
+                    request, principal=principal, harvest_id=harvest_id
+                )
             state, error = progress.state.value, progress.error
         except asyncio.CancelledError:
             # Shutdown. The run record already says RUNNING and the next tick will not
@@ -171,6 +186,21 @@ class HarvestScheduler:
             finished_at=datetime.now(UTC),
         )
         await self._pause_if_persistently_failing(schedule.id)
+
+    async def _issue_svid(self, harvest_id: str) -> None:
+        """Spec §18.1/story S11.1.2: "agents receive SPIFFE identities (SVIDs) at start."
+        Best-effort -- a scheduler wiring with no identity provider configured (every
+        deployment before this story) skips this silently; a real one that fails to
+        record the issuance logs and the harvest still runs, the same "an identity-
+        recording hiccup must not fail the real work" posture this method's own caller
+        already takes for a run's outcome."""
+        if self._identity_provider is None or self._svid_store is None:
+            return
+        try:
+            svid = await self._identity_provider.issue(agent_id="harvest-scheduler", run_id=harvest_id)
+            await self._svid_store.record(record_from_svid(svid))
+        except Exception:
+            logger.exception("could not issue/record an SVID for harvest %s", harvest_id)
 
     async def _pause_if_persistently_failing(self, schedule_id: str) -> None:
         current = await self._store.get(schedule_id)

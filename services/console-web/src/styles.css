@@ -225,10 +225,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
  *
  * S10.5.2: `.notification-preferences-workspace` joins the list from its own first
  * draft, not as a later fix -- a real, single-pane screen, the identical shape every
- * other entry here already has. */
+ * other entry here already has.
+ *
+ * S11.1.2: `.tenant-access-workspace` joins the list from its own first draft too, for
+ * the identical reason -- see this rule's own comment on why every screen that reuses
+ * the bare `workspace` class needs to be named here explicitly. */
 .mu-page-workspace,
 .gate-inbox-workspace,
-.notification-preferences-workspace {
+.notification-preferences-workspace,
+.tenant-access-workspace {
   grid-template-columns: minmax(0, 1fr);
   overflow-y: auto;
 }
@@ -258,7 +263,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
     :not(.parity-workspace):not(.regression-monitor):not(.exception-desk)
     :not(.release-board):not(.decommission-tracker):not(.mu-page-workspace)
     :not(.gate-inbox-workspace):not(.decision-register-workspace)
-    :not(.notification-preferences-workspace) {
+    :not(.notification-preferences-workspace):not(.tenant-access-workspace) {
     grid-template-columns: 240px minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(180px, 36vh);
   }
@@ -274,7 +279,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
     :not(.parity-workspace):not(.regression-monitor):not(.exception-desk)
     :not(.release-board):not(.decommission-tracker):not(.mu-page-workspace)
     :not(.gate-inbox-workspace):not(.decision-register-workspace)
-    :not(.notification-preferences-workspace) {
+    :not(.notification-preferences-workspace):not(.tenant-access-workspace) {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(120px, 22vh) minmax(0, 1fr) minmax(160px, 34vh);
   }

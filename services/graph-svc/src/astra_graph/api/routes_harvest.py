@@ -13,6 +13,7 @@ import asyncio
 import logging
 from typing import Annotated, Any
 
+from astra_adapter.rpc.identity import identity as adapter_identity
 from fastapi import APIRouter, Path, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -134,9 +135,14 @@ async def start_harvest(
         usage_window_days=body.usage_window_days,
     )
 
-    task = asyncio.create_task(
-        harvester.run(harvest_request, principal=principal, harvest_id=harvest_id)
-    )
+    # Story S11.1.2: every real adapter call this harvest makes carries this identity --
+    # `asyncio.create_task` copies the current context (`contextvars`) once, at creation,
+    # so the whole run inherits it without `Harvester.run`/`RemoteAdapter` needing a new
+    # parameter of their own (see `astra_adapter.rpc.identity`'s own module docstring).
+    with adapter_identity(principal.value, harvest_id):
+        task = asyncio.create_task(
+            harvester.run(harvest_request, principal=principal, harvest_id=harvest_id)
+        )
     # Held so the task is not garbage-collected mid-run, and discarded when it finishes.
     running: set[asyncio.Task[Any]] = request.app.state.harvest_tasks
     running.add(task)

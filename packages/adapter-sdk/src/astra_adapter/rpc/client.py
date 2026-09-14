@@ -37,6 +37,7 @@ from ..contract import (
 from ..faults import Fault, RateLimited
 from ..proof import ParityCase, ResultSet, VisualCapture, VisualCase
 from . import wire
+from .identity import PRINCIPAL_HEADER, RUN_HEADER, current_principal, current_run_id
 
 #: Generous, and deliberately so. Fetching a large .twbx over a client's network is slow,
 #: and a timeout tuned for a fast link turns a slow estate into a run full of failures.
@@ -85,9 +86,23 @@ class RemoteAdapter:
 
     # ------------------------------------------------------------------ transport
 
+    def _identity_headers(self) -> dict[str, str]:
+        """Story S11.1.2: whichever agent's own `rpc.identity.identity(...)` block this
+        call happens to run inside, attached as real headers -- absent (every call before
+        this story, and any call made outside such a block) is the honest default: this
+        transport does not invent an identity nobody asserted."""
+        headers: dict[str, str] = {}
+        principal = current_principal()
+        if principal:
+            headers[PRINCIPAL_HEADER] = principal
+        run_id = current_run_id()
+        if run_id:
+            headers[RUN_HEADER] = run_id
+        return headers
+
     async def _get(self, path: str) -> dict[str, Any]:
         try:
-            response = await self._client.get(path)
+            response = await self._client.get(path, headers=self._identity_headers())
         except httpx.HTTPError as exc:
             raise self._unreachable(exc) from exc
         return self._read(response)
@@ -95,7 +110,7 @@ class RemoteAdapter:
     async def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         payload = {**body, "interface_version": INTERFACE_VERSION}
         try:
-            response = await self._client.post(path, json=payload)
+            response = await self._client.post(path, json=payload, headers=self._identity_headers())
         except httpx.HTTPError as exc:
             raise self._unreachable(exc) from exc
         return self._read(response)

@@ -64,6 +64,7 @@ from .api import (
     rules_router,
     schedules_router,
     status_pack_router,
+    tenant_access_router,
     tolerance_charter_router,
     trains_router,
     verdicts_router,
@@ -143,6 +144,7 @@ from .verdicts import VerdictsService
 from .versions import HistoricalGraphReader
 from .visual_mapping import PostgresVisualMappingRulesetStore
 from .visual_parity import VisualParityService
+from .workload_identity import LocalWorkloadIdentityProvider, PostgresSvidStore
 from .writes import GraphWriter
 
 logger = logging.getLogger(__name__)
@@ -274,6 +276,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.notification_preference_store = PostgresNotificationPreferenceStore(
         pool, graph_name=config.graph_name,
     )
+    # Story S11.1.2: a real, local SVID issuer -- disclosed, not yet connected to a live
+    # SPIRE server, the identical posture ADR 0079 already carries for entra.py/
+    # credentials.KeyVaultCredentialProvider. `svid_store` is the durable issuance/
+    # rotation/revocation trail Tenant & Access reads; `svid_provider` mints them.
+    app.state.svid_provider = LocalWorkloadIdentityProvider()
+    app.state.svid_store = PostgresSvidStore(pool, graph_name=config.graph_name)
     app.state.build_store = PostgresBuildStore(pool, graph_name=config.graph_name)
     # Story S4.3.2: the architect's own saved rules, versioned; a fresh graph builds
     # against the in-memory default (version 0) until an architect saves one of their own.
@@ -477,6 +485,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             store=app.state.schedule_store,
             harvester=app.state.harvester,
             poll_seconds=config.scheduler_poll_seconds,
+            identity_provider=app.state.svid_provider,
+            svid_store=app.state.svid_store,
         )
         scheduler_task = asyncio.create_task(app.state.scheduler.run_forever())
 
@@ -497,6 +507,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             charter_store=app.state.tolerance_charter_store, store=app.state.regression_schedule_store,
             notifier=LocalRegressionNotificationChannel(), poll_seconds=config.scheduler_poll_seconds,
             preference_store=app.state.notification_preference_store,
+            identity_provider=app.state.svid_provider, svid_store=app.state.svid_store,
         )
         regression_scheduler_task = asyncio.create_task(app.state.regression_scheduler.run_forever())
 
@@ -591,6 +602,7 @@ def create_app() -> FastAPI:
     app.include_router(decision_register_router)
     app.include_router(notifications_router)
     app.include_router(deployment_bom_router)
+    app.include_router(tenant_access_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

@@ -17,6 +17,7 @@ from astra_graph.provenance import ContextVerifier, InMemoryProvenanceStore
 from astra_graph.retention import InMemoryProgrammeStore
 from astra_graph.roles import ROLES_HEADER
 from astra_graph.scope import InMemoryScopeStore
+from astra_graph.workload_identity import InMemorySvidStore, LocalWorkloadIdentityProvider
 from astra_graph.writes import EdgeWrite, GraphWriter, NodeWrite
 
 from .fakes import InMemoryGraphRepository, historical
@@ -56,6 +57,8 @@ async def client(repository: InMemoryGraphRepository) -> AsyncIterator[AsyncClie
     app.state.provenance_store = InMemoryProvenanceStore()
     app.state.programme_store = InMemoryProgrammeStore()
     app.state.artefact_store = InMemoryArtefactStore()
+    app.state.svid_provider = LocalWorkloadIdentityProvider()
+    app.state.svid_store = InMemorySvidStore()
 
     # Time travel in the fake is a bounded replay; in production it is an indexed read
     # over the same outbox. The integration suite is where the two are shown to agree.

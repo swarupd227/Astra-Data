@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from . import events as event_factory
+from .agent_identity import authorize_node_write, authorize_property_write
 from .errors import ElementNotFoundError, InvalidRequestError, OntologyViolationError
 from .events import PlatformEvent
 from .graph import GraphRepository
@@ -107,6 +108,13 @@ class GraphWriter:
         prepared: list[tuple[str, dict[str, Any]]] = []
 
         for index, write in enumerate(writes):
+            # Story S11.1.2: an agent's own declared charter, checked before ontology
+            # validation -- least privilege is about *who may write this at all*, a
+            # different question from *is this a well-formed write*. Raises immediately
+            # rather than joining `violations`: an authorization refusal is not a data
+            # problem the rest of the batch could still usefully report around.
+            authorize_node_write(principal.value, write.type)
+            authorize_property_write(principal.value, write.type, write.properties.keys())
             element_id = write.id or new_ulid()
             server = _base_properties(principal, element_id=element_id, actor_property="created_by")
             if upsert:

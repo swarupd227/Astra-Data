@@ -122,6 +122,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 import asyncpg
+from astra_adapter.rpc.identity import identity as adapter_identity
 
 from .artefacts import ArtefactStore
 from .case_derivation import CaseDerivationService
@@ -136,6 +137,7 @@ from .notification_preferences import notify as notify_preference
 from .principal import Principal
 from .tolerance_charter import ToleranceCharterStore
 from .verdicts import VerdictsService
+from .workload_identity import SvidStore, WorkloadIdentityProvider, record_from_svid
 from .writes import GraphWriter, NodeWrite
 
 logger = logging.getLogger(__name__)
@@ -537,6 +539,8 @@ async def _run_regression_check(
     schedule: RegressionSchedule,
     run_id: str,
     preference_store: NotificationPreferenceStore | None = None,
+    identity_provider: WorkloadIdentityProvider | None = None,
+    svid_store: SvidStore | None = None,
 ) -> None:
     """Run one scheduled regression check and write its outcome back -- never raises,
     the identical "a schedule that fails is a fact to record, not an exception to lose
@@ -552,10 +556,22 @@ async def _run_regression_check(
     py`'s own docstring names), a second, real, preference-gated `regression_fail`
     notification also fires to that real person."""
     principal = Principal(STEWARD_PRINCIPAL, run_id=run_id)
+    if identity_provider is not None and svid_store is not None:
+        # Story S11.1.2: "agents receive SPIFFE identities (SVIDs) at start" -- best
+        # effort, the identical "an identity-recording hiccup must not fail the real
+        # work" posture `HarvestScheduler._issue_svid` already takes.
+        try:
+            svid = await identity_provider.issue(agent_id="steward", run_id=run_id)
+            await svid_store.record(record_from_svid(svid))
+        except Exception:
+            logger.exception("could not issue/record an SVID for regression run %s", run_id)
     result = "FAIL"
     error: str | None = None
     try:
-        await case_execution.execute(schedule.workbook_id, workspace=schedule.workspace, principal=principal)
+        # Story S11.1.2: the executor call this re-run makes (source + target) carries
+        # this identity -- see astra_adapter.rpc.identity's own module docstring.
+        with adapter_identity(principal.value, run_id):
+            await case_execution.execute(schedule.workbook_id, workspace=schedule.workspace, principal=principal)
         version = await charter_store.latest()
         outcome = await verdicts.run(
             schedule.workbook_id, charter=version.charter, charter_version=str(version.version), principal=principal,
@@ -636,6 +652,8 @@ class RegressionScheduler:
         notifier: NotificationChannel | None = None,
         poll_seconds: int = DEFAULT_POLL_SECONDS,
         preference_store: NotificationPreferenceStore | None = None,
+        identity_provider: WorkloadIdentityProvider | None = None,
+        svid_store: SvidStore | None = None,
     ) -> None:
         self._pool = pool
         self._graph = graph_name
@@ -648,6 +666,8 @@ class RegressionScheduler:
         self._notifier = notifier or LocalNotificationChannel()
         self._poll_seconds = poll_seconds
         self._preference_store = preference_store
+        self._identity_provider = identity_provider
+        self._svid_store = svid_store
         self._running: dict[str, asyncio.Task[Any]] = {}
         self._last_tick_at: str | None = None
         self._ticks = 0
@@ -706,6 +726,7 @@ class RegressionScheduler:
                 self._pool, self._graph, self._writer, self._artefact_store, self._verdicts,
                 self._case_execution, self._charter_store, self._store, self._notifier, schedule, run_id,
                 preference_store=self._preference_store,
+                identity_provider=self._identity_provider, svid_store=self._svid_store,
             )
         )
         self._running[schedule.id] = task

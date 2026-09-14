@@ -203,7 +203,10 @@ class _NoRouteGateway:
     """A `Gateway` that always reports no routable provider — the S5.3.2 failure mode a
     real `ModelGateway` produces when nothing has cleared the eval bar yet."""
 
-    async def generate(self, *, task_class: str, request: Any, previous_error: str | None) -> RawModelResponse:
+    async def generate(
+        self, *, task_class: str, request: Any, previous_error: str | None,
+        principal: str | None = None,
+    ) -> RawModelResponse:
         raise GatewayRoutingError(task_class, considered=("anthropic",))
 
 

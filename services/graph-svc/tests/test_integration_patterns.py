@@ -216,7 +216,10 @@ class _PoisonGateway:
     raises, so a test that passes despite this gateway being wired is proof the model path
     was never taken, not merely that it was not observed to be."""
 
-    async def generate(self, *, task_class: str, request: Any, previous_error: str | None) -> RawModelResponse:
+    async def generate(
+        self, *, task_class: str, request: Any, previous_error: str | None,
+        principal: str | None = None,
+    ) -> RawModelResponse:
         raise AssertionError("the model must never be called when an ACTIVE pattern already covers this shape")
 
 

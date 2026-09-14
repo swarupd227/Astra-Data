@@ -597,6 +597,24 @@ def require_deployment_bom_reader(roles: RoleSetDep) -> RoleSet:
 DeploymentBomReaderDep = Annotated[RoleSet, Depends(require_deployment_bom_reader)]
 
 
+def require_tenant_access_reader(roles: RoleSetDep) -> RoleSet:
+    """Gate the Tenant & Access screen's own reads on "any Artizent role, or the InfoSec
+    reviewer" (story S11.1.2) -- the identical shape `require_deployment_bom_reader`/
+    `require_decision_register_reader` already set: agent identity issuance/rotation/
+    revocation is exactly the kind of evidence §15.1's own `client_infosec_reviewer`
+    remit ("reviews... evidence export") already covers. Revoking an identity is
+    narrower -- see `require_platform_engineer`, this story's own literal persona."""
+    if not (roles.is_artizent() or Role.CLIENT_INFOSEC_REVIEWER in roles.roles):
+        raise ForbiddenError(
+            f"Tenant & Access is open to Artizent roles and the InfoSec reviewer; "
+            f"declare one in {ROLES_HEADER}"
+        )
+    return roles
+
+
+TenantAccessReaderDep = Annotated[RoleSet, Depends(require_tenant_access_reader)]
+
+
 def open_query_log(surface: str, principal: Principal, roles: RoleSet) -> QueryLog:
     return QueryLog(
         surface=surface,
