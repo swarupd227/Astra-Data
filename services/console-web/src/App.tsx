@@ -129,6 +129,7 @@ import { isArtizentRole } from './lib/roles';
 import { LineageView } from './lineage/LineageView';
 import { ModelDetail } from './modeller/ModelDetail';
 import { MigrationUnitPage } from './mu/MigrationUnitPage';
+import { NotificationPreferences } from './notifications/NotificationPreferences';
 import { ParityDashboard } from './parity/ParityDashboard';
 import { PatternLibrary } from './patterns/PatternLibrary';
 import { ProgrammeBoard } from './programme/ProgrammeBoard';
@@ -221,6 +222,7 @@ export const SURFACES = [
   { key: 'mu', label: 'Migration Unit' },
   { key: 'inbox', label: 'Gate Inbox' },
   { key: 'register', label: 'Decision Register' },
+  { key: 'notifications', label: 'Notification Preferences' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -308,24 +310,36 @@ function landingSurfaceFor(role: string): Surface {
  * each screen's own `identity.roles.includes(...)` check (confirmed by a full grep
  * across `services/console-web/src`) -- see this module's own docstring. A client role
  * always sees its own landing surface too, even where that is the only entry. */
+// Story S10.5.2: Notification Preferences is visible to every role, not layered in per
+// role below -- `GET`/`PUT /v1/notification-preferences` are open to any authenticated
+// principal (`deps.py` names no role gate), and unlike every other entry in this table,
+// this is not "which screen can this role's own data reach," it is "everyone manages
+// their own preferences." Appended to every client role's own list, including
+// `client_programme_sponsor` (previously absent from this table entirely -- it now has
+// a real second surface of its own for the first time; see `app.test.tsx`'s own
+// "single-surface client role" test, retargeted a third time as a direct, disclosed
+// consequence).
+const NOTIFICATIONS: Surface = 'notifications';
+
 const CLIENT_VISIBLE_SURFACES: Partial<Record<string, Surface[]>> = {
   // Story S10.4.1: the Gate Inbox is real-gated to whichever of these three roles a
   // caller declares (`deps.py`'s `GateInboxReaderDep`; `gate_inbox.py`'s own module
   // docstring explains the per-role dispatch each one actually sees inside it).
-  client_data_owner: ['proposal', 'inbox'],
+  client_data_owner: ['proposal', 'inbox', NOTIFICATIONS],
   // Story S10.3.1: the Migration Unit page's own client view (§15.1: "Migration Unit
   // page (client view)") is real-gated to this role (`deps.py`'s `MuPageReaderDep`).
-  client_report_owner: ['g3', 'decommission', 'mu', 'inbox'],
-  client_licence_admin: ['decommission', 'inbox'],
+  client_report_owner: ['g3', 'decommission', 'mu', 'inbox', NOTIFICATIONS],
+  client_licence_admin: ['decommission', 'inbox', NOTIFICATIONS],
   // Story S10.2.1: the client analytics lead is the Calibration Report's own named
   // co-signer (`deps.py`'s `CalibrationReportReaderDep`, mirroring `require_tolerance_
   // charter_reader`'s shape) -- real-gated to read (and sign) it, so it belongs here too.
-  client_analytics_lead: ['charter', 'calibration'],
+  client_analytics_lead: ['charter', 'calibration', NOTIFICATIONS],
   // Story S10.4.2: the Decision Register is real-gated to any Artizent role or this one
   // named client role (`deps.py`'s `DecisionRegisterReaderDep`) -- see `decision_
   // register.py`'s own module docstring for why this role stands in for "auditor,"
   // which names no real role of its own. Landing surface left unchanged.
-  client_infosec_reviewer: ['estate', 'register'],
+  client_infosec_reviewer: ['estate', 'register', NOTIFICATIONS],
+  client_programme_sponsor: [NOTIFICATIONS],
 };
 
 function visibleSurfacesFor(role: string): (typeof SURFACES)[number][] {
@@ -513,6 +527,7 @@ export function App({
       {surface === 'register' && (
         <DecisionRegister api={api} identity={identity} liveTick={liveTick} locale={locale} />
       )}
+      {surface === 'notifications' && <NotificationPreferences api={api} identity={identity} />}
     </div>
   );
 }

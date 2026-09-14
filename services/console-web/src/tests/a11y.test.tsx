@@ -29,6 +29,7 @@ import { describe, expect, it } from 'vitest';
 import { DecisionRegister } from '../register/DecisionRegister';
 import { ExceptionDesk } from '../exceptions/ExceptionDesk';
 import { G3Card } from '../g3/G3Card';
+import { NotificationPreferences } from '../notifications/NotificationPreferences';
 import type { Identity } from '../lib/api';
 import {
   decisionEvidenceBundle,
@@ -42,6 +43,7 @@ import {
 const REPORT_OWNER: Identity = { principal: 'user:owner@client.example', roles: ['client_report_owner'] };
 const ENGINEER: Identity = { principal: 'user:engineer@artizent.example', roles: ['migration_engineer'] };
 const INFOSEC: Identity = { principal: 'user:infosec@client.example', roles: ['client_infosec_reviewer'] };
+const PROGRAMME_MANAGER: Identity = { principal: 'user:pm@artizent.example', roles: ['programme_manager'] };
 
 describe('gate cards', () => {
   it('the G3 gate card has no axe violations, loaded and decidable', async () => {
@@ -114,6 +116,24 @@ describe('evidence views', () => {
     await screen.findByText('Risk Positions');
     await user.click(screen.getByRole('button', { name: 'Open evidence' }));
     await screen.findByRole('complementary', { name: 'Evidence bundle' });
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+describe('Notification Preferences (S10.5.2)', () => {
+  it('has no axe violations for a client role', async () => {
+    const api = fakeApi();
+    const { container } = render(<NotificationPreferences api={api} identity={REPORT_OWNER} />);
+    await screen.findByText('using the defaults');
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('has no axe violations for an Artizent role, with the digest-delivery section shown', async () => {
+    const api = fakeApi();
+    const { container } = render(<NotificationPreferences api={api} identity={PROGRAMME_MANAGER} />);
+    await screen.findByRole('button', { name: 'Send digests now' });
 
     expect(await axe(container)).toHaveNoViolations();
   });

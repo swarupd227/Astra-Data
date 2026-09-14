@@ -20,6 +20,7 @@ from ..errors import InvalidRequestError
 from ..g2_reminders import LocalNotificationChannel, send_due_reminders
 from ..gate_inbox import gate_inbox
 from ..gate_notifications import LocalGateNotificationChannel, notify_new_requests
+from ..notification_preferences import notify as notify_preference
 from .deps import DomainScopeDep, GateInboxReaderDep, PrincipalDep, RepositoryDep
 
 router = APIRouter()
@@ -72,10 +73,17 @@ async def post_notify_gate_inbox(
     domain_scope: DomainScopeDep,
     repository: RepositoryDep,
 ) -> dict[str, Any]:
-    """Two real, separate mechanisms, called together — see `gate_notifications.py`'s
-    own module docstring for why "on new request" (every gate) and "at SLA thresholds"
-    (G2 only, the sole gate with a real due-date concept) stay two different, already-
-    established idempotent actions rather than one invented for both."""
+    """Three real mechanisms, called together — see `gate_notifications.py`'s own module
+    docstring for why "on new request" (every gate) and "at SLA thresholds" (G2 only,
+    the sole gate with a real due-date concept) stay two different, already-established
+    idempotent actions rather than one invented for both. Story S10.5.2 adds a third,
+    real, preference-gated pass alongside them (not instead of them — `gate_notification`
+    stays the honest broadcast-to-the-role record every gate gets regardless): every G2
+    item carries a real `detail.approver` principal (`gate_inbox.pending_g2_items`,
+    S10.4.1), so it is the one gate today whose own real recipient's own preferences can
+    actually be consulted; G3/G4 items carry no real named approver principal (a
+    disclosed gap `gate_inbox.py`'s own docstring already names) and are silently
+    skipped by `notify_preference` for the identical reason."""
     stores = _stores(request)
     pool, graph_name = stores["pool"], repository.graph_name
 
@@ -91,9 +99,25 @@ async def post_notify_gate_inbox(
     sla_reminders = await send_due_reminders(
         pool, graph_name, stores["question_store"], _reminder_store(request), LocalNotificationChannel(),
     )
+    preference_notified: list[dict[str, Any]] = []
+    preference_store = getattr(request.app.state, "notification_preference_store", None)
+    if preference_store is not None:
+        for item in inbox["items"]:
+            if item["gate"] != "G2":
+                continue
+            approver = item.get("detail", {}).get("approver")
+            if not approver:
+                continue
+            records = await notify_preference(
+                preference_store, event_type="gate_request", subject_ref=item["subject_ref"],
+                recipient=approver, summary=f"G2 request waiting on {item['name']}",
+                link=f"/inbox?gate=G2&subject={item['subject_ref']}",
+            )
+            preference_notified.extend(record.as_dict() for record in records)
     return {
         "new_requests_sent": [record.as_dict() for record in new_requests],
         "sla_reminders_sent": [record.as_dict() for record in sla_reminders],
+        "preference_notified": preference_notified,
     }
 
 

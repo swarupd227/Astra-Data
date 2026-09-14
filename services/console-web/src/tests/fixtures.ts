@@ -62,6 +62,8 @@ import type {
   MovedClassification,
   MuPageResponse,
   MuProvenanceRecord,
+  NotificationPreferenceOptions,
+  NotificationPreferences,
   ParityDashboardResponse,
   ParityRunResponse,
   ParityRunTrendEntry,
@@ -1748,6 +1750,30 @@ export function decisionEvidenceBundle(overrides: Partial<DecisionEvidenceBundle
   };
 }
 
+// ------------------------------------------------ S10.5.2: notification preferences
+
+export function notificationPreferences(overrides: Partial<NotificationPreferences> = {}): NotificationPreferences {
+  return {
+    principal: 'user:owner@client.example',
+    channels: ['email', 'teams'],
+    events: ['gate_request', 'exception_assigned', 'regression_fail', 'train_replan'],
+    digest_mode: 'immediate',
+    updated_at: null,
+    ...overrides,
+  };
+}
+
+export function notificationPreferenceOptions(
+  overrides: Partial<NotificationPreferenceOptions> = {},
+): NotificationPreferenceOptions {
+  return {
+    channels: ['email', 'teams'],
+    events: ['gate_request', 'exception_assigned', 'regression_fail', 'train_replan'],
+    digest_modes: ['immediate', 'daily'],
+    ...overrides,
+  };
+}
+
 export const RAISED_ISSUE: ConstructIssue = {
   id: 'gi_01M1',
   state: 'OPEN',
@@ -1839,6 +1865,7 @@ export function fakeApi(
   // outright, the same convention those two already set.
   let calibrationReportState: CalibrationReportResponse = calibrationReportResponse();
   let statusPackState: StatusPackData | null = null;
+  let notificationPreferencesState: NotificationPreferences | null = null;
   const programmeRows = programmes.programmes.map((row) => ({ ...row }));
   const trainRows = trains.trains.map((train) => ({
     ...train,
@@ -3171,6 +3198,30 @@ export function fakeApi(
     async decisionRegisterPdf(_filters, _identity: Identity) {
       maybeFail();
       return new Blob(['%PDF-1.4 fixture'], { type: 'application/pdf' });
+    },
+    // Story S10.5.2. `notificationPreferences` does not call `maybeFail()` -- the
+    // identical passive-mount-fetch reasoning `gateInbox`/`decisionRegister` above
+    // already carry.
+    async notificationPreferences(identity: Identity) {
+      if (!notificationPreferencesState) {
+        notificationPreferencesState = notificationPreferences({ principal: identity.principal });
+      }
+      return notificationPreferencesState;
+    },
+    async saveNotificationPreferences(preferences, identity: Identity) {
+      maybeFail();
+      notificationPreferencesState = notificationPreferences({
+        principal: identity.principal, ...preferences, updated_at: new Date().toISOString(),
+      });
+      recorded.push({ kind: 'SAVE_NOTIFICATION_PREFERENCES', id: identity.principal, reason: preferences.digest_mode });
+      return notificationPreferencesState;
+    },
+    async notificationPreferenceOptions(_identity: Identity) {
+      return notificationPreferenceOptions();
+    },
+    async sendNotificationDigests(_identity: Identity) {
+      maybeFail();
+      return { digests_sent: [], count: 0 };
     },
   };
 }

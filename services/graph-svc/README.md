@@ -3909,6 +3909,41 @@ story only reads what every gate already writes.
   see `decision_register.py`'s own module docstring for why this story's AC reads
   differently from `calibration_wave.sign_report`'s own separate "Sign" action.
 
+## Notification preferences (story S10.5.2)
+
+§15.5's own "notifications I can tune" — one general log, `notification_preferences.py`,
+spanning four real event types with per-`(graph, principal)` preferences (channels,
+events, digest mode). No ontology change: recipients are resolved from facts every
+event's own real write site already carries.
+
+- `public.notification_log` generalises `g2_reminder`/`gate_notification`'s own
+  `(subject_ref, sent_at)` shape rather than adding a third/fourth near-duplicate table
+  — a queued (`digest_mode="daily"`) and a sent row are the identical record, told apart
+  by whether `sent_at` is set. `POST /v1/notifications:send-digests` (`ArtizentDep`,
+  mirroring `g2_reminders.send_due_reminders`'s own gate) is the real, manually-triggered
+  batch action that flushes queued rows, one digest per `(recipient, channel)` — no
+  scheduling mechanism exists anywhere in this codebase to trigger one on a real
+  calendar cadence, the identical disclosed limitation that route's own precedent
+  already carries.
+- `resolve_workbook_owner` reuses the real `OWNED_BY` edge (`ontology/edges.py`'s own
+  note: "Ownership routes gate requests to a named person," §15.1, story S1.2.3) for two
+  of the four events (`regression_fail`, `train_replan`); `exception_assigned` notifies
+  `ExceptionCase.assignee` directly; `gate_request` reuses G2's own already-real
+  `detail.approver` (S10.4.1) — no new recipient-resolution mechanism was invented where
+  a real one already existed.
+- Every integration (`exception_desk.bulk_assign`, `regression._run_regression_check`,
+  `train_overrides.move_mu`, `routes_gate_inbox.py`'s own notify action) takes an
+  optional `preference_store` — additive and backward-compatible, the identical shape
+  `ExceptionDeskService`'s own pre-existing `notification_channel` parameter already
+  set; no existing caller changes behaviour.
+- A recipient is only ever trusted when it already matches `principal.py`'s own real
+  `user:`/`agent:`/`service:` shape — `bulk_assign`'s own free-text `assignee` (no
+  format validation exists) simply finds no preferences row when typed as a plain name,
+  never coerced or fabricated into one.
+- `GET`/`PUT /v1/notification-preferences` are open to any authenticated principal, no
+  role gate — the first "manage your own settings" route in this codebase, not "which
+  screen can this role's own data reach."
+
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,

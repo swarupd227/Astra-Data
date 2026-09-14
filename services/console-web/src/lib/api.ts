@@ -1321,6 +1321,46 @@ export interface DecisionEvidenceBundle {
   artefact: MuArtefactRecord | null;
 }
 
+// ------------------------------------------------------- S10.5.2: notification preferences
+
+export type NotificationChannel = 'email' | 'teams';
+export type NotificationEvent = 'gate_request' | 'exception_assigned' | 'regression_fail' | 'train_replan';
+export type DigestMode = 'immediate' | 'daily';
+
+/** The caller's own real, saved preferences -- `updated_at: null` means these are the
+ * honest defaults (opted into everything), never saved. Per-principal, not per-role --
+ * there is no route to read or write anyone else's. */
+export interface NotificationPreferences {
+  principal: string;
+  channels: NotificationChannel[];
+  events: NotificationEvent[];
+  digest_mode: DigestMode;
+  updated_at: string | null;
+}
+
+export interface NotificationPreferenceOptions {
+  channels: NotificationChannel[];
+  events: NotificationEvent[];
+  digest_modes: DigestMode[];
+}
+
+export interface NotificationLogRecord {
+  id: string;
+  event_type: NotificationEvent;
+  subject_ref: string;
+  recipient: string;
+  channel: NotificationChannel;
+  summary: string;
+  link: string;
+  queued_at: string;
+  sent_at: string | null;
+}
+
+export interface SendDigestsResponse {
+  digests_sent: NotificationLogRecord[];
+  count: number;
+}
+
 export interface RebuildStatus {
   running: boolean;
   started_at: string | null;
@@ -2334,6 +2374,13 @@ export interface Api {
   decisionEvidence(gateDecisionId: string, identity: Identity): Promise<DecisionEvidenceBundle>;
   decisionRegisterCsv(filters: DecisionRegisterFilters, identity: Identity): Promise<Blob>;
   decisionRegisterPdf(filters: DecisionRegisterFilters, identity: Identity): Promise<Blob>;
+  notificationPreferences(identity: Identity): Promise<NotificationPreferences>;
+  saveNotificationPreferences(
+    preferences: { channels: NotificationChannel[]; events: NotificationEvent[]; digest_mode: DigestMode },
+    identity: Identity,
+  ): Promise<NotificationPreferences>;
+  notificationPreferenceOptions(identity: Identity): Promise<NotificationPreferenceOptions>;
+  sendNotificationDigests(identity: Identity): Promise<SendDigestsResponse>;
 }
 
 function decisionRegisterQueryString(filters: DecisionRegisterFilters): string {
@@ -2354,6 +2401,15 @@ export function createApi(base = ''): Api {
     unwrap(
       await fetch(`${base}${path}`, {
         method: 'POST',
+        headers: headers(identity),
+        body: JSON.stringify(body),
+      }),
+    );
+
+  const put = async (path: string, body: unknown, identity: Identity): Promise<unknown> =>
+    unwrap(
+      await fetch(`${base}${path}`, {
+        method: 'PUT',
         headers: headers(identity),
         body: JSON.stringify(body),
       }),
@@ -2888,6 +2944,18 @@ export function createApi(base = ''): Api {
     },
     async decisionRegisterPdf(filters, identity) {
       return getBlob(`/v1/decisions.pdf${decisionRegisterQueryString(filters)}`, identity);
+    },
+    async notificationPreferences(identity) {
+      return (await get('/v1/notification-preferences', identity)) as NotificationPreferences;
+    },
+    async saveNotificationPreferences(preferences, identity) {
+      return (await put('/v1/notification-preferences', preferences, identity)) as NotificationPreferences;
+    },
+    async notificationPreferenceOptions(identity) {
+      return (await get('/v1/notification-preferences:options', identity)) as NotificationPreferenceOptions;
+    },
+    async sendNotificationDigests(identity) {
+      return (await post('/v1/notifications:send-digests', {}, identity)) as SendDigestsResponse;
     },
   };
 }

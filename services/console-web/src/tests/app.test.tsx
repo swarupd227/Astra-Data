@@ -66,19 +66,24 @@ describe('navigation generated from role', () => {
     expect(screen.queryByRole('button', { name: 'Model Proposal' })).not.toBeInTheDocument();
   });
 
-  it('shows a single-surface client role exactly one tab', async () => {
+  it('shows the minimally-privileged client role its landing surface plus only Notification Preferences', async () => {
     // Story S10.4.1 gave `client_data_owner` a real second surface (the Gate Inbox), and
     // story S10.4.2 gave `client_infosec_reviewer` one too (the Decision Register), so
-    // neither illustrates "single-surface" any longer -- `client_programme_sponsor`
-    // still does: §15.1 names it, but no story has gated it onto any real screen of its
-    // own yet, so it keeps the bare `estate` fallback both `LANDING_SURFACE` and
-    // `CLIENT_VISIBLE_SURFACES` already give any role neither table names.
+    // neither illustrated "single-surface" for long -- story S10.5.2 finished the job:
+    // Notification Preferences is visible to *every* role (self-service, no role gate
+    // server-side), so `client_programme_sponsor` -- §15.1 names it, but no story before
+    // this one had gated it onto any real screen of its own -- now genuinely has no
+    // single-surface client role left to illustrate. Retargeted a third time, at the
+    // still-meaningful invariant this test was always really checking: a minimally-
+    // privileged role's own nav is still exactly its landing surface plus whatever is
+    // universally visible, never anything broader.
     render(<App api={fakeApi()} environment="local" initialRole="client_programme_sponsor" />);
     await screen.findByRole('region', { name: 'Sites and projects' });
 
     const nav = screen.getByRole('navigation', { name: 'Surfaces' });
-    expect(nav.querySelectorAll('button')).toHaveLength(1);
+    expect(nav.querySelectorAll('button')).toHaveLength(2);
     expect(screen.getByRole('button', { name: 'Estate Explorer' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Notification Preferences' })).toBeInTheDocument();
   });
 
   it('a direct URL to a surface not in the nav still renders it', async () => {

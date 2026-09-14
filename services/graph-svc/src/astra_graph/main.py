@@ -48,6 +48,7 @@ from .api import (
     mender_router,
     modeller_router,
     mu_page_router,
+    notifications_router,
     ownership_router,
     patterns_router,
     platform_router,
@@ -118,6 +119,7 @@ from .lineage import LineageReader
 from .logging_setup import configure_logging
 from .mender import MenderService, PostgresMenderConfigStore
 from .modeller import Modeller
+from .notification_preferences import PostgresNotificationPreferenceStore
 from .ontology import SCHEMA_VERSION
 from .provenance import ContextVerifier, PostgresProvenanceStore
 from .regression import (
@@ -264,6 +266,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # table/store from `reminder_store` above, see `gate_notifications.py`'s own
     # module docstring for why.
     app.state.gate_notification_store = PostgresGateNotificationStore(pool, graph_name=config.graph_name)
+    # Story S10.5.2: per-user notification preferences, and the general notification
+    # log every one of the four events records/queues through -- see `notification_
+    # preferences.py`'s own module docstring for why this is one table, not a fourth
+    # narrow one alongside `reminder_store`/`gate_notification_store` above.
+    app.state.notification_preference_store = PostgresNotificationPreferenceStore(
+        pool, graph_name=config.graph_name,
+    )
     app.state.build_store = PostgresBuildStore(pool, graph_name=config.graph_name)
     # Story S4.3.2: the architect's own saved rules, versioned; a fresh graph builds
     # against the in-memory default (version 0) until an architect saves one of their own.
@@ -414,6 +423,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
         provenance_store=app.state.provenance_store, target_adapter=app.state.target_adapter,
         charter_store=app.state.tolerance_charter_store,
+        preference_store=app.state.notification_preference_store,
     )
     # Story S9.1.2, closing F9.1/E9: the commercial ledger -- a real, current unit price
     # per tier, defaulting to invoicing.DEFAULT_UNIT_PRICES until a Migration Architect
@@ -485,6 +495,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             verdicts=app.state.verdicts, case_execution=app.state.case_execution,
             charter_store=app.state.tolerance_charter_store, store=app.state.regression_schedule_store,
             notifier=LocalRegressionNotificationChannel(), poll_seconds=config.scheduler_poll_seconds,
+            preference_store=app.state.notification_preference_store,
         )
         regression_scheduler_task = asyncio.create_task(app.state.regression_scheduler.run_forever())
 
@@ -568,6 +579,7 @@ def create_app() -> FastAPI:
     app.include_router(mu_page_router)
     app.include_router(gate_inbox_router)
     app.include_router(decision_register_router)
+    app.include_router(notifications_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

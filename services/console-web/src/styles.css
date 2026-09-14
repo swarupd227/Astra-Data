@@ -221,9 +221,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
  * confirmed the same way, by screenshot: a lone `.pane` (or the Gate Inbox/MU page's own
  * occasional second pane) falling into the base `.workspace`'s fixed 268px first track
  * instead of using the full width. Both are explicitly named in this story's own AC
- * ("usable on mobile"), so the bug is now closed for them too, the identical fix. */
+ * ("usable on mobile"), so the bug is now closed for them too, the identical fix.
+ *
+ * S10.5.2: `.notification-preferences-workspace` joins the list from its own first
+ * draft, not as a later fix -- a real, single-pane screen, the identical shape every
+ * other entry here already has. */
 .mu-page-workspace,
-.gate-inbox-workspace {
+.gate-inbox-workspace,
+.notification-preferences-workspace {
   grid-template-columns: minmax(0, 1fr);
   overflow-y: auto;
 }
@@ -252,7 +257,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .workspace:not(.g3-card-workspace):not(.programme-board):not(.charter-workspace)
     :not(.parity-workspace):not(.regression-monitor):not(.exception-desk)
     :not(.release-board):not(.decommission-tracker):not(.mu-page-workspace)
-    :not(.gate-inbox-workspace):not(.decision-register-workspace) {
+    :not(.gate-inbox-workspace):not(.decision-register-workspace)
+    :not(.notification-preferences-workspace) {
     grid-template-columns: 240px minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(180px, 36vh);
   }
@@ -267,7 +273,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .workspace:not(.g3-card-workspace):not(.programme-board):not(.charter-workspace)
     :not(.parity-workspace):not(.regression-monitor):not(.exception-desk)
     :not(.release-board):not(.decommission-tracker):not(.mu-page-workspace)
-    :not(.gate-inbox-workspace):not(.decision-register-workspace) {
+    :not(.gate-inbox-workspace):not(.decision-register-workspace)
+    :not(.notification-preferences-workspace) {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(120px, 22vh) minmax(0, 1fr) minmax(160px, 34vh);
   }
@@ -545,6 +552,10 @@ table.estate td {
 .detail { padding: 12px; display: flex; flex-direction: column; gap: 16px; }
 .detail h3 { margin: 0; font-size: 15px; font-weight: 650; }
 
+/* S10.5.2: the Notification Preferences screen's own channel/event/digest-mode rows. */
+.detail fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+
 .detail dl {
   display: grid;
   grid-template-columns: 104px minmax(0, 1fr);
@@ -761,7 +772,16 @@ table.estate td {
 
 /* ------------------------------------------------------------------ surfaces */
 
-.surfaces { display: flex; gap: 4px; }
+/* S10.5.2: `overflow-x: auto`/`flex-shrink: 0` on the tabs found live -- adding a 21st
+ * real surface (Notification Preferences) pushed this strip's own natural width past
+ * what a real 1200px-wide window has room for. With no wrap active outside the ≤860px
+ * breakpoint (S10.5.1's own fix) and `.topbar`'s default `overflow: visible`, the
+ * overflow tabs were not clipped or wrapped -- they simply rendered past the window's
+ * own right edge with no scrollbar and no way to reach them at all. A horizontally
+ * scrollable strip is the standard, minimal fix for a tab bar that has outgrown its own
+ * row, at any width, not only the ones this story's own AC happens to name. */
+.surfaces { display: flex; gap: 4px; overflow-x: auto; flex: 1 1 auto; min-width: 0; }
+.surface-tab { flex-shrink: 0; }
 
 .surface-tab {
   padding: 4px 10px;

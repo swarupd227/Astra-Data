@@ -281,6 +281,18 @@ into the six screens `lib/locale.ts`'s own module docstring names — its real v
 day-first/24h vs month-first/12h date formatting in the viewer's own timezone, not a strings
 dictionary this app's own real vocabulary barely needs.
 
+**Story S10.5.2 (per-user notification preferences) added a 21st real top-level surface
+and found two more real bugs on the way to showing it live** — see ADR 0078. Its own
+workspace class was left out of the single-column override list above, the identical
+mistake S10.5.1 had just fixed for two other screens, made again on the very next story;
+and the nav strip itself, now carrying 21 tabs, no longer fit a normal desktop window at
+all outside the ≤860px breakpoint's own wrap — `nav.surfaces` gained `overflow-x: auto`
+with `flex: 1 1 auto; min-width: 0`, so an overgrown tab strip scrolls horizontally
+rather than silently running tabs off the window's own right edge with no way to reach
+them, at any width. Notification Preferences (`notifications/NotificationPreferences.
+tsx`) is the one screen in this console with no role gate at all — self-service, every
+role sees it, unlike everything else in `App.tsx`'s own `CLIENT_VISIBLE_SURFACES` table.
+
 ## Identity
 
 There is none yet. The service reads `X-Astra-Principal` and `X-Astra-Roles` headers until

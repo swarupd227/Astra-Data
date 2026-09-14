@@ -52,6 +52,7 @@ from .graph.queries import EDGE_INDEX_TABLE, NODE_INDEX_TABLE
 from .ids import new_ulid
 from .lineage import hydrate
 from .migration_units import MU_STATES
+from .notification_preferences import NotificationPreferenceStore, notify, resolve_workbook_owner
 from .ontology.types import BASE_EDGE_PROPERTIES, BASE_NODE_PROPERTIES
 from .principal import Principal
 from .trains import DEFAULT_MU_STATE
@@ -284,8 +285,16 @@ async def move_mu(
     to_train_id: str,
     reason: str | None,
     principal: Principal,
+    preference_store: NotificationPreferenceStore | None = None,
 ) -> MoveResult:
-    """Move one MU into ``to_train_id``, out of whichever train it is in now."""
+    """Move one MU into ``to_train_id``, out of whichever train it is in now.
+
+    Story S10.5.2: when `preference_store` is given, a real `train_replan` notification
+    fires to the workbook's own real `OWNED_BY` owner (if resolved) -- the one action in
+    this module that actually changes a workbook's own train, and with it its own
+    planned timeline; `resequence_mu`/`set_wip_limits` deliberately fire none, a real,
+    disclosed narrowing to the one action a report owner's own re-plan notification is
+    honestly about, not every within-train reorder."""
     validated_reason = _validate_reason(reason) if reason else None
 
     target_properties = (await _train_properties_by_id(pool, graph_name, [to_train_id])).get(
@@ -361,6 +370,15 @@ async def move_mu(
             ],
             principal=principal,
         )
+
+    if preference_store is not None:
+        owner = await resolve_workbook_owner(pool, graph_name, workbook_id)
+        if owner is not None:
+            await notify(
+                preference_store, event_type="train_replan", subject_ref=workbook_id, recipient=owner,
+                summary=f"'{workbook_id}' moved from '{from_train_id}' to '{to_train_id}'",
+                link="/trains",
+            )
 
     return MoveResult(
         workbook_id=workbook_id,

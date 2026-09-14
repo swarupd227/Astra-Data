@@ -316,6 +316,7 @@ async def move_member(
         to_train_id=train_id,
         reason=body.reason,
         principal=principal,
+        preference_store=getattr(request.app.state, "notification_preference_store", None),
     )
     logger.info(
         "workbook %s moved by %s from %s into %s",

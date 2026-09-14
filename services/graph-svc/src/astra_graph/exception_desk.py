@@ -174,6 +174,7 @@ from .mender import (  # cross-epic private helpers; see module docstring
     _write_repaired_measure,
     reprove_cases,
 )
+from .notification_preferences import NotificationPreferenceStore, notify
 from .principal import Principal
 from .provenance import AgentMode, ProvenanceStore
 from .rules import dax_sanity_check
@@ -401,11 +402,20 @@ async def case_detail(
 async def bulk_assign(
     pool: asyncpg.Pool, graph_name: str, writer: GraphWriter, *,
     exception_case_ids: tuple[str, ...], assignee: str, principal: Principal,
+    preference_store: NotificationPreferenceStore | None = None,
 ) -> tuple[str, ...]:
     """Sets `ExceptionCase.assignee` for real on every named case -- the first real
     driver of this property, declared since §4.1.1 and never written by any prior
     story. Silently skips a case that no longer exists live (retired, or never real);
-    returns the ids it actually updated."""
+    returns the ids it actually updated.
+
+    Story S10.5.2: when `preference_store` is given (optional, additive, the identical
+    "no store, no notification" shape `ExceptionDeskService`'s own `notification_channel`
+    already takes), each updated case fires a real `exception_assigned` notification to
+    `assignee` -- content is the case's own class and id plus a deep link
+    (`/exceptions?case=...`), never the case's own evidence. `assignee` reaching a real
+    inbox depends on it being typed as its own real `Principal` value; see this module's
+    own docstring for why that is disclosed, not enforced."""
     cleaned = assignee.strip()
     if not cleaned:
         raise InvalidRequestError("bulk assign needs a real assignee")
@@ -419,6 +429,13 @@ async def bulk_assign(
             continue
         await writer.set_node_properties(case_id, {"assignee": cleaned}, principal=principal)
         updated.append(case_id)
+        if preference_store is not None:
+            failure_class = cases[case_id].get("class", "exception")
+            await notify(
+                preference_store, event_type="exception_assigned", subject_ref=case_id, recipient=cleaned,
+                summary=f"{failure_class} case {case_id} assigned to you",
+                link=f"/exceptions?case={case_id}",
+            )
     return tuple(updated)
 
 
@@ -777,6 +794,7 @@ class ExceptionDeskService:
         target_adapter: TargetAdapter,
         charter_store: ToleranceCharterStore,
         notification_channel: NotificationChannel | None = None,
+        preference_store: NotificationPreferenceStore | None = None,
     ) -> None:
         self._pool = pool
         self._graph = graph_name
@@ -786,6 +804,7 @@ class ExceptionDeskService:
         self._target_adapter = target_adapter
         self._charter_store = charter_store
         self._notification_channel = notification_channel or LocalNotificationChannel()
+        self._preference_store = preference_store
 
     async def queue(
         self, *, train: str | None = None, failure_class: str | None = None,
@@ -802,6 +821,7 @@ class ExceptionDeskService:
         return await bulk_assign(
             self._pool, self._graph, self._writer,
             exception_case_ids=exception_case_ids, assignee=assignee, principal=principal,
+            preference_store=self._preference_store,
         )
 
     async def patch(

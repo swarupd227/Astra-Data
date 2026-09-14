@@ -131,6 +131,8 @@ from .graph.queries import EDGE_INDEX_TABLE, NODE_INDEX_TABLE
 from .harvest.schedule import Cadence
 from .ids import new_ulid
 from .lineage import hydrate
+from .notification_preferences import NotificationPreferenceStore, resolve_workbook_owner
+from .notification_preferences import notify as notify_preference
 from .principal import Principal
 from .tolerance_charter import ToleranceCharterStore
 from .verdicts import VerdictsService
@@ -534,13 +536,21 @@ async def _run_regression_check(
     notifier: NotificationChannel,
     schedule: RegressionSchedule,
     run_id: str,
+    preference_store: NotificationPreferenceStore | None = None,
 ) -> None:
     """Run one scheduled regression check and write its outcome back -- never raises,
     the identical "a schedule that fails is a fact to record, not an exception to lose
     inside a background task" discipline `HarvestScheduler._run` already established.
     Re-executes both sides fresh (`CaseExecutionService.execute`) before re-diffing under
     the site's own *current* Tolerance Charter -- see this module's own docstring on why
-    a re-diff alone could never catch a source change."""
+    a re-diff alone could never catch a source change.
+
+    Story S10.5.2: `notifier.notify_regression` (below) stays exactly as it was -- the
+    honest role-broadcast fallback for when a workbook's own `OWNED_BY` owner never
+    resolved. When `preference_store` is given and the owner *did* resolve
+    (`resolve_workbook_owner`, the same real §15.1 mechanism `notification_preferences.
+    py`'s own docstring names), a second, real, preference-gated `regression_fail`
+    notification also fires to that real person."""
     principal = Principal(STEWARD_PRINCIPAL, run_id=run_id)
     result = "FAIL"
     error: str | None = None
@@ -574,6 +584,15 @@ async def _run_regression_check(
             await notifier.notify_regression(
                 workbook_id=schedule.workbook_id, exception_case_id=case_id, fail_count=outcome["fail"],
             )
+            if preference_store is not None:
+                owner = await resolve_workbook_owner(pool, graph_name, schedule.workbook_id)
+                if owner is not None:
+                    await notify_preference(
+                        preference_store, event_type="regression_fail", subject_ref=schedule.workbook_id,
+                        recipient=owner,
+                        summary=f"{outcome['fail']} parity case(s) now FAIL on {schedule.workbook_id}",
+                        link=f"/regression?workbook={schedule.workbook_id}",
+                    )
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -616,6 +635,7 @@ class RegressionScheduler:
         store: RegressionScheduleStore,
         notifier: NotificationChannel | None = None,
         poll_seconds: int = DEFAULT_POLL_SECONDS,
+        preference_store: NotificationPreferenceStore | None = None,
     ) -> None:
         self._pool = pool
         self._graph = graph_name
@@ -627,6 +647,7 @@ class RegressionScheduler:
         self._store = store
         self._notifier = notifier or LocalNotificationChannel()
         self._poll_seconds = poll_seconds
+        self._preference_store = preference_store
         self._running: dict[str, asyncio.Task[Any]] = {}
         self._last_tick_at: str | None = None
         self._ticks = 0
@@ -684,6 +705,7 @@ class RegressionScheduler:
             _run_regression_check(
                 self._pool, self._graph, self._writer, self._artefact_store, self._verdicts,
                 self._case_execution, self._charter_store, self._store, self._notifier, schedule, run_id,
+                preference_store=self._preference_store,
             )
         )
         self._running[schedule.id] = task
