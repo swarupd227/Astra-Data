@@ -123,6 +123,14 @@ import { G3Card } from './g3/G3Card';
 import { GateInbox } from './inbox/GateInbox';
 import { createApi, type Identity } from './lib/api';
 import { getDeepLinkParam } from './lib/deep-link';
+import {
+  type EntraSession,
+  acquireToken,
+  currentAccount,
+  isEntraConfigured,
+  signIn as entraSignIn,
+  signOut as entraSignOut,
+} from './lib/entra';
 import { DEFAULT_LOCALE, LOCALES, type LocaleCode } from './lib/locale';
 import { useLiveTick } from './lib/live-events';
 import { isArtizentRole } from './lib/roles';
@@ -371,6 +379,35 @@ export function App({
   // default and what the two locales actually change (date/time order and clock, not
   // this app's own real vocabulary, which barely differs between them).
   const [locale, setLocale] = useState<LocaleCode>(DEFAULT_LOCALE);
+  // Story S11.1.1: `undefined` -- not just "signed out" but "never checked" -- until the
+  // mount effect below resolves MSAL's own cache. Stays `undefined` forever on a
+  // deployment with no Entra app registration configured (`isEntraConfigured()` false),
+  // the honest default every environment this project has today is in.
+  const [entraSession, setEntraSession] = useState<EntraSession | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (!isEntraConfigured()) return;
+    let cancelled = false;
+    void currentAccount().then(async (account) => {
+      if (!account || cancelled) return;
+      const accessToken = await acquireToken(account);
+      if (!cancelled) setEntraSession({ account, accessToken });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const signInWithMicrosoft = useCallback(async () => {
+    const session = await entraSignIn();
+    setEntraSession(session);
+  }, []);
+
+  const signOutOfMicrosoft = useCallback(async () => {
+    await entraSignOut();
+    setEntraSession(null);
+  }, []);
+
   // The screen is in the path, so a lineage view can be linked to like anything else.
   // At the bare root path (no surface requested) a role lands where its own day starts,
   // rather than always defaulting to Estate Explorer regardless of who is "Acting as".
@@ -391,8 +428,18 @@ export function App({
 
   const identity: Identity = useMemo(() => {
     const chosen = ROLES.find((option) => option.value === role) ?? ROLES[0]!;
-    return { principal: chosen.principal, roles: [chosen.value] };
-  }, [role]);
+    const base: Identity = { principal: chosen.principal, roles: [chosen.value] };
+    // "Acting as" keeps driving this console's own nav (`visibleSurfacesFor`) regardless
+    // of Entra sign-in -- the identical "nav-level convenience only" limitation the role
+    // picker already disclosed above applies here too: graph-svc trusts the verified
+    // bearer token for real authorization, not whichever role this dropdown says, so a
+    // signed-in viewer's nav can show a tab their real Entra-mapped role cannot use (or
+    // hide one it could) until this picker is retired for a real "who am I" call.
+    if (entraSession?.accessToken) {
+      return { ...base, bearerToken: entraSession.accessToken };
+    }
+    return base;
+  }, [role, entraSession]);
 
   const visibleSurfaces = useMemo(() => visibleSurfacesFor(role), [role]);
 
@@ -455,9 +502,26 @@ export function App({
               </option>
             ))}
           </select>
-          <span className="faint" title="Entra ID sign-in arrives with E11/F11.1">
-            not signed in
-          </span>
+          {isEntraConfigured() ? (
+            entraSession ? (
+              <>
+                <span className="faint" title={entraSession.account.username}>
+                  {entraSession.account.name ?? entraSession.account.username}
+                </span>
+                <button type="button" className="btn small" onClick={() => void signOutOfMicrosoft()}>
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <button type="button" className="btn small" onClick={() => void signInWithMicrosoft()}>
+                Sign in with Microsoft
+              </button>
+            )
+          ) : (
+            <span className="faint" title="Entra ID sign-in arrives with E11/F11.1">
+              not signed in
+            </span>
+          )}
           <label htmlFor="locale">
             Locale
           </label>

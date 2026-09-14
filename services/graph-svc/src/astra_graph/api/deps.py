@@ -6,6 +6,14 @@ from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends, Header, HTTPException, Request, status
 
+from ..entra import (
+    AUTHORIZATION_HEADER,
+    EntraClaims,
+    EntraError,
+    get_entra_config,
+    jwks_cache_for,
+    validate_token,
+)
 from ..errors import ForbiddenError
 from ..graph import GraphRepository
 from ..observability import QueryLog
@@ -59,10 +67,41 @@ def get_assembler(request: Request) -> ContextAssembler:
     return assembler
 
 
+def get_bearer_claims(
+    authorization: Annotated[str | None, Header(alias=AUTHORIZATION_HEADER)] = None,
+) -> EntraClaims | None:
+    """Verify a bearer token when Entra ID is configured and one was presented (story
+    S11.1.1, spec §18.1). ``None`` — no config, no header, or the header not being a
+    bearer token — falls through to the existing X-Astra-Principal/X-Astra-Roles header
+    path unchanged; that is the honest, and today the only exercised, path. A malformed
+    or expired token *when Entra is configured* is a 401, not a silent fall-through, so a
+    caller attempting real sign-in learns immediately that it failed rather than being
+    quietly downgraded to an unauthenticated header it never sent."""
+    config = get_entra_config()
+    if config is None or not authorization:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+    try:
+        return validate_token(token, config, jwks_cache_for(config))
+    except EntraError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "invalid_bearer_token", "message": str(exc)},
+        ) from exc
+
+
+BearerClaimsDep = Annotated[EntraClaims | None, Depends(get_bearer_claims)]
+
+
 def get_principal(
+    claims: BearerClaimsDep = None,
     principal: Annotated[str | None, Header(alias=PRINCIPAL_HEADER)] = None,
     run_id: Annotated[str | None, Header(alias=RUN_HEADER)] = None,
 ) -> Principal:
+    if claims is not None:
+        return claims.principal
     try:
         return parse(principal, run_id)
     except InvalidPrincipalError as exc:
@@ -73,8 +112,11 @@ def get_principal(
 
 
 def get_role_set(
+    claims: BearerClaimsDep = None,
     roles: Annotated[str | None, Header(alias=ROLES_HEADER)] = None,
 ) -> RoleSet:
+    if claims is not None:
+        return claims.roles
     try:
         return parse_roles(roles)
     except InvalidRolesError as exc:
@@ -534,6 +576,25 @@ def require_decision_register_reader(roles: RoleSetDep) -> RoleSet:
 
 
 DecisionRegisterReaderDep = Annotated[RoleSet, Depends(require_decision_register_reader)]
+
+
+def require_deployment_bom_reader(roles: RoleSetDep) -> RoleSet:
+    """Gate reading the deployment bill of materials on "any Artizent role, or the
+    InfoSec Reviewer" (story S11.1.1) — the identical shape `require_decision_register_
+    reader` already set for the same client role: §15.1's own role table gives `client_
+    infosec_reviewer` the nearest real remit ("Reviews the data-handling position,
+    inference boundary and evidence export"), and a signed bill of materials is exactly
+    that kind of evidence export. Producing one (`POST /v1/deployment/bom`) stays
+    Artizent-only — it is the deployment pipeline's own action, unaffected."""
+    if not (roles.is_artizent() or Role.CLIENT_INFOSEC_REVIEWER in roles.roles):
+        raise ForbiddenError(
+            f"the deployment bill of materials is open to Artizent roles and the "
+            f"InfoSec reviewer; declare one in {ROLES_HEADER}"
+        )
+    return roles
+
+
+DeploymentBomReaderDep = Annotated[RoleSet, Depends(require_deployment_bom_reader)]
 
 
 def open_query_log(surface: str, principal: Principal, roles: RoleSet) -> QueryLog:

@@ -38,3 +38,17 @@ Thumbs.db
 # Conformance reports are produced per run and per deployment (`make conformance`);
 # the promoted one lives on the tenant, not in the tree.
 conformance-report.json
+
+# Story S11.1.1: Terraform/Helm state and inputs are per-deployment, never the tree's own.
+# (.terraform.lock.hcl is NOT here -- Terraform's own convention is to commit it, so every
+# `terraform init` resolves the identical provider versions this one validated against.)
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+*.auto.tfvars
+bom-keys/
+# Helm's own dependency cache (`helm dependency update`) -- Chart.lock is committed
+# (pins the opensearch/temporal versions), the downloaded .tgz archives are not.
+deploy/helm/*/charts/*.tgz
+

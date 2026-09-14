@@ -44,6 +44,12 @@ COPY services/graph-svc/tools ./tools
 USER astra
 EXPOSE 8080
 
+# Story S11.1.1: the Helm chart's own liveness/readiness probes hit the same /healthz
+# route this checks -- python's own stdlib, not curl/wget, since neither is installed and
+# this image's whole point is carrying no shell tooling it does not need.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
+  CMD python -c "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).status == 200 else 1)"
+
 # Migrations are applied by an init container or a job, not by the service on start-up:
 # several replicas racing to migrate is a failure mode worth designing out.
 CMD ["uvicorn", "astra_graph.main:app", "--host", "0.0.0.0", "--port", "8080"]

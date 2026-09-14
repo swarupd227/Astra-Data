@@ -3944,6 +3944,45 @@ event's own real write site already carries.
   role gate — the first "manage your own settings" route in this codebase, not "which
   screen can this role's own data reach."
 
+## Tenant deployment and identity (story S11.1.1, opens E11)
+
+Spec §18.1: "the platform runs inside the client's tenant ... users sign in with Entra
+ID ... service principals for Fabric and Tableau live in Key Vault ... a deployment
+produces a signed bill of materials." Real Terraform (`deploy/terraform`) and Helm
+(`deploy/helm/astra-data`), real Entra ID JWT validation (`entra.py`), a real Key
+Vault-backed credential provider (`credentials.py`), and a real cryptographically signed
+bill of materials (`bom.py`) — see [ADR 0079](../../docs/adr/0079-tenant-deployment-and-identity-three-real-disclosed-boundaries.md)
+for the full design and every disclosed boundary. In one line: **local validate only**
+for the cloud infrastructure (no live Azure resource was provisioned from this project),
+**disclosed, not yet connected** for Entra ID and Key Vault (real, tested logic; never
+run against a live tenant or vault).
+
+- `entra.py`: JWKS fetch/cache, RS256 verification, `parse_group_role_map`. Wired into
+  `api/deps.py`'s `get_bearer_claims` — a verified `Authorization: Bearer` token wins
+  over the existing `X-Astra-Principal`/`X-Astra-Roles` headers when Entra is configured
+  (`ASTRA_ENTRA_TENANT_ID`/`ASTRA_ENTRA_CLIENT_ID` both set) and one is presented; every
+  other request — every request in every environment this project has today — is
+  byte-for-byte unaffected.
+- `credentials.KeyVaultCredentialProvider`: implements the same `CredentialProvider`
+  protocol `EnvironmentCredentialProvider` already does, using the *async* Azure SDK
+  clients so `resolve()` never blocks graph-svc's own event loop. Selected by
+  `harvest_setup.build_credential_provider` once `ASTRA_KEY_VAULT_URL` is set.
+- `bom.py`: a real Ed25519-signed deployment bill of materials — a deliberate,
+  one-off departure from `decision_register.py`/`calibration_wave.py`'s own textual
+  "signed" convention, because this is the one artefact whose own story is explicitly
+  about "tamper-evident," not merely "attributable." The private key never reaches this
+  service; `tools/generate_bom.py` signs from wherever the deployment pipeline runs, and
+  `POST`/`GET /v1/deployment/bom` (`DeploymentBomReaderDep` — Artizent or the InfoSec
+  reviewer) store/recompute-verify the envelope via the existing `ArtefactStore`
+  (`kind="deployment_bom"`).
+- `GET /healthz`: added because the Helm chart's own liveness/readiness probes needed a
+  real route to point at — this service had none before this story.
+- `deploy/terraform`: AKS (private, Entra-backed RBAC), Azure Database for PostgreSQL,
+  Blob, Event Hubs, Key Vault (all private-endpoint only), an Azure Firewall implementing
+  the egress allow-list, and the two Entra ID app registrations. OpenSearch/Temporal have
+  no native Azure resource — both deploy onto this AKS via `deploy/helm/astra-data`'s own
+  real upstream chart dependencies instead.
+
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,

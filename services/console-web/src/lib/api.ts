@@ -17,6 +17,14 @@ export interface Identity {
    * `X-Astra-Domain-Scope` on every call. Absent or empty means "no domain asserted", the
    * same "real until E11 maps it for real" posture `roles` already has. */
   domainScope?: string[];
+  /** Story S11.1.1: a verified Entra ID access token (`lib/entra.ts`), sent as
+   * `Authorization: Bearer <token>`. When present, graph-svc's own `get_bearer_claims`
+   * (api/deps.py) verifies it and derives the principal/roles from the token itself,
+   * ignoring `principal`/`roles` above entirely — present only so a caller that has not
+   * signed in still gets a well-formed `Identity` to build. Absent (today's only
+   * exercised path, since no Entra app registration is configured for this console yet)
+   * leaves every request exactly as it always was. */
+  bearerToken?: string;
 }
 
 export class ApiError extends Error {
@@ -1465,6 +1473,13 @@ function headers(identity: Identity): HeadersInit {
   };
   if (identity.domainScope && identity.domainScope.length > 0) {
     base['X-Astra-Domain-Scope'] = identity.domainScope.join(',');
+  }
+  // Sent alongside the stub headers above, never instead of them: an unconfigured
+  // deployment (no bearerToken) is byte-for-byte what this console has always sent.
+  // graph-svc prefers a verified bearer token over the headers when both are present
+  // (api/deps.py's own get_bearer_claims) -- see Identity.bearerToken's own docstring.
+  if (identity.bearerToken) {
+    base['Authorization'] = `Bearer ${identity.bearerToken}`;
   }
   return base;
 }

@@ -1,0 +1,127 @@
+# Defaults are for local `helm template`/`helm lint` -- a real deployment overrides most
+# of this with a per-environment values file built from `deploy/terraform`'s own outputs
+# (see that module's own README, and this chart's own README for the exact mapping).
+
+environment: dev # prod | test | dev -- mirrors ASTRA_ENV / the console's own environment chip
+
+graphSvc:
+  image:
+    repository: astra.azurecr.io/astra/graph-svc
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  service:
+    port: 8080
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+  # Settings (config.py) read from the environment -- real values, not secrets, come from
+  # here; secrets come from the Key Vault CSI mount below (never a plain env var).
+  env:
+    ASTRA_ENV: dev
+    ASTRA_GRAPH_NAME: astra_estate
+    ASTRA_POSTGRES_HOST: "" # deploy/terraform output: postgres_server_fqdn
+    ASTRA_POSTGRES_DB: astra
+    ASTRA_POSTGRES_USER: astra_admin
+    ASTRA_LOG_LEVEL: INFO
+    # Story S11.1.1 -- entra.py/harvest_setup.py. Unset (the default) keeps this
+    # deployment on the header-asserted principal and EnvironmentCredentialProvider,
+    # exactly as every environment this project has today.
+    ASTRA_ENTRA_TENANT_ID: ""
+    ASTRA_ENTRA_CLIENT_ID: ""
+    ASTRA_ENTRA_GROUP_ROLE_MAP: ""
+    ASTRA_KEY_VAULT_URL: ""
+    ASTRA_BOM_PUBLIC_KEY_PEM: ""
+
+  # Secrets projected from Key Vault via the CSI driver (templates/secretproviderclass.yaml)
+  # rather than Kubernetes Secrets -- the vault stays the one place a value is set, and a
+  # `kubectl get secret -o yaml` on this cluster never has the postgres password in it.
+  keyVault:
+    enabled: false # true once deploy/terraform has provisioned a real vault to point at
+    name: "" # output: key_vault_name
+    tenantId: "" # var.tenant_id
+    userAssignedIdentityClientId: "" # AKS's own Key Vault Secrets Provider addon identity
+    secrets:
+      - objectName: astra-postgres-password
+        keyVaultSecretName: postgres-admin-password
+      - objectName: tableau-rqa
+        keyVaultSecretName: tableau-rqa
+      - objectName: fabric-workspace-sp
+        keyVaultSecretName: fabric-workspace-sp
+
+consoleWeb:
+  image:
+    # Built with the real VITE_ENTRA_* build ARGs already baked in (Dockerfile) -- a
+    # separate image per Entra configuration, not a runtime-configurable one. See this
+    # chart's own README for why a static SPA cannot read a Kubernetes env var.
+    repository: astra.azurecr.io/astra/console-web
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  service:
+    port: 8080
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  env:
+    GRAPH_SVC_UPSTREAM: http://astra-data-graph-svc:8080
+    GRAPH_SVC_HOST: astra-data-graph-svc
+
+# Spec §5.3: full-text and AST-shape search; disabled by default (see Chart.yaml's own
+# comment). Sub-chart values are opensearch's own -- see its own chart for the full set.
+opensearch:
+  enabled: false
+  replicas: 1
+  persistence:
+    size: 20Gi
+
+# Spec §5.3: MU workflows, Mender bounds, retries, long-running parity runs. Disabled by
+# default; sub-chart values are temporal's own (chart 1.7.0 -- the top-level
+# cassandra:/postgresql: toggles earlier chart versions had were removed upstream in
+# 1.0.0-rc.2; server.config.persistence.datastores is the real, current shape).
+temporal:
+  enabled: false
+  server:
+    replicaCount: 1
+    config:
+      persistence:
+        defaultStore: default
+        visibilityStore: visibility
+        numHistoryShards: 512
+        datastores:
+          default:
+            sql:
+              # A real deployment points these two at the same Azure Database for
+              # PostgreSQL this chart's own graph-svc uses (deploy/terraform's own
+              # postgres_server_fqdn output), not a second database -- left blank here
+              # since that host is only known once deploy/terraform has run.
+              pluginName: postgres12
+              driverName: postgres12
+              databaseName: temporal
+              connectAddr: ":5432"
+              user: astra_admin
+              # Must match this release's own name (the default `helm install astra-data`
+              # in this chart's own README uses) -- values.yaml cannot call the
+              # astra-data.fullname template, so this is a disclosed, static reference.
+              existingSecret: astra-data-graph-svc-secrets
+              secretKey: ASTRA_POSTGRES_PASSWORD
+          visibility:
+            sql:
+              pluginName: postgres12
+              driverName: postgres12
+              databaseName: temporal_visibility
+              connectAddr: ":5432"
+              user: astra_admin
+              existingSecret: astra-data-graph-svc-secrets
+              secretKey: ASTRA_POSTGRES_PASSWORD
+
+# Story S11.1.1's own AC: "all endpoints private; egress limited to an allow-list" at the
+# network layer (deploy/terraform's own Azure Firewall); this NetworkPolicy is the
+# cluster-internal half of the same idea -- a pod in this namespace can only reach the
+# other pods/ports this chart names, plus DNS and HTTPS egress (the firewall enforces
+# which HTTPS destinations, this just gets a pod's packets out of the pod network at all).
+networkPolicy:
+  enabled: true
+
+imagePullSecrets: []

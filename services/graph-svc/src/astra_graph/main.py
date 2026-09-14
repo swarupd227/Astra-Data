@@ -31,6 +31,7 @@ from .api import (
     context_router,
     cypher_router,
     decision_register_router,
+    deployment_bom_router,
     estate_router,
     events_stream_router,
     exceptions_router,
@@ -532,6 +533,15 @@ def create_app() -> FastAPI:
             logger.exception("request failed: %s", exc)
         return JSONResponse(status_code=exc.status_code, content=exc.payload())
 
+    @app.get("/healthz", include_in_schema=False)
+    async def healthz() -> dict[str, str]:
+        """Liveness/readiness for the Helm chart's own probes (story S11.1.1,
+        deploy/helm/astra-data) -- deliberately process-only, the same "cheap, no
+        dependency check" shape console-web's own nginx `/healthz` already has. A real
+        outage in Postgres/AGE surfaces through every other route's own 5xx, not through
+        this one going down and taking healthy replicas out of rotation with it."""
+        return {"status": "ok"}
+
     app.include_router(router)
     app.include_router(cypher_router)
     app.include_router(harvest_router)
@@ -580,6 +590,7 @@ def create_app() -> FastAPI:
     app.include_router(gate_inbox_router)
     app.include_router(decision_register_router)
     app.include_router(notifications_router)
+    app.include_router(deployment_bom_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

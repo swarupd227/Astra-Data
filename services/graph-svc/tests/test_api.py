@@ -271,3 +271,11 @@ async def test_unknown_node_read_is_404(client) -> None:
 @pytest.mark.parametrize("path", ["/v1/nodes/short", "/v1/edges/short"])
 async def test_malformed_id_is_rejected_before_the_store(client, path) -> None:
     assert (await client.get(path)).status_code == 422
+
+
+async def test_healthz_needs_no_identity(client) -> None:
+    """Story S11.1.1: the Helm chart's own liveness/readiness probes (deploy/helm/
+    astra-data) hit this with no X-Astra-Principal/Authorization header at all."""
+    response = await client.get("/healthz")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}

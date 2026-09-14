@@ -20,7 +20,11 @@ from astra_adapter.rpc import RemoteAdapter
 from .adapters.contract import SourceAdapter
 from .adapters.fixture import FixtureSourceAdapter, build_site
 from .config import Settings
-from .credentials import CredentialProvider, EnvironmentCredentialProvider
+from .credentials import (
+    CredentialProvider,
+    EnvironmentCredentialProvider,
+    KeyVaultCredentialProvider,
+)
 from .directory import DirectoryResolver, NullDirectoryResolver
 from .harvest import Harvester, PromotionGate
 from .harvest.quality import ParseQualityStore
@@ -51,7 +55,13 @@ def fixture_adapter_enabled(config: Settings) -> bool:
 
 
 def build_credential_provider(config: Settings) -> CredentialProvider:
-    """Environment-backed for now. Key Vault arrives with E11."""
+    """Environment-backed by default; Key Vault-backed once a tenant's vault is
+    configured (story S11.1.1, spec §18.1: "service principals for Fabric and Tableau
+    live in Key Vault"). ``ASTRA_KEY_VAULT_URL`` unset — the honest default today, since
+    no tenant has given this project a vault yet — keeps every deployment exactly where
+    it already was."""
+    if config.key_vault_url:
+        return KeyVaultCredentialProvider(config.key_vault_url)
     return EnvironmentCredentialProvider()
 
 

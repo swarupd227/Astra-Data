@@ -295,10 +295,31 @@ role sees it, unlike everything else in `App.tsx`'s own `CLIENT_VISIBLE_SURFACES
 
 ## Identity
 
-There is none yet. The service reads `X-Astra-Principal` and `X-Astra-Roles` headers until
-E11 brings Entra ID, so the top bar has a role selector with **not signed in** beside it. A
-login screen that authenticated nobody would look like a security control to everybody who
-saw a screenshot.
+**Story S11.1.1 added real Entra ID sign-in — disclosed, not yet connected.**
+`lib/entra.ts` wraps `@azure/msal-browser` for real: `signIn`/`signOut`/`acquireToken`
+are genuine MSAL calls, tested against a mocked client (`tests/entra.test.tsx`). It is
+inert in every environment this project has today, because `isEntraConfigured()` — both
+`VITE_ENTRA_CLIENT_ID` and `VITE_ENTRA_TENANT_ID` set — is `false` until a real tenant
+hands this console an app registration; the top bar then still shows the pre-existing
+role selector with **not signed in** beside it, byte-for-byte unchanged. A login screen
+that authenticated nobody would look like a security control to everybody who saw a
+screenshot — the same reasoning this README already gave for the role picker applies
+just as much to a sign-in button nobody can actually complete yet.
+
+Once configured, "Sign in with Microsoft" replaces that text; the acquired access token
+rides on `Identity.bearerToken` (`lib/api.ts`) as `Authorization: Bearer`, *alongside*
+the existing `X-Astra-Principal`/`X-Astra-Roles` headers the role picker still sends —
+graph-svc's own `entra.py` prefers the verified token when both are present. **The role
+picker still drives this console's own nav** (`visibleSurfacesFor`), even signed in —
+retiring it for a real "who am I" call is E11's next step, not this one; see ADR 0079 for
+why that is a disclosed limitation, not an oversight.
+
+**A static SPA cannot read a Kubernetes/runtime environment variable.** Vite bakes every
+`VITE_*` value into the bundle at `npm run build`, so `VITE_ENTRA_CLIENT_ID`/
+`VITE_ENTRA_TENANT_ID`/`VITE_ENTRA_API_SCOPE` are new `Dockerfile` build `ARG`s (mirroring
+the existing `VITE_ASTRA_ENV` pattern), not a Helm-configurable runtime setting — see
+`deploy/helm/astra-data/README.md` for the real `docker build --build-arg` command a
+deployment pipeline runs.
 
 ## Performance
 

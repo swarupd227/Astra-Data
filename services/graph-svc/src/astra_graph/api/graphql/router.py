@@ -9,16 +9,17 @@ from strawberry.fastapi import GraphQLRouter
 
 from ...config import settings
 from ...observability import QueryLog
-from ..deps import get_principal, get_repository, get_role_set
+from ..deps import get_bearer_claims, get_principal, get_repository, get_role_set
 from .context import GraphQLContext
 from .schema import schema
 
 
 async def get_context(request: Request) -> GraphQLContext:
+    claims = get_bearer_claims(request.headers.get("Authorization"))
     principal = get_principal(
-        request.headers.get("X-Astra-Principal"), request.headers.get("X-Astra-Run-Id")
+        claims, request.headers.get("X-Astra-Principal"), request.headers.get("X-Astra-Run-Id")
     )
-    roles = get_role_set(request.headers.get("X-Astra-Roles"))
+    roles = get_role_set(claims, request.headers.get("X-Astra-Roles"))
     return GraphQLContext(
         repository=get_repository(request),
         principal=principal,

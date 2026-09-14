@@ -41,13 +41,37 @@ dependencies = [
     # set.
     "reportlab>=4,<5",
     "python-pptx>=1,<2",
+    # E11's own real, disclosed-not-yet-connected pieces (story S11.1.1, §18.1/§4.5).
+    # httpx: JWKS fetch for Entra ID token validation (entra.py) -- promoted from dev-only
+    # now that it is a real runtime dependency, not just the test client.
+    "httpx>=0.27,<0.29",
+    # PyJWT: verifies Entra ID's RS256 tokens against the tenant's own published JWKS.
+    "pyjwt[crypto]>=2.9,<3",
+    # cryptography: the Ed25519 signature on the deployment bill of materials (bom.py) --
+    # a real cryptographic signature, not this codebase's existing textual "signed"
+    # attestation convention (decision_register.py/calibration_wave.py), because E11's own
+    # goal is a tamper-evident chain, and a rendered PDF footer does not provide that.
+    "cryptography>=43,<44",
+    # azure-identity/azure-keyvault-secrets: KeyVaultCredentialProvider (credentials.py's
+    # own CredentialProvider protocol) and the Key Vault-backed secret path for Fabric/
+    # Tableau service principals. Real client libraries; the deployed tenant they talk to
+    # does not exist yet (disclosed throughout -- see docs/adr/0079).
+    "azure-identity>=1.19,<2",
+    "azure-keyvault-secrets>=4.9,<5",
+    # azure-identity's *async* credential chain (KeyVaultCredentialProvider,
+    # credentials.py) needs an async HTTP transport to actually make a request; without
+    # it, DefaultAzureCredential fails at construction, not just at call time.
+    "aiohttp>=3.10,<4",
+    # tools/generate_bom.py reads the real Helm values.yaml a deployment used, to hash it
+    # into the bill of materials (bom.py) -- the reference YAML parser, the same
+    # "this story needs it, added here" precedent pyarrow/Pillow/reportlab already set.
+    "PyYAML>=6,<7",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3,<9",
     "pytest-asyncio>=0.24,<1",
-    "httpx>=0.27,<0.29",
     "ruff>=0.7,<0.13",
     "mypy>=1.13,<2",
 ]
@@ -121,6 +145,18 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "pptx.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "jwt.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "azure.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "yaml.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

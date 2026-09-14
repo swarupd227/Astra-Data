@@ -78,6 +78,36 @@ class Settings:
     "a secret never crosses request-config plumbing" discipline `credentials.py` already
     established for source credentials (§18.1)."""
 
+    entra_tenant_id: str = ""
+    """Entra ID tenant GUID (spec §18.1, story S11.1.1). Empty is the honest default
+    until a real tenant is connected — see entra.py's own module docstring for what
+    "disclosed, not yet connected" means here. Configuring this and entra_client_id
+    together is what turns on verified sign-in."""
+
+    entra_client_id: str = ""
+    """This API's own Entra ID app registration client id — the audience a bearer token
+    must carry. Leaving either this or entra_tenant_id empty keeps every caller on the
+    existing X-Astra-Principal/X-Astra-Roles header path, unchanged."""
+
+    entra_group_role_map: str = ""
+    """`<entra-group-id>:<role>,<entra-group-id>:<role>`... — see entra.py's own
+    parse_group_role_map. Real group ids come from the client's own Entra tenant, so this
+    is empty until one is connected."""
+
+    key_vault_url: str = ""
+    """`https://<vault-name>.vault.azure.net` (spec §18.1). Empty keeps credential
+    resolution on EnvironmentCredentialProvider (harvest_setup.py); set it to switch to
+    the real KeyVaultCredentialProvider (credentials.py) once a tenant's Key Vault
+    exists."""
+
+    bom_public_key_pem: str = ""
+    """The Ed25519 public key (PEM) that verifies a deployment's signed bill of
+    materials (bom.py, story S11.1.1). The private key never reaches this service — it
+    is generated and held outside graph-svc (tools/generate_bom.py --generate-keypair),
+    the same "a secret never crosses the API" posture credentials.py already
+    established. Empty means no key is configured yet; GET /v1/deployment/bom reports
+    signature_verified: null rather than pretending to have checked."""
+
     @property
     def dsn(self) -> str:
         return (
@@ -137,6 +167,11 @@ def load_settings() -> Settings:
         target_workspace_published=_env("ASTRA_TARGET_WORKSPACE_PUBLISHED", "prod"),
         target_workspace_test=_env("ASTRA_TARGET_WORKSPACE_TEST", "test"),
         anthropic_model=_env("ASTRA_ANTHROPIC_MODEL", "claude-sonnet-5"),
+        entra_tenant_id=_env("ASTRA_ENTRA_TENANT_ID", ""),
+        entra_client_id=_env("ASTRA_ENTRA_CLIENT_ID", ""),
+        entra_group_role_map=_env("ASTRA_ENTRA_GROUP_ROLE_MAP", ""),
+        key_vault_url=_env("ASTRA_KEY_VAULT_URL", ""),
+        bom_public_key_pem=_env("ASTRA_BOM_PUBLIC_KEY_PEM", ""),
     )
 
 

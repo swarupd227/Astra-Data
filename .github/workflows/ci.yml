@@ -267,3 +267,57 @@ jobs:
 
       - name: Build the image
         run: docker build -t astra/console-web:ci .
+
+  deploy:
+    name: Terraform / Helm (story S11.1.1)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy
+    steps:
+      - uses: actions/checkout@v4
+
+      # Local validation only -- see deploy/terraform/README.md. No Azure credentials are
+      # configured in this job, so `terraform plan`/`apply` are not run here; that is the
+      # client's own Cloud Shell, against their own subscription.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Terraform fmt
+        working-directory: deploy/terraform
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init (no backend, no credentials)
+        working-directory: deploy/terraform
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        working-directory: deploy/terraform
+        run: terraform validate
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.16.2"
+
+      - name: Helm dependency update
+        working-directory: deploy/helm/astra-data
+        run: helm dependency update
+
+      - name: Helm lint
+        working-directory: deploy/helm/astra-data
+        run: helm lint .
+
+      # Every optional feature turned on, so every conditional template branch actually
+      # renders at least once -- not just the disabled-by-default path.
+      - name: Helm template
+        working-directory: deploy/helm/astra-data
+        run: |
+          helm template astra-data . \
+            --set graphSvc.keyVault.enabled=true \
+            --set graphSvc.keyVault.name=kv-ci \
+            --set graphSvc.keyVault.tenantId=00000000-0000-0000-0000-000000000000 \
+            --set graphSvc.keyVault.userAssignedIdentityClientId=00000000-0000-0000-0000-000000000000 \
+            --set opensearch.enabled=true \
+            --set temporal.enabled=true \
+            > /dev/null

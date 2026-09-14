@@ -1,0 +1,23 @@
+Astra Data ({{ .Values.environment }}) deployed as release {{ .Release.Name }}.
+
+  graph-svc:    {{ include "astra-data.fullname" . }}-graph-svc:{{ .Values.graphSvc.service.port }}
+  console-web:  {{ include "astra-data.fullname" . }}-console-web:{{ .Values.consoleWeb.service.port }}
+
+{{- if not .Values.graphSvc.keyVault.enabled }}
+
+graphSvc.keyVault.enabled is false: ASTRA_POSTGRES_PASSWORD has no source and graph-svc
+will fail its readiness check. Set graphSvc.keyVault.* from deploy/terraform's own outputs
+before this is a real deployment -- see this chart's own README.
+{{- end }}
+
+Record this deployment's own signed bill of materials once it is verified healthy:
+
+  python services/graph-svc/tools/generate_bom.py submit \
+    --chart-name {{ .Chart.Name }} --chart-version {{ .Chart.Version }} \
+    --app-version {{ .Values.consoleWeb.image.tag }} \
+    --git-commit "$(git rev-parse HEAD)" \
+    --image graph-svc={{ .Values.graphSvc.image.repository }}:{{ .Values.graphSvc.image.tag }}@<digest> \
+    --image console-web={{ .Values.consoleWeb.image.repository }}:{{ .Values.consoleWeb.image.tag }}@<digest> \
+    --values-file <the values file this release actually used> \
+    --private-key <path to the signing key from generate_bom.py generate-keypair> \
+    --api-base-url https://<graph-svc's own real address>

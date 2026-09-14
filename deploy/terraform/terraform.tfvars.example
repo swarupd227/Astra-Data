@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars and fill in real values. Never commit terraform.tfvars itself
+# (it is in .gitignore) -- subscription_id and tenant_id are not secret, but a real
+# programme's admin_group_object_ids and console_redirect_uris are configuration specific
+# to that client's own tenant.
+
+subscription_id = "00000000-0000-0000-0000-000000000000" # `az account show --query id -o tsv`
+tenant_id       = "00000000-0000-0000-0000-000000000000" # `az account show --query tenantId -o tsv`
+
+project     = "astra"
+environment = "dev" # prod | test | dev
+location    = "uksouth"
+
+admin_group_object_ids = [
+  "00000000-0000-0000-0000-000000000000", # `az ad group show --group "<group name>" --query id -o tsv`
+]
+
+console_redirect_uris = [
+  "https://console.astra.client.example",
+]

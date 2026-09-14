@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "astra-data.fullname" . }}-console-web
+  labels:
+    {{- include "astra-data.consoleWeb.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.consoleWeb.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "astra-data.consoleWeb.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "astra-data.consoleWeb.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: console-web
+          image: "{{ .Values.consoleWeb.image.repository }}:{{ .Values.consoleWeb.image.tag }}"
+          imagePullPolicy: {{ .Values.consoleWeb.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.consoleWeb.service.port }}
+          env:
+            {{- range $key, $value := .Values.consoleWeb.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.consoleWeb.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            # nginx's own entrypoint envsubst's a template into conf.d and writes its own
+            # pidfile/cache (Dockerfile's own comment) -- all three need to be writable
+            # even though the served bundle itself (/usr/share/nginx/html) does not.
+            - { name: nginx-conf, mountPath: /etc/nginx/conf.d }
+            - { name: nginx-cache, mountPath: /var/cache/nginx }
+            - { name: nginx-run, mountPath: /var/run }
+      volumes:
+        - { name: nginx-conf, emptyDir: {} }
+        - { name: nginx-cache, emptyDir: {} }
+        - { name: nginx-run, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "astra-data.fullname" . }}-console-web
+  labels:
+    {{- include "astra-data.consoleWeb.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.consoleWeb.service.port }}
+      targetPort: http
+      name: http
+  selector:
+    {{- include "astra-data.consoleWeb.selectorLabels" . | nindent 4 }}

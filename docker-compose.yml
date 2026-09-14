@@ -53,6 +53,17 @@ services:
       # CredentialError; set it from your own shell environment (never committed) to
       # exercise the gateway against a real model.
       #   ASTRA_CREDENTIAL_ANTHROPIC_API_KEY: ${ASTRA_CREDENTIAL_ANTHROPIC_API_KEY:-}
+      # Story S11.1.1: Entra ID sign-in, Key Vault-backed credentials, and the deployment
+      # bill of materials' own public key -- all disclosed, not yet connected (entra.py's
+      # own module docstring). Unset locally on purpose, the honest default this whole
+      # story's own local stack runs under; set any of them from your own shell
+      # environment (never committed) to exercise that one real path against a live
+      # tenant/vault/key instead of the existing header-asserted identity.
+      #   ASTRA_ENTRA_TENANT_ID: ${ASTRA_ENTRA_TENANT_ID:-}
+      #   ASTRA_ENTRA_CLIENT_ID: ${ASTRA_ENTRA_CLIENT_ID:-}
+      #   ASTRA_ENTRA_GROUP_ROLE_MAP: ${ASTRA_ENTRA_GROUP_ROLE_MAP:-}
+      #   ASTRA_KEY_VAULT_URL: ${ASTRA_KEY_VAULT_URL:-}
+      #   ASTRA_BOM_PUBLIC_KEY_PEM: ${ASTRA_BOM_PUBLIC_KEY_PEM:-}
     ports:
       - "8080:8080"
     depends_on:

@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "astra-data.fullname" . }}-graph-svc
+  labels:
+    {{- include "astra-data.graphSvc.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.graphSvc.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "astra-data.graphSvc.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "astra-data.graphSvc.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: graph-svc
+          image: "{{ .Values.graphSvc.image.repository }}:{{ .Values.graphSvc.image.tag }}"
+          imagePullPolicy: {{ .Values.graphSvc.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.graphSvc.service.port }}
+          env:
+            {{- range $key, $value := .Values.graphSvc.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- if .Values.graphSvc.keyVault.enabled }}
+            - name: ASTRA_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "astra-data.fullname" . }}-graph-svc-secrets
+                  key: ASTRA_POSTGRES_PASSWORD
+            {{- end }}
+          resources:
+            {{- toYaml .Values.graphSvc.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.graphSvc.keyVault.enabled }}
+            - name: keyvault-secrets
+              mountPath: /mnt/secrets-store
+              readOnly: true
+            {{- end }}
+      volumes:
+        # readOnlyRootFilesystem above needs somewhere writable -- a fixture-adapter local
+        # git repo (harvest_setup.py's own target_git_repo_path default) is the one real
+        # thing this process writes, and it belongs in a fixture/dev deployment only.
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.graphSvc.keyVault.enabled }}
+        - name: keyvault-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ include "astra-data.fullname" . }}-graph-svc-kv
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "astra-data.fullname" . }}-graph-svc
+  labels:
+    {{- include "astra-data.graphSvc.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.graphSvc.service.port }}
+      targetPort: http
+      name: http
+  selector:
+    {{- include "astra-data.graphSvc.selectorLabels" . | nindent 4 }}

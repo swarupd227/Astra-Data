@@ -10,10 +10,12 @@ design exists to prevent (spec §18.1: secrets live in Key Vault and never enter
 context).
 
 Resolution itself is behind ``CredentialProvider``. The environment-backed provider here
-is for local development and CI. The Key Vault provider is E11's, where managed identity
-and the credential broker arrive; it implements this same interface and nothing else
-changes. ``resolve`` returns a ``SourceCredential`` whose secret is deliberately awkward
-to log: it is not in ``repr``, and ``str`` shows the reference, not the value.
+is for local development and CI. ``KeyVaultCredentialProvider`` (story S11.1.1) is E11's
+managed-identity path — it implements this same interface and nothing else changes;
+selected by ``harvest_setup.build_credential_provider`` once a Key Vault is configured,
+disclosed as not yet run against a live vault (see its own docstring). ``resolve`` returns
+a ``SourceCredential`` whose secret is deliberately awkward to log: it is not in ``repr``,
+and ``str`` shows the reference, not the value.
 """
 
 from __future__ import annotations
@@ -21,7 +23,19 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
+    from azure.core.credentials_async import AsyncTokenCredential
+    from azure.keyvault.secrets import KeyVaultSecret
+
+    class _AsyncSecretClientProtocol(Protocol):
+        """What `KeyVaultCredentialProvider` actually calls on a secret client -- real
+        Azure SDK client or test fake, either satisfies this."""
+
+        def get_secret(self, name: str, **kwargs: object) -> Awaitable[KeyVaultSecret]: ...
 
 #: ``<system>/<name>``, e.g. ``tableau/rqa``. No characters that could be used to reach
 #: outside a vault's namespace.
@@ -92,6 +106,71 @@ class EnvironmentCredentialProvider:
             )
         return SourceCredential(
             reference=reference, kind="personal_access_token", _secret=secret
+        )
+
+
+class KeyVaultCredentialProvider:
+    """Resolves credentials from Azure Key Vault (spec §18.1, story S11.1.1): "service
+    principals for Fabric and Tableau live in Key Vault". Implements the identical
+    ``CredentialProvider`` protocol ``EnvironmentCredentialProvider`` does — a reference
+    like ``tableau/rqa`` becomes the Key Vault secret name ``tableau-rqa`` (Key Vault
+    secret names allow letters, digits and hyphens only, so the reference's own ``/`` is
+    swapped for the one separator its own namespace can hold), and the secret comes back
+    the same shape either provider returns.
+
+    **Disclosed, not yet connected — exactly like ``entra.py``'s own JWT validation.**
+    ``azure-identity``'s ``DefaultAzureCredential`` and ``azure-keyvault-secrets``'s
+    ``SecretClient`` are both real, and this class has real tests against a fake client
+    that stands in for one, but it has never resolved a secret from a live vault, because
+    no deployed tenant exists for this project yet. Selected by ``harvest_setup.
+    build_credential_provider`` only when ``ASTRA_KEY_VAULT_URL`` is set; the honest
+    default (unset) keeps every deployment on ``EnvironmentCredentialProvider``.
+    """
+
+    kind = "key_vault"
+
+    def __init__(
+        self,
+        vault_url: str,
+        *,
+        credential: AsyncTokenCredential | None = None,
+        client: _AsyncSecretClientProtocol | None = None,
+    ) -> None:
+        # Imported here, not at module scope: azure-identity/azure-keyvault-secrets are
+        # real dependencies (pyproject.toml), but importing them only when a Key Vault
+        # deployment actually selects this provider keeps every other deployment's
+        # start-up path free of an SDK it never calls. The *async* clients, not the sync
+        # ones -- `resolve` runs on graph-svc's own event loop, and a harvest can resolve
+        # several site credentials concurrently; a blocking SDK call here would stall it.
+        # ``client`` is the test seam: a fake stands in for a live vault the same way
+        # ``StaticCredentialProvider`` already stands in for the environment.
+        if client is not None:
+            self._client = client
+        else:
+            from azure.identity.aio import DefaultAzureCredential
+            from azure.keyvault.secrets.aio import SecretClient
+
+            # The generated SDK client's own `get_secret` carries extra optional
+            # keyword arguments (`version`, `out_content_type`) our protocol -- deliberately
+            # narrowed to the one call this class ever makes -- does not declare.
+            self._client = SecretClient(  # type: ignore[assignment]
+                vault_url=vault_url, credential=credential or DefaultAzureCredential()
+            )
+
+    async def resolve(self, reference: str) -> SourceCredential:
+        validate_reference(reference)
+        secret_name = reference.replace("/", "-")
+        try:
+            secret = await self._client.get_secret(secret_name)
+        except Exception as exc:  # azure.core.exceptions.ResourceNotFoundError, auth errors
+            raise CredentialError(
+                f"could not resolve '{reference}' from Key Vault as secret "
+                f"'{secret_name}': {exc}"
+            ) from exc
+        if not secret.value:
+            raise CredentialError(f"Key Vault secret '{secret_name}' has no value")
+        return SourceCredential(
+            reference=reference, kind="personal_access_token", _secret=secret.value
         )
 
 

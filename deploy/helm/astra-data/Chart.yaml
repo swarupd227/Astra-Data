@@ -1,0 +1,30 @@
+apiVersion: v2
+name: astra-data
+description: >-
+  Astra Data Migration Console and Estate Graph service -- story S11.1.1, spec §5.3.
+  Deploys graph-svc and console-web onto the AKS cluster deploy/terraform provisions,
+  plus the two workloads spec §5.3 names that have no native Azure resource of their own
+  (OpenSearch, Temporal) as real upstream Helm chart dependencies rather than hand-rolled
+  manifests.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/astra-data/astra-data
+sources:
+  - https://github.com/astra-data/astra-data
+
+dependencies:
+  # Full-text and AST-shape search (spec §5.3). Disabled by default -- most development
+  # and CI use never touches search, and standing up a real OpenSearch cluster is not
+  # free; set opensearch.enabled=true for an environment that needs it.
+  - name: opensearch
+    version: "3.8.0"
+    repository: "https://opensearch-project.github.io/helm-charts/"
+    condition: opensearch.enabled
+
+  # MU workflows, Mender bounds, retries and long-running parity runs (spec §5.3).
+  # Same posture as OpenSearch: real, disabled by default, one flag turns it on.
+  - name: temporal
+    version: "1.7.0"
+    repository: "https://go.temporal.io/helm-charts"
+    condition: temporal.enabled

@@ -1,0 +1,99 @@
+{{/*
+Spec §5.3: "default-deny egress; only broker-approved endpoints are reachable." Two
+layers, not one: `deploy/terraform`'s own Azure Firewall decides *which FQDNs* an
+outbound HTTPS connection may reach (a NetworkPolicy cannot see a hostname, only an IP and
+a port); these NetworkPolicies decide *which ports, to or from which pods* a connection
+may use at all -- a workload with no real reason to reach Postgres cannot open a socket to
+it, whether or not the FQDN allow-list would have let the packet through.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "astra-data.fullname" . }}-default-deny
+  labels:
+    {{- include "astra-data.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "astra-data.fullname" . }}-graph-svc
+  labels:
+    {{- include "astra-data.graphSvc.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "astra-data.graphSvc.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "astra-data.consoleWeb.selectorLabels" . | nindent 14 }}
+      ports:
+        - { protocol: TCP, port: {{ .Values.graphSvc.service.port }} }
+  egress:
+    - to: [] # DNS resolution itself, before any hostname can be checked against anything
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to: [] # HTTPS -- Key Vault, the model gateway, Blob, Entra ID; the *which* is the
+             # firewall's job (this file's own header comment), not this policy's
+      ports:
+        - { protocol: TCP, port: 443 }
+    - to: [] # Azure Database for PostgreSQL Flexible Server, over its own delegated subnet
+      ports:
+        - { protocol: TCP, port: 5432 }
+    - to: [] # Event Hubs' own Kafka-protocol endpoint (spec §5.3)
+      ports:
+        - { protocol: TCP, port: 9093 }
+{{- if .Values.opensearch.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opensearch
+      ports:
+        - { protocol: TCP, port: 9200 }
+{{- end }}
+{{- if .Values.temporal.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: temporal
+      ports:
+        - { protocol: TCP, port: 7233 }
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "astra-data.fullname" . }}-console-web
+  labels:
+    {{- include "astra-data.consoleWeb.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "astra-data.consoleWeb.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # A real deployment's own Ingress controller/Application Gateway is not built by this
+    # story (disclosed: no Ingress resource ships here) -- left open cluster-wide on this
+    # one port rather than to a specific controller namespace this chart cannot name yet.
+    - from: []
+      ports:
+        - { protocol: TCP, port: {{ .Values.consoleWeb.service.port }} }
+  egress:
+    - to: [] # DNS
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "astra-data.graphSvc.selectorLabels" . | nindent 14 }}
+      ports:
+        - { protocol: TCP, port: {{ .Values.graphSvc.service.port }} }
+{{- end }}

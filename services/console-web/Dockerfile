@@ -20,6 +20,17 @@ COPY src ./src
 # API client had already drifted from the service it calls.
 ARG VITE_ASTRA_ENV=production
 ENV VITE_ASTRA_ENV=${VITE_ASTRA_ENV}
+# Story S11.1.1: Vite bakes every VITE_* variable into the static bundle at build time --
+# there is no runtime env injection in this image (see the runtime stage's own comment),
+# so lib/entra.ts's own configuration has to arrive here, not as a Helm/Kubernetes
+# runtime env var. Unset (the default for every build this project runs today) is the
+# honest "Entra ID not configured" state isEntraConfigured() checks for.
+ARG VITE_ENTRA_CLIENT_ID=""
+ARG VITE_ENTRA_TENANT_ID=""
+ARG VITE_ENTRA_API_SCOPE=""
+ENV VITE_ENTRA_CLIENT_ID=${VITE_ENTRA_CLIENT_ID}
+ENV VITE_ENTRA_TENANT_ID=${VITE_ENTRA_TENANT_ID}
+ENV VITE_ENTRA_API_SCOPE=${VITE_ENTRA_API_SCOPE}
 RUN npm run build
 
 
