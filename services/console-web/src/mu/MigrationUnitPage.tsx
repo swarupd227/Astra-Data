@@ -41,12 +41,15 @@ import type {
 } from '../lib/api';
 import { ApiError } from '../lib/api';
 import { setDeepLinkParam } from '../lib/deep-link';
+import { DEFAULT_LOCALE, formatDateTime, type LocaleCode } from '../lib/locale';
 import { isArtizentRole } from '../lib/roles';
 
 interface Props {
   api: Api;
   identity: Identity;
   initialWorkbookId?: string;
+  /** Story S10.5.1 -- defaults to `en-GB` so every existing caller keeps working. */
+  locale?: LocaleCode;
 }
 
 function pct(value: number | null): string {
@@ -91,7 +94,9 @@ function ArtefactPreview({
   );
 }
 
-export function MigrationUnitPage({ api, identity, initialWorkbookId }: Props): JSX.Element {
+export function MigrationUnitPage(
+  { api, identity, initialWorkbookId, locale = DEFAULT_LOCALE }: Props,
+): JSX.Element {
   const [workbookId, setWorkbookId] = useState(initialWorkbookId ?? '');
   const [loadedWorkbookId, setLoadedWorkbookId] = useState<string | null>(null);
   const [page, setPage] = useState<MuPageResponse | null>(null);
@@ -240,7 +245,7 @@ export function MigrationUnitPage({ api, identity, initialWorkbookId }: Props): 
                   <p className="faint">No report has been composed yet.</p>
                 )}
                 {page.artefacts.documentation ? (
-                  <p>Documentation generated {page.artefacts.documentation.generated_at}.</p>
+                  <p>Documentation generated {formatDateTime(page.artefacts.documentation.generated_at, locale)}.</p>
                 ) : (
                   <p className="faint">No documentation has been generated yet.</p>
                 )}
@@ -367,7 +372,7 @@ export function MigrationUnitPage({ api, identity, initialWorkbookId }: Props): 
                     <ul>
                       {provenance.map((r) => (
                         <li key={r.id} className="mono">
-                          {r.mode} -- {r.inputs.subject_ref} -- {r.created_at}
+                          {r.mode} -- {r.inputs.subject_ref} -- {formatDateTime(r.created_at, locale)}
                         </li>
                       ))}
                     </ul>

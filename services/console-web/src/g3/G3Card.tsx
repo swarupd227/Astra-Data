@@ -31,6 +31,7 @@ import { Explain } from '../components/Explain';
 import type { Api, G3Card as G3CardData, G3Question, Identity } from '../lib/api';
 import { ApiError } from '../lib/api';
 import { setDeepLinkParam } from '../lib/deep-link';
+import { DEFAULT_LOCALE, formatDateTime, type LocaleCode } from '../lib/locale';
 
 interface Props {
   api: Api;
@@ -39,6 +40,8 @@ interface Props {
    * own "a gate card" noun, and the identical `?workbook=` shape `ParityDashboard.tsx`
    * now reads too, so this screen's own "Open report" link finally lands somewhere. */
   initialWorkbookId?: string;
+  /** Story S10.5.1 -- defaults to `en-GB` so every existing caller keeps working. */
+  locale?: LocaleCode;
 }
 
 function percent(value: number | null): string {
@@ -51,7 +54,7 @@ function decisionPillClass(decision: string | null): string {
   return 'pill idle';
 }
 
-export function G3Card({ api, identity, initialWorkbookId }: Props): JSX.Element {
+export function G3Card({ api, identity, initialWorkbookId, locale = DEFAULT_LOCALE }: Props): JSX.Element {
   const [workbookId, setWorkbookId] = useState(initialWorkbookId ?? '');
   const [loadedWorkbookId, setLoadedWorkbookId] = useState<string | null>(null);
   const [card, setCard] = useState<G3CardData | null>(null);
@@ -252,7 +255,9 @@ export function G3Card({ api, identity, initialWorkbookId }: Props): JSX.Element
                   <>
                     {' '}-- model {card.changes.model.name ?? card.changes.model.family_id} (
                     {card.changes.model.state ?? 'unknown'}
-                    {card.changes.model.approved_at ? `, approved ${card.changes.model.approved_at}` : ''})
+                    {card.changes.model.approved_at
+                      ? `, approved ${formatDateTime(card.changes.model.approved_at, locale)}`
+                      : ''})
                   </>
                 )}
               </p>

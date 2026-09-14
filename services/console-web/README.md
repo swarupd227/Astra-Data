@@ -267,6 +267,20 @@ The layout reflows before it crushes the pane that matters: three columns above 
 below it, one below 860px. A three-pane grid at 900px leaves the workbook table 270 pixels
 between two fixed panes, which is how it started.
 
+**Story S10.5.1 (WCAG 2.2 AA, mobile/tablet, locale baselines) found and fixed two real bugs
+in that reflow, and two real contrast failures in the tokens above** — see ADR 0077. The two
+`@media` breakpoints above were unconditionally redeclaring `.workspace`'s own grid, silently
+overriding every single-column screen's own override the moment a viewport narrowed (a
+`.pane` crushed into a fixed `22vh` row, not visibly "broken" enough for the desktop/mobile
+screenshots the original layout fix checked); `nav.surfaces`/`.identity` are each their own
+nested flex container with no `flex-wrap` of their own, so the top bar's own wrap fix never
+reached them, running the nav 1636px wide off a 375px viewport. `--text-faint`/`--border-
+strong` (light and dark) were below WCAG's own 4.5:1/3:1 contrast minimums; fixed once, at
+the token. A `Locale` selector (en-GB default, en-US) now sits beside "Acting as", threaded
+into the six screens `lib/locale.ts`'s own module docstring names — its real value is
+day-first/24h vs month-first/12h date formatting in the viewer's own timezone, not a strings
+dictionary this app's own real vocabulary barely needs.
+
 ## Identity
 
 There is none yet. The service reads `X-Astra-Principal` and `X-Astra-Roles` headers until
@@ -289,7 +303,13 @@ as well as the types.
 
 The suite is jsdom, which cannot see a layout that reflows wrongly or a focus ring that does
 not render. Both were found by looking at the screen, and a real-browser suite is the
-obvious next step — see ADR 0010's open questions.
+obvious next step — see ADR 0010's open questions. Confirmed again by story S10.5.1: its own
+two real `@media`/flex-wrap bugs (see Design, above) were invisible to this jsdom suite
+(which applies no real CSS layout) and were found only by measuring the real, running
+console in a real browser. What jsdom *can* check, story S10.5.1 added: `jest-axe` wraps
+real `axe-core` against a rendered component's own DOM (`tests/a11y.test.tsx`), the same
+engine a browser's own accessibility tooling runs — real WCAG 2.2 AA violations, not a
+hand-rolled ruleset, asserted on every `npm run test` run this project's CI already makes.
 
 ## Container
 

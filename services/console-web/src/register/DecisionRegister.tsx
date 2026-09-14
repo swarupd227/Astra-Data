@@ -28,17 +28,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Api, DecisionEvidenceBundle, DecisionRegisterItem, Identity } from '../lib/api';
 import { ApiError } from '../lib/api';
 import { downloadBlob } from '../lib/download';
+import { DEFAULT_LOCALE, formatDateTime, type LocaleCode } from '../lib/locale';
 
 interface Props {
   api: Api;
   identity: Identity;
   liveTick?: number;
+  /** Story S10.5.1 -- defaults to `en-GB` so every existing caller keeps working. */
+  locale?: LocaleCode;
 }
 
 function EvidencePanel({
-  api, identity, bundle, onClose,
+  api, identity, bundle, onClose, locale,
 }: {
-  api: Api; identity: Identity; bundle: DecisionEvidenceBundle; onClose: () => void;
+  api: Api; identity: Identity; bundle: DecisionEvidenceBundle; onClose: () => void; locale: LocaleCode;
 }): JSX.Element {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -74,8 +77,8 @@ function EvidencePanel({
         )}
         {decision.rationale && <p>Rationale: {decision.rationale}</p>}
         {decision.version_hash && <p className="faint mono">version_hash: {decision.version_hash}</p>}
-        {decision.target_date && <p>Target date: {decision.target_date}</p>}
-        <p className="faint">{decision.timestamp}</p>
+        {decision.target_date && <p>Target date: {formatDateTime(decision.target_date, locale)}</p>}
+        <p className="faint">{formatDateTime(decision.timestamp, locale)}</p>
         <h4>Evidence</h4>
         {!artefact && <p className="empty">This decision names no evidence that resolves to a stored artefact.</p>}
         {artefact && !objectUrl && artefact.media_type.startsWith('image/') && (
@@ -94,7 +97,7 @@ function EvidencePanel({
   );
 }
 
-export function DecisionRegister({ api, identity, liveTick }: Props): JSX.Element {
+export function DecisionRegister({ api, identity, liveTick, locale = DEFAULT_LOCALE }: Props): JSX.Element {
   const [items, setItems] = useState<DecisionRegisterItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -237,7 +240,8 @@ export function DecisionRegister({ api, identity, liveTick }: Props): JSX.Elemen
               <thead>
                 <tr>
                   <th>Gate</th><th>Decision</th><th>Subject</th><th>Approver</th>
-                  <th>Countersigner</th><th>When</th><th />
+                  <th>Countersigner</th><th>When</th>
+                  <th><span className="visually-hidden">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -248,7 +252,7 @@ export function DecisionRegister({ api, identity, liveTick }: Props): JSX.Elemen
                     <td>{item.subject_name}</td>
                     <td>{item.approver ?? '—'}</td>
                     <td>{item.countersigner ?? '—'}</td>
-                    <td className="faint">{item.timestamp}</td>
+                    <td className="faint">{formatDateTime(item.timestamp, locale)}</td>
                     <td>
                       <button type="button" className="btn" onClick={() => void openEvidence(item.id)}>
                         Open evidence
@@ -262,7 +266,9 @@ export function DecisionRegister({ api, identity, liveTick }: Props): JSX.Elemen
         </div>
       </section>
       {selected && (
-        <EvidencePanel api={api} identity={identity} bundle={selected} onClose={() => setSelected(null)} />
+        <EvidencePanel
+          api={api} identity={identity} bundle={selected} locale={locale} onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );

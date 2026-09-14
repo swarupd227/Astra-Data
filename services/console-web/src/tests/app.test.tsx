@@ -132,3 +132,23 @@ describe('browser back and forward', () => {
     expect(await screen.findByRole('region', { name: 'Lineage graph' })).toBeInTheDocument();
   });
 });
+
+describe('locale (story S10.5.1)', () => {
+  it('changing the shell locale re-renders a downstream screen\'s own dates', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        api={fakeApi()} environment="local" initialRole="client_infosec_reviewer" initialSurface="register"
+      />,
+    );
+    await screen.findByText('Risk Positions');
+    // The fixture's own decision timestamp is 2027-06-01 -- day-first (en-GB, the
+    // shell's own default) and month-first (en-US) render different digit order.
+    expect(await screen.findByText(/01\/06\/2027/)).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Locale'), 'en-US');
+
+    expect(await screen.findByText(/06\/01\/2027/)).toBeInTheDocument();
+    expect(screen.queryByText(/01\/06\/2027/)).not.toBeInTheDocument();
+  });
+});

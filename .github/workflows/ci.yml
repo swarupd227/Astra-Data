@@ -255,6 +255,10 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # S10.5.1's own "automated axe checks in CI": `tests/a11y.test.tsx` asserts real
+      # `axe-core` (via `jest-axe`) has no WCAG 2.2 AA violations on gate cards, the
+      # Exception Desk and the two real evidence views -- an ordinary vitest file, so it
+      # rides this existing step rather than needing a second job.
       - name: Test
         run: npm run test
 

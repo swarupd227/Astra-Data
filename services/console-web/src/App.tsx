@@ -123,6 +123,7 @@ import { G3Card } from './g3/G3Card';
 import { GateInbox } from './inbox/GateInbox';
 import { createApi, type Identity } from './lib/api';
 import { getDeepLinkParam } from './lib/deep-link';
+import { DEFAULT_LOCALE, LOCALES, type LocaleCode } from './lib/locale';
 import { useLiveTick } from './lib/live-events';
 import { isArtizentRole } from './lib/roles';
 import { LineageView } from './lineage/LineageView';
@@ -351,6 +352,11 @@ export function App({
   // `EventSource` per screen -- see `lib/live-events.ts`'s own docstring for why.
   const liveTick = useLiveTick();
   const [role, setRole] = useState(initialRole ?? ROLES[0]!.value);
+  // Story S10.5.1: mirrors "Acting as" exactly -- a plain, session-local choice, not a
+  // sign-in setting; see `lib/locale.ts`'s own module docstring for why en-GB stays the
+  // default and what the two locales actually change (date/time order and clock, not
+  // this app's own real vocabulary, which barely differs between them).
+  const [locale, setLocale] = useState<LocaleCode>(DEFAULT_LOCALE);
   // The screen is in the path, so a lineage view can be linked to like anything else.
   // At the bare root path (no surface requested) a role lands where its own day starts,
   // rather than always defaulting to Estate Explorer regardless of who is "Acting as".
@@ -438,13 +444,25 @@ export function App({
           <span className="faint" title="Entra ID sign-in arrives with E11/F11.1">
             not signed in
           </span>
+          <label htmlFor="locale">
+            Locale
+          </label>
+          <select id="locale" value={locale} onChange={(event) => setLocale(event.target.value as LocaleCode)}>
+            {LOCALES.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
       </header>
 
       {surface === 'estate' && <EstateExplorer api={api} identity={identity} />}
       {surface === 'lineage' && <LineageView api={api} identity={identity} />}
       {surface === 'quality' && <ParseQualityQueue api={api} identity={identity} />}
-      {surface === 'programme' && <ProgrammeBoard api={api} identity={identity} liveTick={liveTick} />}
+      {surface === 'programme' && (
+        <ProgrammeBoard api={api} identity={identity} liveTick={liveTick} locale={locale} />
+      )}
       {surface === 'trains' && <WaveBoard api={api} identity={identity} liveTick={liveTick} />}
       {surface === 'models' && <ModelDetail api={api} identity={identity} />}
       {surface === 'proposal' && <ModelProposal api={api} identity={identity} />}
@@ -452,7 +470,10 @@ export function App({
       {surface === 'patterns' && <PatternLibrary api={api} identity={identity} />}
       {surface === 'charter' && <ToleranceCharter api={api} identity={identity} />}
       {surface === 'parity' && (
-        <ParityDashboard api={api} identity={identity} initialWorkbookId={getDeepLinkParam('workbook') ?? undefined} />
+        <ParityDashboard
+          api={api} identity={identity} locale={locale}
+          initialWorkbookId={getDeepLinkParam('workbook') ?? undefined}
+        />
       )}
       {surface === 'regression' && (
         <RegressionMonitor
@@ -471,7 +492,10 @@ export function App({
         />
       )}
       {surface === 'g3' && (
-        <G3Card api={api} identity={identity} initialWorkbookId={getDeepLinkParam('workbook') ?? undefined} />
+        <G3Card
+          api={api} identity={identity} locale={locale}
+          initialWorkbookId={getDeepLinkParam('workbook') ?? undefined}
+        />
       )}
       {surface === 'release' && <ReleaseBoard api={api} identity={identity} />}
       {surface === 'decommission' && <DecommissionTracker api={api} identity={identity} />}
@@ -480,10 +504,15 @@ export function App({
       )}
       {surface === 'statuspack' && <StatusPack api={api} identity={identity} liveTick={liveTick} />}
       {surface === 'mu' && (
-        <MigrationUnitPage api={api} identity={identity} initialWorkbookId={getDeepLinkParam('workbook') ?? undefined} />
+        <MigrationUnitPage
+          api={api} identity={identity} locale={locale}
+          initialWorkbookId={getDeepLinkParam('workbook') ?? undefined}
+        />
       )}
       {surface === 'inbox' && <GateInbox api={api} identity={identity} liveTick={liveTick} />}
-      {surface === 'register' && <DecisionRegister api={api} identity={identity} liveTick={liveTick} />}
+      {surface === 'register' && (
+        <DecisionRegister api={api} identity={identity} liveTick={liveTick} locale={locale} />
+      )}
     </div>
   );
 }

@@ -25,10 +25,17 @@
   --bg-hover: #eef1f5;
   --bg-selected: #e5edfb;
   --border: #dfe3e9;
-  --border-strong: #c6ccd6;
+  /* S10.5.1: was #c6ccd6 (1.61:1 against --bg-panel) -- WCAG 2.2 SC 1.4.11 (Non-text
+   * Contrast) needs 3:1 for a UI component border; this is every `.btn`/input/card
+   * border in the app, so one token fix closes the gap everywhere it appears. */
+  --border-strong: #7d8694;
   --text: #16191d;
   --text-muted: #5c6572;
-  --text-faint: #8b939f;
+  /* S10.5.1: was #8b939f (3.10:1 against --bg-panel) -- WCAG 2.2 SC 1.4.3 needs 4.5:1
+   * for normal-size text, and `.faint` is used at normal size throughout (timestamps,
+   * placeholder dashes, secondary labels), not only at the ≥18pt/≥14pt-bold size where
+   * 3:1 would suffice. */
+  --text-faint: #68717d;
   --accent: #1f5fd0;
   --accent-text: #ffffff;
 
@@ -55,10 +62,14 @@
     --bg-hover: #1f2630;
     --bg-selected: #1c2c47;
     --border: #262d38;
-    --border-strong: #3a4351;
+    /* S10.5.1: was #3a4351 (1.75:1 against --bg-panel) -- same 3:1 non-text-contrast fix
+     * as the light theme, above. */
+    --border-strong: #647087;
     --text: #e6e9ee;
     --text-muted: #9aa4b2;
-    --text-faint: #6b7482;
+    /* S10.5.1: was #6b7482 (3.70:1 against --bg-panel) -- same 4.5:1 text-contrast fix
+     * as the light theme, above. */
+    --text-faint: #828da0;
     --accent: #5b9bff;
     --accent-text: #0b1220;
 
@@ -204,7 +215,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .regression-monitor,
 .exception-desk,
 .release-board,
-.decommission-tracker {
+.decommission-tracker,
+/* S10.5.1: `mu-page-workspace`/`gate-inbox-workspace` had the identical latent bug this
+ * rule's own comment above already documents for the eight screens before them --
+ * confirmed the same way, by screenshot: a lone `.pane` (or the Gate Inbox/MU page's own
+ * occasional second pane) falling into the base `.workspace`'s fixed 268px first track
+ * instead of using the full width. Both are explicitly named in this story's own AC
+ * ("usable on mobile"), so the bug is now closed for them too, the identical fix. */
+.mu-page-workspace,
+.gate-inbox-workspace {
   grid-template-columns: minmax(0, 1fr);
   overflow-y: auto;
 }
@@ -215,9 +234,25 @@ button, input, select, textarea { font: inherit; color: inherit; }
  * panes framing it. §15.6 does not put the Estate Explorer on a phone, but a laptop at
  * 1280 and a half-width window at 1000 are both ordinary, and horizontal scrolling to
  * reach the workbook list is not.
+ *
+ * S10.5.1: both rules below are scoped with `:not(...)` to exclude every single-column
+ * screen in the override list above -- a real bug found live, in the running console,
+ * not just in this file: at these widths a `.workspace` rule declared *after* the
+ * override list wins the cascade (equal specificity, later source order), so a screen
+ * like `.exception-desk` -- already single-column at every width via the override --
+ * was still getting force-fitted into this rule's own three fixed-height rows (`22vh`/
+ * `1fr`/`34vh`), meant for the Estate Explorer's tree/list/detail shape, not a screen
+ * with one or two panes of its own. Confirmed live: `.pane:nth-child(1)` on the
+ * Exception Desk was measuring ~179px tall at a 375px viewport -- a filter bar and an
+ * empty queue crushed into a fifth of the screen, most of it blank grey below. Gate
+ * Inbox, gate cards and the Migration Unit page (this story's own "usable on mobile"
+ * AC) share the identical single-column class list, so they shared the identical bug.
  */
 @media (max-width: 1239px) {
-  .workspace {
+  .workspace:not(.g3-card-workspace):not(.programme-board):not(.charter-workspace)
+    :not(.parity-workspace):not(.regression-monitor):not(.exception-desk)
+    :not(.release-board):not(.decommission-tracker):not(.mu-page-workspace)
+    :not(.gate-inbox-workspace):not(.decision-register-workspace) {
     grid-template-columns: 240px minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(180px, 36vh);
   }
@@ -229,7 +264,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 
 @media (max-width: 860px) {
-  .workspace {
+  .workspace:not(.g3-card-workspace):not(.programme-board):not(.charter-workspace)
+    :not(.parity-workspace):not(.regression-monitor):not(.exception-desk)
+    :not(.release-board):not(.decommission-tracker):not(.mu-page-workspace)
+    :not(.gate-inbox-workspace):not(.decision-register-workspace) {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(120px, 22vh) minmax(0, 1fr) minmax(160px, 34vh);
   }
@@ -239,6 +277,60 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .pane:nth-child(3) { grid-row: 3; grid-column: 1; }
 
   .topbar { height: auto; padding: 8px 12px; flex-wrap: wrap; row-gap: 6px; }
+
+  /*
+   * S10.5.1: a second, real bug found live -- `.topbar`'s own `flex-wrap: wrap` (just
+   * above) only wraps *its own* direct children (brand / nav / spacer / identity)
+   * relative to each other; `nav.surfaces` is a *second*, nested flex container for the
+   * 21 nav buttons themselves, and `.surfaces` (below) never declared its own
+   * `flex-wrap`, defaulting to `nowrap`. A `nowrap` flex item also has no default
+   * `min-width: 0`, so the nav does not shrink either -- confirmed live, at 375px, the
+   * nav's own content measured 1636px wide and simply ran off the right edge, taking
+   * "Gate Inbox"/"Decision Register" (this story's own named mobile screens) with it:
+   * unreachable by tapping, the single worst possible "usable on mobile" failure.
+   */
+  .surfaces { flex-wrap: wrap; min-width: 0; }
+
+  /* The identical nested-flex-container gap as `.surfaces` above, on the "Acting as" /
+   * Locale identity block -- S10.5.1's own new Locale selector was what pushed this one
+   * over the edge (confirmed live: `.identity` measured ~52px past the viewport's own
+   * right edge at 375px, `.surfaces` fixed but this sibling still was not). */
+  .identity { flex-wrap: wrap; min-width: 0; row-gap: 4px; }
+}
+
+/*
+ * S10.5.1: a phone-width breakpoint. The 860px reflow above stops the three-column grid
+ * from crushing its centre pane, but two other things still break narrower than that,
+ * on any screen, not only the three this story's own AC names "usable on mobile"
+ * (Gate Inbox, gate cards, the Migration Unit page) -- a `.pane-header` full of filters
+ * and buttons (`DecisionRegister.tsx`'s own four controls plus two export buttons is
+ * the densest real example) has no wrap today and simply overflows off the right edge of
+ * a phone; `.statusbar` (G3Card's own bottom Approve/Request-changes/Ask-a-question bar)
+ * is a fixed 28px tall row with no wrap either -- `.gate-inbox-card .statusbar`'s own
+ * scoped override already fixed this for the Gate Inbox specifically, but the base class
+ * every other screen's own footer statusbar still uses did not get the same fix. Kept
+ * general rather than scoped to three class names, since an overflowing header or an
+ * unreachable button is identically broken regardless of which screen a phone loaded.
+ */
+@media (max-width: 599px) {
+  .pane-header {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    height: auto;
+  }
+
+  .statusbar {
+    flex-wrap: wrap;
+    height: auto;
+    row-gap: 6px;
+    padding: 6px 14px;
+  }
+
+  /* WCAG 2.2 SC 2.5.8 (Target Size Minimum, AA): 24x24 CSS px; a comfortable margin
+   * above that for a real touch target, not just the bare minimum to pass. */
+  .btn, select, input[type="text"], input[type="date"] {
+    min-height: 36px;
+  }
 }
 
 .pane {
@@ -462,7 +554,12 @@ table.estate td {
 }
 
 .detail dt { color: var(--text-muted); }
-.detail dd { margin: 0; overflow: hidden; text-overflow: ellipsis; }
+/* S10.5.1: `overflow-wrap` added -- found live, on the Migration Unit page at a phone
+ * width, a real "Owners" email address with no natural break point overflowing this
+ * cell's own narrow `minmax(0, 1fr)` column rather than wrapping (the pre-existing
+ * `text-overflow: ellipsis` above has no effect without `white-space: nowrap`, which
+ * this rule never set either -- so a long token neither truncated nor wrapped). */
+.detail dd { margin: 0; overflow: hidden; text-overflow: ellipsis; overflow-wrap: anywhere; }
 
 /* Story S10.2.1's own editable Status Pack narrative -- a full-width textarea, unlike
    the fixed-width `.dialog textarea` this pane is not itself a dialog. */

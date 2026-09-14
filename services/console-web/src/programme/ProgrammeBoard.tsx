@@ -78,6 +78,7 @@ import type {
   TrainSwimlanesResponse,
 } from '../lib/api';
 import { ApiError } from '../lib/api';
+import { DEFAULT_LOCALE, formatDate, formatDateTime, type LocaleCode } from '../lib/locale';
 
 interface Props {
   api: Api;
@@ -87,9 +88,13 @@ interface Props {
    * shape each pane's own `nonce` already uses for its own actions. Every pane below
    * shares this one `Props` shape, so one prop threads through all six. */
   liveTick?: number;
+  /** Story S10.5.1 -- defaults to `en-GB`, threaded through every pane the identical
+   * way `liveTick` is, even though only `MilestoneRailPane` and the figures pane below
+   * actually render a date today. */
+  locale?: LocaleCode;
 }
 
-export function ProgrammeBoard({ api, identity, liveTick }: Props): JSX.Element {
+export function ProgrammeBoard({ api, identity, liveTick, locale = DEFAULT_LOCALE }: Props): JSX.Element {
   const [programmes, setProgrammes] = useState<ProgrammeRecord[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -195,7 +200,7 @@ export function ProgrammeBoard({ api, identity, liveTick }: Props): JSX.Element 
                 <dt>Confirmed by</dt>
                 <dd>{programme.family_count_confirmed_by ?? '—'}</dd>
                 <dt>Confirmed at</dt>
-                <dd>{programme.family_count_confirmed_at ?? 'not yet confirmed'}</dd>
+                <dd>{programme.family_count_confirmed_at ? formatDateTime(programme.family_count_confirmed_at, locale) : 'not yet confirmed'}</dd>
               </dl>
 
               {canConfirm ? (
@@ -219,15 +224,15 @@ export function ProgrammeBoard({ api, identity, liveTick }: Props): JSX.Element 
         </footer>
       </section>
 
-      <KpiStripPane api={api} identity={identity} liveTick={liveTick} />
-      <TrainSwimlanesPane api={api} identity={identity} liveTick={liveTick} />
-      <MilestoneRailPane api={api} identity={identity} liveTick={liveTick} />
-      <TrainProjectionsPane api={api} identity={identity} liveTick={liveTick} />
-      <G2ReviewsPane api={api} identity={identity} liveTick={liveTick} />
-      <ClassMixPane api={api} identity={identity} liveTick={liveTick} />
-      <RuleCoveragePane api={api} identity={identity} liveTick={liveTick} />
-      <ExceptionAgeingPane api={api} identity={identity} liveTick={liveTick} />
-      <AcceptanceByTierPane api={api} identity={identity} liveTick={liveTick} />
+      <KpiStripPane api={api} identity={identity} liveTick={liveTick} locale={locale} />
+      <TrainSwimlanesPane api={api} identity={identity} liveTick={liveTick} locale={locale} />
+      <MilestoneRailPane api={api} identity={identity} liveTick={liveTick} locale={locale} />
+      <TrainProjectionsPane api={api} identity={identity} liveTick={liveTick} locale={locale} />
+      <G2ReviewsPane api={api} identity={identity} liveTick={liveTick} locale={locale} />
+      <ClassMixPane api={api} identity={identity} liveTick={liveTick} locale={locale} />
+      <RuleCoveragePane api={api} identity={identity} liveTick={liveTick} locale={locale} />
+      <ExceptionAgeingPane api={api} identity={identity} liveTick={liveTick} locale={locale} />
+      <AcceptanceByTierPane api={api} identity={identity} liveTick={liveTick} locale={locale} />
     </div>
   );
 }
@@ -1085,7 +1090,7 @@ function TrainSwimlanesPane({ api, identity, liveTick }: Props): JSX.Element {
 
 // -------------------------------------------------------------- milestone rail (S10.2.1)
 
-function MilestoneRailPane({ api, identity, liveTick }: Props): JSX.Element {
+function MilestoneRailPane({ api, identity, liveTick, locale = DEFAULT_LOCALE }: Props): JSX.Element {
   const [milestones, setMilestones] = useState<MilestoneRailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1126,7 +1131,9 @@ function MilestoneRailPane({ api, identity, liveTick }: Props): JSX.Element {
           <ul className="milestone-rail">
             {milestones.rail.map((milestone) => (
               <li key={`${milestone.kind}-${milestone.ref}-${milestone.date}`}>
-                <span className="mono">{milestone.date}</span>
+                <span className="mono">
+                  {milestone.kind === 'gate' ? formatDateTime(milestone.date, locale) : formatDate(milestone.date, locale)}
+                </span>
                 <span className={`pill ${milestone.kind === 'gate' ? 'ok' : 'idle'}`}>{milestone.kind}</span>
                 <span>{milestone.label}</span>
               </li>

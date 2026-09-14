@@ -50,6 +50,7 @@ import type {
 } from '../lib/api';
 import { ApiError } from '../lib/api';
 import { setDeepLinkParam } from '../lib/deep-link';
+import { DEFAULT_LOCALE, formatDateTimeWithCharterNote, type LocaleCode } from '../lib/locale';
 
 interface Props {
   api: Api;
@@ -58,6 +59,8 @@ interface Props {
    * `G3Card.tsx`'s own "Open report" link, which has pointed here with `?workbook=`
    * since S9.1.1 without this screen ever reading it back. */
   initialWorkbookId?: string;
+  /** Story S10.5.1 -- defaults to `en-GB` so every existing caller keeps working. */
+  locale?: LocaleCode;
 }
 
 function pillClass(result: string): string {
@@ -70,11 +73,20 @@ function percent(value: number | null): string {
   return value === null ? '—' : `${Math.round(value * 100)}%`;
 }
 
-export function ParityDashboard({ api, identity, initialWorkbookId }: Props): JSX.Element {
+export function ParityDashboard(
+  { api, identity, initialWorkbookId, locale = DEFAULT_LOCALE }: Props,
+): JSX.Element {
   const [workbookId, setWorkbookId] = useState(initialWorkbookId ?? '');
   const [loadedWorkbookId, setLoadedWorkbookId] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<ParityDashboardResponse | null>(null);
   const [run, setRun] = useState<ParityRunResponse | null>(null);
+  // Story S10.5.1's own "charter timezone noted where relevant" -- a run's own started/
+  // finished instants are exactly what the charter's own `dates.timezone` normalises
+  // before comparing (S7.1.1). Fetched once, best-effort: `require_tolerance_charter_
+  // reader` (deps.py) does not include `client_report_owner` -- this screen's own real
+  // client reader -- so a 403 here is expected for that role and silently leaves the
+  // note off rather than breaking or erroring the dashboard over a secondary fact.
+  const [charterTimezone, setCharterTimezone] = useState<string | null>(null);
   const [selectedSheet, setSelectedSheet] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -124,6 +136,21 @@ export function ParityDashboard({ api, identity, initialWorkbookId }: Props): JS
   // A deep link is read once, at mount.
   useEffect(() => {
     if (initialWorkbookId) void load(initialWorkbookId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let live = true;
+    api.toleranceCharter(identity)
+      .then((response) => {
+        if (live) setCharterTimezone(response.charter.charter.dates.timezone);
+      })
+      .catch(() => {
+        // Best-effort -- see this component's own `charterTimezone` state comment.
+      });
+    return () => {
+      live = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -431,9 +458,9 @@ export function ParityDashboard({ api, identity, initialWorkbookId }: Props): JS
           <div className="pane-body">
             <dl>
               <dt>Started</dt>
-              <dd>{run.started ?? '—'}</dd>
+              <dd>{formatDateTimeWithCharterNote(run.started, locale, charterTimezone)}</dd>
               <dt>Finished</dt>
-              <dd>{run.finished ?? '—'}</dd>
+              <dd>{formatDateTimeWithCharterNote(run.finished, locale, charterTimezone)}</dd>
               <dt>Charter version</dt>
               <dd>{run.charter_version}</dd>
             </dl>
