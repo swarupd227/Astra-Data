@@ -848,6 +848,63 @@ table.estate td {
   font-size: 12.5px;
 }
 
+/* ---------------------------------------------------------------- Gate Inbox (S10.4.1) */
+
+.gate-inbox-stack {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gate-inbox-card {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  padding: 10px 14px;
+}
+
+.gate-inbox-card.flagged {
+  border-color: color-mix(in srgb, var(--bad) 45%, var(--border-strong));
+}
+
+.gate-inbox-card > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.gate-inbox-card .statusbar {
+  flex-wrap: wrap;
+  height: auto;
+  padding: 8px 0 0;
+  background: none;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+
+.gate-inbox-card .statusbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.gate-inbox-card .statusbar input,
+.gate-inbox-card .statusbar textarea {
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  padding: 4px 6px;
+  min-width: 140px;
+}
+
 /* --------------------------------------------------------------------- wave board */
 
 .wave-board {

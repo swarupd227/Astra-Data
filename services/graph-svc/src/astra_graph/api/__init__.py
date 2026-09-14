@@ -21,6 +21,7 @@ from .routes_families import router as families_router
 from .routes_g2 import router as g2_router
 from .routes_g3 import router as g3_router
 from .routes_g4 import router as g4_router
+from .routes_gate_inbox import router as gate_inbox_router
 from .routes_gateway import router as gateway_router
 from .routes_generation import router as generation_router
 from .routes_harvest import router as harvest_router
@@ -67,6 +68,7 @@ __all__ = [
     "g2_router",
     "g3_router",
     "g4_router",
+    "gate_inbox_router",
     "gateway_router",
     "generation_router",
     "harvest_router",

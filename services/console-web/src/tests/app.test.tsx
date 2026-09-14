@@ -67,12 +67,15 @@ describe('navigation generated from role', () => {
   });
 
   it('shows a single-surface client role exactly one tab', async () => {
-    render(<App api={fakeApi()} environment="local" initialRole="client_data_owner" />);
-    await screen.findByRole('region', { name: 'Families for review' });
+    // Story S10.4.1 gave `client_data_owner` a real second surface (the Gate Inbox),
+    // so it no longer illustrates "single-surface" -- `client_infosec_reviewer` still
+    // does (nothing gates it onto a second real screen yet).
+    render(<App api={fakeApi()} environment="local" initialRole="client_infosec_reviewer" />);
+    await screen.findByRole('region', { name: 'Sites and projects' });
 
     const nav = screen.getByRole('navigation', { name: 'Surfaces' });
     expect(nav.querySelectorAll('button')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'Model Proposal' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Estate Explorer' })).toBeInTheDocument();
   });
 
   it('a direct URL to a surface not in the nav still renders it', async () => {

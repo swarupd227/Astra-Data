@@ -3853,6 +3853,34 @@ read-model aggregation.
   the identical mechanism SSE and PDF/PPTX export already use for the same "an
   `<img src>` cannot carry this console's own identity headers" reason.
 
+## The Gate Inbox (story S10.4.1, opens F10.4)
+
+§15.3.6's own Governance surface — a real, role-dispatched card stack across G2/G3/G4,
+built by `gate_inbox.py`. No migration, no ontology change beyond a new platform table
+for notifications.
+
+- `GET /v1/gate-inbox` (`GateInboxReaderDep` — Artizent, or any of `client_data_owner`/
+  `client_report_owner`/`client_licence_admin`) dispatches on the caller's own declared
+  role: a data owner's identity only ever populates `pending_g2_items` (domain-filtered
+  via `X-Astra-Domain-Scope`, mirroring `g2.check_domain_scope`'s own "an unset domain
+  is open to anyone" rule); a report owner's only `pending_g3_cards`; a licence admin's
+  only `pending_g4_sites`; an Artizent identity gets the union. G1 is out of scope —
+  its single platform-wide `"tolerance_charter"` subject has no "card stack" to build.
+- `pending_g3_cards` and `pending_g4_sites` are both new, disclosed readings of
+  "pending" this codebase never defined before this story — see `gate_inbox.py`'s own
+  module docstring for exactly how each is derived from real, already-existing facts
+  (a composed report with a passing `ParityRun` and no `APPROVED` G3 decision; a fully
+  ready site per `g4_card.readiness_checklist` with no `APPROVED` G4 decision).
+- Every card's own action reuses the identical existing per-gate route
+  (`:approve-g2`/`:request-changes`, `:approve-g3`/`:request-changes-g3`/`:ask-g3-
+  question`, `:approve-g4`/`:defer-g4`) — this module adds no new mutation.
+- `POST /v1/gate-inbox:notify` calls two real, separate mechanisms together: G2's own
+  already-real `send_due_reminders` (SLA thresholds, unchanged) and this story's new
+  `gate_notifications.notify_new_requests` ("on new request," new migration
+  `v0038_gate_notifications.py`: `public.gate_notification`, keyed by `(graph, gate,
+  subject_ref)`). Both stay disclosed-local-only — no live email/Teams delivery exists
+  anywhere in this codebase.
+
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,

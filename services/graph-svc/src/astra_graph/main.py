@@ -39,6 +39,7 @@ from .api import (
     g2_router,
     g3_router,
     g4_router,
+    gate_inbox_router,
     gateway_router,
     generation_router,
     harvest_router,
@@ -90,6 +91,7 @@ from .g2 import PostgresQuestionStore
 from .g2_reminders import LocalNotificationChannel, PostgresReminderStore
 from .g3_card import G3CardService
 from .g4_card import G4CardService, PostgresDecommissionConfirmationStore
+from .gate_notifications import PostgresGateNotificationStore
 from .gateway import build_gateway
 from .generation import GenerationEngine
 from .grammar import LocalIssueTracker, PostgresIssueStore
@@ -257,6 +259,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # story S4.2.2) — a reminder is recorded and logged here rather than claiming delivery
     # nobody could verify.
     app.state.notification_channel = LocalNotificationChannel()
+    # Story S10.4.1: the Gate Inbox's own "new request" notifications -- a different
+    # table/store from `reminder_store` above, see `gate_notifications.py`'s own
+    # module docstring for why.
+    app.state.gate_notification_store = PostgresGateNotificationStore(pool, graph_name=config.graph_name)
     app.state.build_store = PostgresBuildStore(pool, graph_name=config.graph_name)
     # Story S4.3.2: the architect's own saved rules, versioned; a fresh graph builds
     # against the in-memory default (version 0) until an architect saves one of their own.
@@ -559,6 +565,7 @@ def create_app() -> FastAPI:
     app.include_router(calibration_wave_router)
     app.include_router(status_pack_router)
     app.include_router(mu_page_router)
+    app.include_router(gate_inbox_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

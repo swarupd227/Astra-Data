@@ -45,6 +45,9 @@ import type {
   G3Question,
   G4Card,
   G4DecisionResult,
+  GateInboxItem,
+  GateInboxNotifyResponse,
+  GateInboxResponse,
   Identity,
   KpiStrip,
   LineageQuery,
@@ -1662,6 +1665,49 @@ export function muProvenanceRecord(overrides: Partial<MuProvenanceRecord> = {}):
   };
 }
 
+// ---------------------------------------------------------------- S10.4.1: the Gate Inbox
+
+export function gateInboxItem(overrides: Partial<GateInboxItem> = {}): GateInboxItem {
+  return {
+    gate: 'G2',
+    subject_ref: 'fam_one',
+    name: 'Risk Positions',
+    site: null,
+    domain: 'risk',
+    days_waiting: 6,
+    breached: true,
+    waiting_since: '2027-06-01T09:00:00.000Z',
+    open_questions: 1,
+    approver_role: 'client_data_owner',
+    countersigner_role: 'semantic_model_engineer',
+    can_ask_question: true,
+    can_request_changes: true,
+    can_defer: false,
+    detail: { approver: 'owner@client.example' },
+    ...overrides,
+  };
+}
+
+export function gateInboxResponse(overrides: Partial<GateInboxResponse> = {}): GateInboxResponse {
+  const items = overrides.items ?? [gateInboxItem()];
+  return {
+    items,
+    count: items.length,
+    breached_count: items.filter((i) => i.breached).length,
+    ...overrides,
+  };
+}
+
+export function gateInboxNotifyResponse(
+  overrides: Partial<GateInboxNotifyResponse> = {},
+): GateInboxNotifyResponse {
+  return {
+    new_requests_sent: [{ id: 'gn_1', gate: 'G2', subject_ref: 'fam_one', sent_at: '2027-06-01T09:00:00.000Z' }],
+    sla_reminders_sent: [],
+    ...overrides,
+  };
+}
+
 export const RAISED_ISSUE: ConstructIssue = {
   id: 'gi_01M1',
   state: 'OPEN',
@@ -3057,6 +3103,17 @@ export function fakeApi(
     async getArtefactContent(_artefactId: string, _identity: Identity) {
       maybeFail();
       return new Blob(['\x89PNG fixture bytes'], { type: 'image/png' });
+    },
+    // Story S10.4.1. `gateInbox` does not call `maybeFail()` -- the identical "a GET is
+    // not the action a test is asserting through" reasoning `muPage`/`calibrationReport`
+    // above already carry; a test wanting the read itself to fail overrides the method
+    // directly.
+    async gateInbox(_identity: Identity) {
+      return gateInboxResponse();
+    },
+    async notifyGateInbox(_identity: Identity) {
+      maybeFail();
+      return gateInboxNotifyResponse();
     },
   };
 }

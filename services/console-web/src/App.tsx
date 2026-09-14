@@ -120,6 +120,7 @@ import { EstateExplorer } from './estate/EstateExplorer';
 import { ExceptionDesk } from './exceptions/ExceptionDesk';
 import { ModelProposal } from './g2/ModelProposal';
 import { G3Card } from './g3/G3Card';
+import { GateInbox } from './inbox/GateInbox';
 import { createApi, type Identity } from './lib/api';
 import { getDeepLinkParam } from './lib/deep-link';
 import { useLiveTick } from './lib/live-events';
@@ -182,7 +183,15 @@ import { WaveBoard } from './trains/WaveBoard';
  * SPA has no path-param router. `client_report_owner` gains it in
  * `CLIENT_VISIBLE_SURFACES` below (§15.1's own "Migration Unit page (client view)"
  * reading for that role) without changing that role's own existing `g3` landing
- * surface — a deliberately narrow addition, not a re-litigation of `LANDING_SURFACE`. */
+ * surface — a deliberately narrow addition, not a re-litigation of `LANDING_SURFACE`.
+ * The Gate Inbox (S10.4.1, opening F10.4) is a ninth — §15.3.6's own Governance
+ * surface, the real, multi-gate-type queue this file's own docstring already said did
+ * not exist yet for `client_data_owner`/`client_report_owner` ("no real multi-item
+ * queue exists... building one is exactly the scope this story does not take on").
+ * `client_data_owner`, `client_report_owner` and `client_licence_admin` all gain
+ * `inbox` in `CLIENT_VISIBLE_SURFACES` below (`gate_inbox.py`'s own real per-gate
+ * dispatch) — the identical deliberately narrow addition the Migration Unit page just
+ * took, landing surfaces left unchanged. */
 export const SURFACES = [
   { key: 'estate', label: 'Estate Explorer' },
   { key: 'lineage', label: 'Lineage View' },
@@ -203,6 +212,7 @@ export const SURFACES = [
   { key: 'calibration', label: 'Calibration Report' },
   { key: 'statuspack', label: 'Status Pack' },
   { key: 'mu', label: 'Migration Unit' },
+  { key: 'inbox', label: 'Gate Inbox' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -291,11 +301,14 @@ function landingSurfaceFor(role: string): Surface {
  * across `services/console-web/src`) -- see this module's own docstring. A client role
  * always sees its own landing surface too, even where that is the only entry. */
 const CLIENT_VISIBLE_SURFACES: Partial<Record<string, Surface[]>> = {
-  client_data_owner: ['proposal'],
+  // Story S10.4.1: the Gate Inbox is real-gated to whichever of these three roles a
+  // caller declares (`deps.py`'s `GateInboxReaderDep`; `gate_inbox.py`'s own module
+  // docstring explains the per-role dispatch each one actually sees inside it).
+  client_data_owner: ['proposal', 'inbox'],
   // Story S10.3.1: the Migration Unit page's own client view (§15.1: "Migration Unit
   // page (client view)") is real-gated to this role (`deps.py`'s `MuPageReaderDep`).
-  client_report_owner: ['g3', 'decommission', 'mu'],
-  client_licence_admin: ['decommission'],
+  client_report_owner: ['g3', 'decommission', 'mu', 'inbox'],
+  client_licence_admin: ['decommission', 'inbox'],
   // Story S10.2.1: the client analytics lead is the Calibration Report's own named
   // co-signer (`deps.py`'s `CalibrationReportReaderDep`, mirroring `require_tolerance_
   // charter_reader`'s shape) -- real-gated to read (and sign) it, so it belongs here too.
@@ -458,6 +471,7 @@ export function App({
       {surface === 'mu' && (
         <MigrationUnitPage api={api} identity={identity} initialWorkbookId={getDeepLinkParam('workbook') ?? undefined} />
       )}
+      {surface === 'inbox' && <GateInbox api={api} identity={identity} liveTick={liveTick} />}
     </div>
   );
 }

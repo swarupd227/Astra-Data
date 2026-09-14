@@ -1228,6 +1228,53 @@ export interface MuProvenanceResponse {
   records: MuProvenanceRecord[];
 }
 
+// ---------------------------------------------------------------- S10.4.1: the Gate Inbox
+
+/** One open gate request -- §15.3.6's own "card stack," role-dispatched server-side
+ * (see `gate_inbox.py`'s own module docstring): a `client_data_owner` identity only
+ * ever receives `gate: 'G2'` items, `client_report_owner` only `'G3'`, `client_licence
+ * _admin` only `'G4'`; an Artizent identity receives the union. `days_waiting`/
+ * `breached` are real only for G2 (the sole gate with a driven SLA concept) -- `null`/
+ * `false` for G3/G4, an honest absence rather than a fabricated due date.
+ * `countersigner_role` answers the AC's own "shows who is next" with the real role
+ * that must countersign (a structural fact every gate's own approve action already
+ * writes) -- not a named individual, since no gate anywhere pre-assigns one. */
+export interface GateInboxItem {
+  gate: 'G2' | 'G3' | 'G4';
+  subject_ref: string;
+  name: string;
+  site: string | null;
+  domain: string | null;
+  days_waiting: number | null;
+  breached: boolean;
+  waiting_since: string | null;
+  open_questions: number;
+  approver_role: string;
+  countersigner_role: string;
+  can_ask_question: boolean;
+  can_request_changes: boolean;
+  can_defer: boolean;
+  detail: Record<string, unknown>;
+}
+
+export interface GateInboxResponse {
+  items: GateInboxItem[];
+  count: number;
+  breached_count: number;
+}
+
+export interface GateNotificationRecord {
+  id: string;
+  gate: string;
+  subject_ref: string;
+  sent_at: string;
+}
+
+export interface GateInboxNotifyResponse {
+  new_requests_sent: GateNotificationRecord[];
+  sla_reminders_sent: G2ReminderRecord[];
+}
+
 export interface RebuildStatus {
   running: boolean;
   started_at: string | null;
@@ -2235,6 +2282,8 @@ export interface Api {
   muPage(workbookId: string, identity: Identity): Promise<MuPageResponse>;
   muProvenance(workbookId: string, identity: Identity, mode?: string): Promise<MuProvenanceResponse>;
   getArtefactContent(artefactId: string, identity: Identity): Promise<Blob>;
+  gateInbox(identity: Identity): Promise<GateInboxResponse>;
+  notifyGateInbox(identity: Identity): Promise<GateInboxNotifyResponse>;
 }
 
 export function createApi(base = ''): Api {
@@ -2761,6 +2810,12 @@ export function createApi(base = ''): Api {
     },
     async getArtefactContent(artefactId, identity) {
       return getBlob(`/v1/artefacts/${encodeURIComponent(artefactId)}/content`, identity);
+    },
+    async gateInbox(identity) {
+      return (await get('/v1/gate-inbox', identity)) as GateInboxResponse;
+    },
+    async notifyGateInbox(identity) {
+      return (await post('/v1/gate-inbox:notify', {}, identity)) as GateInboxNotifyResponse;
     },
   };
 }

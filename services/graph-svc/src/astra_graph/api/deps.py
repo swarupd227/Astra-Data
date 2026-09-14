@@ -490,6 +490,31 @@ def get_domain_scope(
 DomainScopeDep = Annotated[frozenset[str], Depends(get_domain_scope)]
 
 
+def require_gate_inbox_reader(roles: RoleSetDep) -> RoleSet:
+    """Gate the Gate Inbox on "any Artizent role, or one of the three real per-gate
+    approver roles it dispatches to" (story S10.4.1) — the union of `Role.CLIENT_DATA_
+    OWNER` (G2), `Role.CLIENT_REPORT_OWNER` (G3) and `Role.CLIENT_LICENCE_ADMIN` (G4),
+    the same "reader is broader than one persona" shape `require_decommission_tracker_
+    reader` already set. Unlike that dep, this one is not "any of these may act on the
+    same items" — `gate_inbox.py`'s own module docstring explains why the inbox itself
+    is role-*dispatched*: only the caller's own real approver role ever populates its
+    own gate's items, this dep just decides who may open the screen at all."""
+    if not (
+        roles.is_artizent()
+        or Role.CLIENT_DATA_OWNER in roles.roles
+        or Role.CLIENT_REPORT_OWNER in roles.roles
+        or Role.CLIENT_LICENCE_ADMIN in roles.roles
+    ):
+        raise ForbiddenError(
+            f"the Gate Inbox is open to Artizent roles, the data owner, the report "
+            f"owner and the licence administrator; declare one in {ROLES_HEADER}"
+        )
+    return roles
+
+
+GateInboxReaderDep = Annotated[RoleSet, Depends(require_gate_inbox_reader)]
+
+
 def open_query_log(surface: str, principal: Principal, roles: RoleSet) -> QueryLog:
     return QueryLog(
         surface=surface,
