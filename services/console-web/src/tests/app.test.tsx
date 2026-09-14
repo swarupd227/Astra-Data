@@ -67,10 +67,13 @@ describe('navigation generated from role', () => {
   });
 
   it('shows a single-surface client role exactly one tab', async () => {
-    // Story S10.4.1 gave `client_data_owner` a real second surface (the Gate Inbox),
-    // so it no longer illustrates "single-surface" -- `client_infosec_reviewer` still
-    // does (nothing gates it onto a second real screen yet).
-    render(<App api={fakeApi()} environment="local" initialRole="client_infosec_reviewer" />);
+    // Story S10.4.1 gave `client_data_owner` a real second surface (the Gate Inbox), and
+    // story S10.4.2 gave `client_infosec_reviewer` one too (the Decision Register), so
+    // neither illustrates "single-surface" any longer -- `client_programme_sponsor`
+    // still does: §15.1 names it, but no story has gated it onto any real screen of its
+    // own yet, so it keeps the bare `estate` fallback both `LANDING_SURFACE` and
+    // `CLIENT_VISIBLE_SURFACES` already give any role neither table names.
+    render(<App api={fakeApi()} environment="local" initialRole="client_programme_sponsor" />);
     await screen.findByRole('region', { name: 'Sites and projects' });
 
     const nav = screen.getByRole('navigation', { name: 'Surfaces' });

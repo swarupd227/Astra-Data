@@ -1275,6 +1275,52 @@ export interface GateInboxNotifyResponse {
   sla_reminders_sent: G2ReminderRecord[];
 }
 
+// ------------------------------------------------------------ S10.4.2: the Decision Register
+
+/** One `GateDecision` row -- G1-G4's own approval workflow *and* the Exception Desk's own
+ * four "adjudications" are the identical ontology node (see `decision_register.py`'s own
+ * module docstring); `subject_name` is resolved server-side from whichever real node
+ * `subject_ref` actually names (a ModelFamily, a Workbook, an ExceptionCase, a Site, or
+ * G1's platform-wide singleton) so the console never has to know that shape itself. */
+export interface DecisionRegisterItem {
+  id: string;
+  gate: 'G1' | 'G2' | 'G3' | 'G4';
+  decision: string;
+  subject_ref: string;
+  subject_name: string;
+  approver: string | null;
+  approver_role: string | null;
+  countersigner: string | null;
+  countersigner_role: string | null;
+  rationale: string | null;
+  evidence_ref: string | null;
+  version_hash: string | null;
+  target_date: string | null;
+  timestamp: string | null;
+}
+
+export interface DecisionRegisterResponse {
+  items: DecisionRegisterItem[];
+  count: number;
+}
+
+export interface DecisionRegisterFilters {
+  gate?: string;
+  decision?: string;
+  approver?: string;
+  q?: string;
+}
+
+/** "Open evidence" (§15.3.6) -- the decision record plus whatever its own `evidence_ref`
+ * really resolves to in the artefact store, or `null` when it does not (a bare
+ * `SemanticModel` id, or no evidence at all) -- see `decision_register.py`'s own
+ * docstring for why this is disclosed rather than guessed at. The bytes themselves are
+ * fetched separately, via the identical existing `getArtefactContent`. */
+export interface DecisionEvidenceBundle {
+  decision: DecisionRegisterItem;
+  artefact: MuArtefactRecord | null;
+}
+
 export interface RebuildStatus {
   running: boolean;
   started_at: string | null;
@@ -2284,6 +2330,20 @@ export interface Api {
   getArtefactContent(artefactId: string, identity: Identity): Promise<Blob>;
   gateInbox(identity: Identity): Promise<GateInboxResponse>;
   notifyGateInbox(identity: Identity): Promise<GateInboxNotifyResponse>;
+  decisionRegister(filters: DecisionRegisterFilters, identity: Identity): Promise<DecisionRegisterResponse>;
+  decisionEvidence(gateDecisionId: string, identity: Identity): Promise<DecisionEvidenceBundle>;
+  decisionRegisterCsv(filters: DecisionRegisterFilters, identity: Identity): Promise<Blob>;
+  decisionRegisterPdf(filters: DecisionRegisterFilters, identity: Identity): Promise<Blob>;
+}
+
+function decisionRegisterQueryString(filters: DecisionRegisterFilters): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === null || value === undefined || value === '') continue;
+    params.set(key, String(value));
+  }
+  const rendered = params.toString();
+  return rendered ? `?${rendered}` : '';
 }
 
 export function createApi(base = ''): Api {
@@ -2816,6 +2876,18 @@ export function createApi(base = ''): Api {
     },
     async notifyGateInbox(identity) {
       return (await post('/v1/gate-inbox:notify', {}, identity)) as GateInboxNotifyResponse;
+    },
+    async decisionRegister(filters, identity) {
+      return (await get(`/v1/decisions${decisionRegisterQueryString(filters)}`, identity)) as DecisionRegisterResponse;
+    },
+    async decisionEvidence(gateDecisionId, identity) {
+      return (await get(`/v1/decisions/${encodeURIComponent(gateDecisionId)}/evidence`, identity)) as DecisionEvidenceBundle;
+    },
+    async decisionRegisterCsv(filters, identity) {
+      return getBlob(`/v1/decisions.csv${decisionRegisterQueryString(filters)}`, identity);
+    },
+    async decisionRegisterPdf(filters, identity) {
+      return getBlob(`/v1/decisions.pdf${decisionRegisterQueryString(filters)}`, identity);
     },
   };
 }

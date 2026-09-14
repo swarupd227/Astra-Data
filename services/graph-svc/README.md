@@ -3881,6 +3881,34 @@ for notifications.
   subject_ref)`). Both stay disclosed-local-only — no live email/Teams delivery exists
   anywhere in this codebase.
 
+## The Decision Register (story S10.4.2)
+
+§15.3.6's own audit surface — every `GateDecision` row, searchable, filterable, and
+exportable, built by `decision_register.py`. No migration, no ontology change: this
+story only reads what every gate already writes.
+
+- `GateDecisions` and Exception Desk "adjudications" are the identical ontology node —
+  confirmed by direct reading of `ontology/nodes.py`'s own enum note. This module reads
+  one label, `GateDecision`, in full (reusing `g3_card._live_gate_decisions`, a
+  cross-epic private helper), never a second query or table.
+- `GET /v1/decisions` (`DecisionRegisterReaderDep` — Artizent, or `client_infosec_
+  reviewer`, the nearest real remit §15.1 names for an "auditor," which is not one of
+  this codebase's own real roles) supports `gate`/`decision`/`approver`/`q` filters.
+  `GET /v1/decisions.csv`/`.pdf` export the identical filtered set as real files;
+  `GET /v1/decisions/{id}/evidence` opens one row's own evidence bundle.
+- A row's subject is resolved from `(gate, decision)`, not `gate` alone — G3 is written
+  from two different call sites with two different subject shapes (`g3_card.approve`
+  names a Workbook; `exception_desk`'s own adjudications name an ExceptionCase, given no
+  `name` property of its own, so its label is built from its `class` plus its owning
+  workbook's real name). See `decision_register.py`'s own `_subject_label`.
+- The evidence bundle resolves `evidence_ref` only when `ArtefactStore.get()` really
+  holds it — never guessed from which gate wrote the decision. A ref that does not
+  resolve (a bare `SemanticModel` id, or none at all) reports `artefact: null` honestly.
+- "Signed PDF" is a rendered attestation (who exported it, and when, read from the
+  calling principal and the render instant), not a persisted, re-fetchable baseline —
+  see `decision_register.py`'s own module docstring for why this story's AC reads
+  differently from `calibration_wave.sign_report`'s own separate "Sign" action.
+
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,

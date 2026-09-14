@@ -24,6 +24,9 @@ import type {
   ConformanceRuleset,
   ConstructIssue,
   ConstructsResponse,
+  DecisionEvidenceBundle,
+  DecisionRegisterItem,
+  DecisionRegisterResponse,
   DecommissionConfirmation,
   DecommissionTracker as DecommissionTrackerData,
   DecommissionTrackerMu,
@@ -1708,6 +1711,43 @@ export function gateInboxNotifyResponse(
   };
 }
 
+// ---------------------------------------------------------- S10.4.2: the Decision Register
+
+export function decisionRegisterItem(overrides: Partial<DecisionRegisterItem> = {}): DecisionRegisterItem {
+  return {
+    id: 'gd_1',
+    gate: 'G2',
+    decision: 'APPROVED',
+    subject_ref: 'fam_one',
+    subject_name: 'Risk Positions',
+    approver: 'user:owner@client.example',
+    approver_role: 'client_data_owner',
+    countersigner: 'S. Engineer',
+    countersigner_role: 'semantic_model_engineer',
+    rationale: 'Looks right.',
+    evidence_ref: 'fam_one',
+    version_hash: 'v1',
+    target_date: null,
+    timestamp: '2027-06-01T09:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function decisionRegisterResponse(
+  overrides: Partial<DecisionRegisterResponse> = {},
+): DecisionRegisterResponse {
+  const items = overrides.items ?? [decisionRegisterItem()];
+  return { items, count: items.length, ...overrides };
+}
+
+export function decisionEvidenceBundle(overrides: Partial<DecisionEvidenceBundle> = {}): DecisionEvidenceBundle {
+  return {
+    decision: decisionRegisterItem(),
+    artefact: null,
+    ...overrides,
+  };
+}
+
 export const RAISED_ISSUE: ConstructIssue = {
   id: 'gi_01M1',
   state: 'OPEN',
@@ -3114,6 +3154,23 @@ export function fakeApi(
     async notifyGateInbox(_identity: Identity) {
       maybeFail();
       return gateInboxNotifyResponse();
+    },
+    // Story S10.4.2. `decisionRegister` does not call `maybeFail()` -- the identical
+    // passive-mount-fetch reasoning `gateInbox`/`muPage` above already carry.
+    async decisionRegister(_filters, _identity: Identity) {
+      return decisionRegisterResponse();
+    },
+    async decisionEvidence(gateDecisionId: string, _identity: Identity) {
+      maybeFail();
+      return decisionEvidenceBundle({ decision: decisionRegisterItem({ id: gateDecisionId }) });
+    },
+    async decisionRegisterCsv(_filters, _identity: Identity) {
+      maybeFail();
+      return new Blob(['id,gate,decision\r\n'], { type: 'text/csv' });
+    },
+    async decisionRegisterPdf(_filters, _identity: Identity) {
+      maybeFail();
+      return new Blob(['%PDF-1.4 fixture'], { type: 'application/pdf' });
     },
   };
 }

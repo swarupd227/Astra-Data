@@ -905,6 +905,33 @@ table.estate td {
   min-width: 140px;
 }
 
+/* ---------------------------------------------------------- Decision Register (S10.4.2) */
+
+/*
+ * Two real tracks, not the base three-column grid's 268px/1fr/360px: this screen has no
+ * left-hand tree the way the Estate Explorer does, so a lone table pane would otherwise
+ * fall into that first, narrow 268px track (the same latent bug this file's own
+ * `.workspace` comment already documents for the screens above it). The evidence panel
+ * opens as the second, 360px track only when a row is selected -- the table pane alone
+ * still gets the full first `minmax(0, 1fr)` track either way.
+ */
+.decision-register-workspace {
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+
+.decision-register-table th,
+.decision-register-table td {
+  white-space: nowrap;
+}
+
+.evidence-bundle .detail {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
 /* --------------------------------------------------------------------- wave board */
 
 .wave-board {

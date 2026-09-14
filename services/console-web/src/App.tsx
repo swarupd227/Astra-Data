@@ -132,6 +132,7 @@ import { ParityDashboard } from './parity/ParityDashboard';
 import { PatternLibrary } from './patterns/PatternLibrary';
 import { ProgrammeBoard } from './programme/ProgrammeBoard';
 import { ParseQualityQueue } from './quality/ParseQualityQueue';
+import { DecisionRegister } from './register/DecisionRegister';
 import { RegressionMonitor } from './regression/RegressionMonitor';
 import { DecommissionTracker } from './release/DecommissionTracker';
 import { ReleaseBoard } from './release/ReleaseBoard';
@@ -191,7 +192,12 @@ import { WaveBoard } from './trains/WaveBoard';
  * `client_data_owner`, `client_report_owner` and `client_licence_admin` all gain
  * `inbox` in `CLIENT_VISIBLE_SURFACES` below (`gate_inbox.py`'s own real per-gate
  * dispatch) — the identical deliberately narrow addition the Migration Unit page just
- * took, landing surfaces left unchanged. */
+ * took, landing surfaces left unchanged. The Decision Register (S10.4.2) is a tenth —
+ * §15.3.6's own "all GateDecisions and adjudications" audit surface. No role named
+ * "auditor" exists (`roles.py`'s own eleven-plus-one); `client_infosec_reviewer` gains
+ * `register` in `CLIENT_VISIBLE_SURFACES` below as the nearest real client persona
+ * (`deps.py`'s own `require_decision_register_reader`), the identical narrow-addition,
+ * landing-unchanged shape every surface above already took. */
 export const SURFACES = [
   { key: 'estate', label: 'Estate Explorer' },
   { key: 'lineage', label: 'Lineage View' },
@@ -213,6 +219,7 @@ export const SURFACES = [
   { key: 'statuspack', label: 'Status Pack' },
   { key: 'mu', label: 'Migration Unit' },
   { key: 'inbox', label: 'Gate Inbox' },
+  { key: 'register', label: 'Decision Register' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -313,7 +320,11 @@ const CLIENT_VISIBLE_SURFACES: Partial<Record<string, Surface[]>> = {
   // co-signer (`deps.py`'s `CalibrationReportReaderDep`, mirroring `require_tolerance_
   // charter_reader`'s shape) -- real-gated to read (and sign) it, so it belongs here too.
   client_analytics_lead: ['charter', 'calibration'],
-  client_infosec_reviewer: ['estate'],
+  // Story S10.4.2: the Decision Register is real-gated to any Artizent role or this one
+  // named client role (`deps.py`'s `DecisionRegisterReaderDep`) -- see `decision_
+  // register.py`'s own module docstring for why this role stands in for "auditor,"
+  // which names no real role of its own. Landing surface left unchanged.
+  client_infosec_reviewer: ['estate', 'register'],
 };
 
 function visibleSurfacesFor(role: string): (typeof SURFACES)[number][] {
@@ -472,6 +483,7 @@ export function App({
         <MigrationUnitPage api={api} identity={identity} initialWorkbookId={getDeepLinkParam('workbook') ?? undefined} />
       )}
       {surface === 'inbox' && <GateInbox api={api} identity={identity} liveTick={liveTick} />}
+      {surface === 'register' && <DecisionRegister api={api} identity={identity} liveTick={liveTick} />}
     </div>
   );
 }

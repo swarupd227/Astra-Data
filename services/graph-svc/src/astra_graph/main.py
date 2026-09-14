@@ -30,6 +30,7 @@ from .api import (
     conformance_router,
     context_router,
     cypher_router,
+    decision_register_router,
     estate_router,
     events_stream_router,
     exceptions_router,
@@ -566,6 +567,7 @@ def create_app() -> FastAPI:
     app.include_router(status_pack_router)
     app.include_router(mu_page_router)
     app.include_router(gate_inbox_router)
+    app.include_router(decision_register_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

@@ -515,6 +515,27 @@ def require_gate_inbox_reader(roles: RoleSetDep) -> RoleSet:
 GateInboxReaderDep = Annotated[RoleSet, Depends(require_gate_inbox_reader)]
 
 
+def require_decision_register_reader(roles: RoleSetDep) -> RoleSet:
+    """Gate the Decision Register on "any Artizent role, or the InfoSec Reviewer"
+    (story S10.4.2) -- the identical "any Artizent role, or this one named client role"
+    shape `require_mu_page_reader` already set for the report owner, using `client_
+    infosec_reviewer` in its place: §15.1's own role table gives that role the nearest
+    real remit to an auditor ("Reviews the data-handling position, inference boundary and
+    evidence export"), immediately next to this exact screen's own "Open evidence;
+    export" actions. See `decision_register.py`'s own module docstring for why no new
+    "auditor" role is added -- this is a cross-cutting read, not a gate a workflow
+    structurally needs an approver for."""
+    if not (roles.is_artizent() or Role.CLIENT_INFOSEC_REVIEWER in roles.roles):
+        raise ForbiddenError(
+            f"the Decision Register is open to Artizent roles and the InfoSec reviewer; "
+            f"declare one in {ROLES_HEADER}"
+        )
+    return roles
+
+
+DecisionRegisterReaderDep = Annotated[RoleSet, Depends(require_decision_register_reader)]
+
+
 def open_query_log(surface: str, principal: Principal, roles: RoleSet) -> QueryLog:
     return QueryLog(
         surface=surface,
