@@ -1489,6 +1489,30 @@ export interface RetentionState {
   pruning_implemented: boolean;
 }
 
+/** Story S11.3.2's own scope shape -- `"programme"` needs no `ref` (the whole graph);
+ * `"site"`/`"train"`/`"mu"` each need one. */
+export interface EvidenceExportScope {
+  kind: 'programme' | 'site' | 'train' | 'mu';
+  ref?: string;
+  date_from?: string;
+  date_to?: string;
+}
+
+/** The identical `RebuildStatus` polling shape, for the same reason -- see
+ * `evidence_export.py`'s own `ExportProgress.as_dict()`. */
+export interface EvidenceExportProgress {
+  running: boolean;
+  export_id: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  scope: { kind: string; ref: string | null; date_from: string | null; date_to: string | null } | null;
+  counts: Record<string, number> | null;
+  artefact_id: string | null;
+  signature: string | null;
+  public_key_pem: string | null;
+  last_error: string | null;
+}
+
 export interface RebuildStatus {
   running: boolean;
   started_at: string | null;
@@ -2527,6 +2551,10 @@ export interface Api {
   dailyRoots(identity: Identity): Promise<DailyRootsResponse>;
   retentionState(identity: Identity): Promise<RetentionState>;
   saveRetentionPolicy(retentionYears: number, identity: Identity): Promise<RetentionPolicy>;
+  startEvidenceExport(scope: EvidenceExportScope, identity: Identity): Promise<{ state: string; export_id: string }>;
+  evidenceExportStatus(identity: Identity): Promise<EvidenceExportProgress>;
+  evidenceExportDownload(exportId: string, identity: Identity): Promise<Blob>;
+  evidenceExportPublicKey(identity: Identity): Promise<{ public_key_pem: string }>;
 }
 
 function decisionRegisterQueryString(filters: DecisionRegisterFilters): string {
@@ -3140,6 +3168,18 @@ export function createApi(base = ''): Api {
     },
     async saveRetentionPolicy(retentionYears, identity) {
       return (await put('/v1/retention', { retention_years: retentionYears }, identity)) as RetentionPolicy;
+    },
+    async startEvidenceExport(scope, identity) {
+      return (await post('/v1/evidence-export', scope, identity)) as { state: string; export_id: string };
+    },
+    async evidenceExportStatus(identity) {
+      return (await get('/v1/evidence-export/status', identity)) as EvidenceExportProgress;
+    },
+    async evidenceExportDownload(exportId, identity) {
+      return getBlob(`/v1/evidence-export/${encodeURIComponent(exportId)}/download`, identity);
+    },
+    async evidenceExportPublicKey(identity) {
+      return (await get('/v1/evidence-export/public-key', identity)) as { public_key_pem: string };
     },
   };
 }

@@ -4,10 +4,17 @@
 
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { TenantAccess } from '../tenant-access/TenantAccess';
-import { dailyRoot, evidenceChainStatus, executionSafetyPolicy, fakeApi, svidRecord } from './fixtures';
+import {
+  dailyRoot,
+  evidenceChainStatus,
+  evidenceExportProgress,
+  executionSafetyPolicy,
+  fakeApi,
+  svidRecord,
+} from './fixtures';
 
 const ARTIZENT_IDENTITY = { principal: 'user:p.eng@artizent.example', roles: ['platform_engineer'] };
 const INFOSEC_IDENTITY = { principal: 'user:infosec@client.example', roles: ['client_infosec_reviewer'] };
@@ -229,5 +236,76 @@ describe("retention (story S11.3.1's own tenant-configurable duration)", () => {
     expect(api.recorded).toContainEqual(
       expect.objectContaining({ kind: 'SAVE_RETENTION_POLICY', reason: '10' }),
     );
+  });
+});
+
+describe("evidence export (story S11.3.2's own signed bundle)", () => {
+  it('shows the honest empty state when nothing has been generated yet', async () => {
+    render(<TenantAccess api={fakeApi()} identity={ARTIZENT_IDENTITY} />);
+    const pane = await screen.findByRole('region', { name: 'Evidence export' });
+    expect(await within(pane).findByText('No Evidence Export has been generated yet on this deployment.')).toBeInTheDocument();
+  });
+
+  it('requires a scope id before Generate is enabled for a site/train/MU scope', async () => {
+    const user = userEvent.setup();
+    render(<TenantAccess api={fakeApi()} identity={ARTIZENT_IDENTITY} />);
+    const pane = await screen.findByRole('region', { name: 'Evidence export' });
+    await within(pane).findByText('No Evidence Export has been generated yet on this deployment.');
+
+    await user.selectOptions(within(pane).getByLabelText('Scope'), 'site');
+    expect(within(pane).getByRole('button', { name: 'Generate' })).toBeDisabled();
+
+    await user.type(within(pane).getByLabelText('Site id'), 'site_01M1');
+    expect(within(pane).getByRole('button', { name: 'Generate' })).toBeEnabled();
+  });
+
+  it('generates a real programme-scoped export and shows its own signature and counts', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    render(<TenantAccess api={api} identity={INFOSEC_IDENTITY} />);
+    const pane = await screen.findByRole('region', { name: 'Evidence export' });
+    await within(pane).findByText('No Evidence Export has been generated yet on this deployment.');
+
+    await user.click(within(pane).getByRole('button', { name: 'Generate' }));
+
+    expect(await within(pane).findByText(/Signature/)).toBeInTheDocument();
+    expect(within(pane).getByText('decisions: 1')).toBeInTheDocument();
+    expect(within(pane).getByText('verify_bundle.py')).toBeInTheDocument();
+    expect(api.recorded).toContainEqual(
+      expect.objectContaining({ kind: 'START_EVIDENCE_EXPORT', reason: 'programme' }),
+    );
+  });
+
+  it('shows a running export while assembly is in progress', async () => {
+    const api = fakeApi();
+    api.seedEvidenceExportProgress(evidenceExportProgress({ running: true, export_id: 'evexp_running' }));
+    render(<TenantAccess api={api} identity={ARTIZENT_IDENTITY} />);
+    const pane = await screen.findByRole('region', { name: 'Evidence export' });
+    expect(await within(pane).findByText(/Assembling the bundle for export evexp_running/)).toBeInTheDocument();
+  });
+
+  it('shows the last error when an export failed', async () => {
+    const api = fakeApi();
+    api.seedEvidenceExportProgress(evidenceExportProgress({ last_error: "a 'site' scope needs a real id" }));
+    render(<TenantAccess api={api} identity={ARTIZENT_IDENTITY} />);
+    const pane = await screen.findByRole('region', { name: 'Evidence export' });
+    expect(await within(pane).findByText("a 'site' scope needs a real id")).toBeInTheDocument();
+  });
+
+  it('downloads the finished bundle', async () => {
+    URL.createObjectURL = vi.fn(() => 'blob:test');
+    URL.revokeObjectURL = vi.fn();
+    const clicked = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const user = userEvent.setup();
+    const api = fakeApi();
+    render(<TenantAccess api={api} identity={ARTIZENT_IDENTITY} />);
+    const pane = await screen.findByRole('region', { name: 'Evidence export' });
+
+    await user.click(within(pane).getByRole('button', { name: 'Generate' }));
+    await within(pane).findByRole('button', { name: 'Download bundle' });
+    await user.click(within(pane).getByRole('button', { name: 'Download bundle' }));
+
+    expect(clicked).toHaveBeenCalledTimes(1);
+    clicked.mockRestore();
   });
 });

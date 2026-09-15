@@ -108,6 +108,18 @@ class Settings:
     established. Empty means no key is configured yet; GET /v1/deployment/bom reports
     signature_verified: null rather than pretending to have checked."""
 
+    evidence_export_private_key_pem: str = ""
+    """Story S11.3.2's own deliberate departure from `bom_public_key_pem`'s own "the
+    key never reaches this service" discipline: Evidence Export must be a real,
+    self-service, single action ("the console shows the signature"), which needs the
+    service itself to sign at export time. Empty (the honest default for a deployment
+    that has not provisioned a durable key) makes `evidence_export.py`'s own
+    `LocalEvidenceSigner` generate a fresh Ed25519 key at process construction instead
+    — every exported bundle carries its own public key alongside its signature (so
+    verification never depends on this process's own key outliving a restart), but a
+    deployment that wants one *stable* identity across restarts sets this to a real,
+    durable PEM."""
+
     @property
     def dsn(self) -> str:
         return (
@@ -172,6 +184,7 @@ def load_settings() -> Settings:
         entra_group_role_map=_env("ASTRA_ENTRA_GROUP_ROLE_MAP", ""),
         key_vault_url=_env("ASTRA_KEY_VAULT_URL", ""),
         bom_public_key_pem=_env("ASTRA_BOM_PUBLIC_KEY_PEM", ""),
+        evidence_export_private_key_pem=_env("ASTRA_EVIDENCE_EXPORT_PRIVATE_KEY_PEM", ""),
     )
 
 

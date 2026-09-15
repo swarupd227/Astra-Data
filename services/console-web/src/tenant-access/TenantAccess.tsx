@@ -19,7 +19,7 @@
  * already uses.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type {
   AgentRecord,
@@ -27,12 +27,15 @@ import type {
   ChainVerificationResult,
   DailyRoot,
   EvidenceChainStatus,
+  EvidenceExportProgress,
+  EvidenceExportScope,
   ExecutionSafetyPolicy,
   Identity,
   RetentionState,
   SvidRecord,
 } from '../lib/api';
 import { ApiError } from '../lib/api';
+import { downloadBlob } from '../lib/download';
 
 interface Props {
   api: Api;
@@ -417,6 +420,8 @@ export function TenantAccess({ api, identity }: Props): JSX.Element {
         </div>
       </section>
 
+      <EvidenceExportPanel api={api} identity={identity} />
+
       {selectedAgent && (
         <aside className="pane" aria-label="Agent charter">
           <header className="pane-header">
@@ -480,5 +485,191 @@ export function TenantAccess({ api, identity }: Props): JSX.Element {
         </aside>
       )}
     </div>
+  );
+}
+
+const SCOPE_KIND_LABEL: Record<EvidenceExportScope['kind'], string> = {
+  programme: 'Programme (the whole estate)',
+  site: 'Site',
+  train: 'Release train',
+  mu: 'Migration Unit',
+};
+
+/**
+ * Story S11.3.2, closing F11.3: "an Evidence Export that produces a signed bundle for a
+ * site or a programme... the console shows the signature and a verification
+ * instruction." A sibling pane on this same InfoSec-facing screen -- the identical
+ * placement `EvidenceChain`/`Retention` already have, for the same persona and feature.
+ *
+ * No role check gates the "Generate" button here: `POST /v1/evidence-export` is gated
+ * `TenantAccessReaderDep`, the identical "Artizent, or the InfoSec reviewer" shape this
+ * whole screen is already gated by -- unlike Advance/Verify (`PlatformEngineerDep`,
+ * narrower), whoever can read this screen can also trigger an export, matching the
+ * story's own literal persona ("As an InfoSec reviewer, I want...").
+ *
+ * Polling mirrors `ParseQualityQueue.tsx`'s own `RebuildPanel` -- the one other
+ * background-task/202/poll shape this console already has.
+ */
+function EvidenceExportPanel({ api, identity }: Props): JSX.Element {
+  const [status, setStatus] = useState<EvidenceExportProgress | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [scopeKind, setScopeKind] = useState<EvidenceExportScope['kind']>('programme');
+  const [scopeRef, setScopeRef] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const liveRef = useRef(true);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // A single poll function both the mount effect (so a reload mid-export, or right
+  // after one finishes, shows the real current state) and `generate` (so a freshly
+  // started export keeps being polled once it exists) drive -- the identical
+  // "poll once immediately, keep going only while running" shape `RebuildPanel` above
+  // already set, just not tied to one single `useEffect` invocation this time, since
+  // this panel's own polling has two real starting points, not one.
+  const poll = useCallback(() => {
+    api
+      .evidenceExportStatus(identity)
+      .then((response) => {
+        if (!liveRef.current) return;
+        setStatus(response);
+        if (response.running) timerRef.current = setTimeout(poll, 1000);
+      })
+      .catch((caught: unknown) => {
+        if (!liveRef.current) return;
+        setError(caught instanceof ApiError ? caught.message : 'Evidence Export status could not be read.');
+      });
+  }, [api, identity]);
+
+  useEffect(() => {
+    liveRef.current = true;
+    poll();
+    return () => {
+      liveRef.current = false;
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [poll]);
+
+  const generate = useCallback(async () => {
+    setStarting(true);
+    setError(null);
+    try {
+      const scope: EvidenceExportScope = {
+        kind: scopeKind,
+        ...(scopeKind !== 'programme' && scopeRef ? { ref: scopeRef } : {}),
+        ...(dateFrom ? { date_from: dateFrom } : {}),
+        ...(dateTo ? { date_to: dateTo } : {}),
+      };
+      await api.startEvidenceExport(scope, identity);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      poll();
+    } catch (caught: unknown) {
+      setError(caught instanceof ApiError ? caught.message : 'The Evidence Export could not be started.');
+    } finally {
+      setStarting(false);
+    }
+  }, [api, identity, scopeKind, scopeRef, dateFrom, dateTo, poll]);
+
+  const download = useCallback(async () => {
+    if (!status?.export_id) return;
+    setDownloading(true);
+    try {
+      const blob = await api.evidenceExportDownload(status.export_id, identity);
+      downloadBlob(blob, `${status.export_id}.zip`);
+    } catch (caught: unknown) {
+      setError(caught instanceof ApiError ? caught.message : 'The bundle could not be downloaded.');
+    } finally {
+      setDownloading(false);
+    }
+  }, [api, identity, status]);
+
+  const needsRef = scopeKind !== 'programme';
+
+  return (
+    <section className="pane" aria-label="Evidence export">
+      <header className="pane-header">
+        <h2>Evidence export</h2>
+        <span className="faint">spec §4.5/§15.3.6/§18.4 -- a signed bundle you hold, not the vendor</span>
+      </header>
+      <div className="pane-body">
+        {error && <div className="banner">{error}</div>}
+
+        <div className="detail">
+          <label>
+            Scope
+            <select value={scopeKind} onChange={(e) => setScopeKind(e.target.value as EvidenceExportScope['kind'])}>
+              {(Object.keys(SCOPE_KIND_LABEL) as EvidenceExportScope['kind'][]).map((kind) => (
+                <option key={kind} value={kind}>{SCOPE_KIND_LABEL[kind]}</option>
+              ))}
+            </select>
+          </label>
+          {needsRef && (
+            <label>
+              {scopeKind === 'site' ? 'Site id' : scopeKind === 'train' ? 'Train id' : 'Workbook id'}
+              <input type="text" value={scopeRef} onChange={(e) => setScopeRef(e.target.value)} />
+            </label>
+          )}
+          <label>
+            From (optional)
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          </label>
+          <label>
+            To (optional)
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          </label>
+          <footer className="statusbar">
+            <span className="spacer" />
+            <button
+              type="button"
+              className="btn"
+              disabled={starting || status?.running || (needsRef && !scopeRef.trim())}
+              onClick={() => void generate()}
+            >
+              {starting || status?.running ? 'Generating…' : 'Generate'}
+            </button>
+          </footer>
+        </div>
+
+        {status?.running && (
+          <p className="faint">Assembling the bundle for export {status.export_id}…</p>
+        )}
+
+        {!status?.running && status?.last_error && (
+          <div className="banner">{status.last_error}</div>
+        )}
+
+        {!status?.running && !status?.last_error && status?.artefact_id && status.signature && (
+          <div className="detail">
+            <p>
+              <strong>Export {status.export_id}</strong> -- scope {status.scope?.kind}
+              {status.scope?.ref ? ` (${status.scope.ref})` : ''}, generated {status.finished_at}.
+            </p>
+            {status.counts && (
+              <ul>
+                {Object.entries(status.counts).map(([category, count]) => (
+                  <li key={category}>{category}: {count}</li>
+                ))}
+              </ul>
+            )}
+            <p><strong>Signature</strong> (Ed25519): <span className="mono faint">{status.signature}</span></p>
+            <p className="faint">
+              Verify offline with the bundle's own <code>verify_bundle.py</code> (run{' '}
+              <code>python verify_bundle.py</code> inside the extracted bundle) -- it checks this
+              signature against <code>manifest.json</code>'s own canonical bytes using the public
+              key embedded in <code>signature.json</code>, and that the exported chain roots are
+              mutually consistent. No dependency on this deployment surviving.
+            </p>
+            <button type="button" className="btn" disabled={downloading} onClick={() => void download()}>
+              {downloading ? 'Downloading…' : 'Download bundle'}
+            </button>
+          </div>
+        )}
+
+        {!status?.running && !status?.artefact_id && !status?.last_error && (
+          <p className="empty">No Evidence Export has been generated yet on this deployment.</p>
+        )}
+      </div>
+    </section>
   );
 }

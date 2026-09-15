@@ -356,6 +356,18 @@ Neither is a new top-level surface, for the identical reason S11.2.1's own addit
 was not. Advance/Verify/Edit are all hidden, not disabled, for every role but the
 platform engineer.
 
+**Story S11.3.2 added a fourth `Tenant & Access` pane, Evidence export** — scope
+selection (programme/site/train/MU, plus an optional date range), a Generate action
+that starts a real background export and polls it to completion (the identical
+`RebuildPanel` polling shape `ParseQualityQueue.tsx` already set), and — once
+finished — the real signature, per-category counts, a verification instruction naming
+the bundle's own vendored `verify_bundle.py`, and a Download action (`getBlob` +
+`downloadBlob`, the same authenticated-binary-download pattern the Decision Register's
+own CSV/PDF export already uses). Unlike every other action on this screen, Generate is
+**not** hidden for a non-platform-engineer role — `POST /v1/evidence-export` is gated
+identically to this screen's own read gate (Artizent, or the InfoSec reviewer), matching
+this story's own literal persona: the InfoSec reviewer is the one who triggers it.
+
 ## Performance
 
 S1.4.1 budgets two seconds for a 1,067-workbook site. The server's share is measured in

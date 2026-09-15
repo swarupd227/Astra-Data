@@ -4142,6 +4142,44 @@ event type**.
   prunable to a real artefact — deletion itself stays deliberately unbuilt, the
   identical "no pruner, and that is deliberate" posture this module already had.
 
+## Evidence Export (story S11.3.2, closes F11.3)
+
+Spec §4.5/§15.3.6/§18.4: a signed bundle for a site or a programme — "we hold the
+evidence, not the vendor." See [ADR 0083](../../docs/adr/0083-evidence-export-a-real-signing-key-in-this-service.md)
+for the full design. In one line: **a real Ed25519 key in this service**, a deliberate,
+disclosed departure from `bom.py`'s own "the key never reaches this service"
+discipline; **"programme" scope is the whole graph**, disclosed as not distinguishing
+multiple concurrent programmes sharing one graph; **assembly is a background task with
+a polling status route**, the identical `routes_rebuild.py` shape.
+
+- `evidence_export.py`: `resolve_workbook_ids(pool, graph_name, scope)` resolves a
+  `ExportScope` (`"programme"`/`"site"`/`"train"`/`"mu"`, plus an optional date range)
+  to a real set of Workbook ids, or `None` for the whole graph. Site and train are both
+  real, bulk-resolved `CONTAINS`/`IN_TRAIN` queries; MU is one workbook id.
+- `assemble_manifest(pool, graph_name, scope, ...)` gathers every category the AC names
+  — events, decisions, provenance records, verdicts, artefact hashes, charter versions,
+  chain roots — in an order that lets events (gathered last) scope by the union of
+  every id already gathered as in scope, rather than guessing which event subjects
+  "belong" to a site. Decisions are scoped by their own real subject (a G3 decision's
+  Workbook or ExceptionCase subject); G1/G2/G4 (not workbook-shaped concepts) are
+  included only for programme scope.
+- `LocalEvidenceSigner` mints a real Ed25519 key at construction unless `Settings.
+  evidence_export_private_key_pem` names a durable one; every exported bundle embeds
+  its own public key (`signature.json`) so offline verification never depends on this
+  process's own key surviving a restart. `verify_bytes` never raises — every failure
+  mode (a tampered payload, the wrong key, malformed input) is honestly `False`.
+- `build_export_zip(manifest, *, signer)` computes the signature over `canonical_json
+  (manifest)` — **not** the pretty-printed bytes written into `manifest.json` for a
+  human to read — since the bundle's own vendored `verify_bundle.py` re-parses and
+  recomputes canonical bytes before checking the signature; signing anything else would
+  make every real verification fail. The zip carries `manifest.json`, `signature.json`,
+  a standalone `verify_bundle.py` (no dependency on this codebase, only `cryptography`
+  and stdlib) and a `README.md`.
+- `POST /v1/evidence-export` (`202`, single-flight-guarded), `GET /v1/evidence-export/
+  status` (poll), `GET /v1/evidence-export/{id}/download`, `GET /v1/evidence-export/
+  public-key` (`routes_evidence_export.py`, `TenantAccessReaderDep` — Artizent or the
+  InfoSec reviewer, this story's own literal persona, both triggering and reading).
+
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,

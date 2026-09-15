@@ -35,6 +35,7 @@ from .api import (
     estate_router,
     events_stream_router,
     evidence_chain_router,
+    evidence_export_router,
     exceptions_router,
     execution_safety_router,
     explain_router,
@@ -92,6 +93,7 @@ from .context import ContextAssembler
 from .errors import AstraGraphError
 from .estate import EstateReader
 from .events import source_for
+from .evidence_export import ExportProgress, LocalEvidenceSigner
 from .exception_desk import ExceptionDeskService
 from .execution_safety import PostgresExecutionSafetyPolicyStore
 from .g2 import PostgresQuestionStore
@@ -475,6 +477,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # facing operation, with progress -- see routes_rebuild.py's own docstring for why
     # this proves the event stream rather than switching the console over to it.
     app.state.rebuild_status = RebuildStatus()
+    # Story S11.3.2, closing F11.3: a real Ed25519 key, minted fresh unless a durable
+    # one is configured -- see evidence_export.py's own module docstring for why this
+    # departs from bom.py's own "key never reaches this service" discipline.
+    app.state.evidence_signer = LocalEvidenceSigner(
+        private_key_pem=config.evidence_export_private_key_pem
+    )
+    app.state.evidence_export_progress = ExportProgress()
     app.state.verifier = ContextVerifier(assembler_at, current_version=current_version)
     app.state.rescorer = Rescorer(
         quality=quality_store,
@@ -616,6 +625,7 @@ def create_app() -> FastAPI:
     app.include_router(tenant_access_router)
     app.include_router(execution_safety_router)
     app.include_router(evidence_chain_router)
+    app.include_router(evidence_export_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

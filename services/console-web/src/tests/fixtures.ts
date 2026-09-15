@@ -45,6 +45,8 @@ import type {
   DailyRoot,
   RetentionPolicy,
   RetentionState,
+  EvidenceExportProgress,
+  EvidenceExportScope,
   ExplainEntry,
   FailingCellRow,
   FamiliesResponse,
@@ -1881,6 +1883,14 @@ export function retentionState(overrides: Partial<RetentionState> = {}): Retenti
   };
 }
 
+export function evidenceExportProgress(overrides: Partial<EvidenceExportProgress> = {}): EvidenceExportProgress {
+  return {
+    running: false, export_id: null, started_at: null, finished_at: null, scope: null,
+    counts: null, artefact_id: null, signature: null, public_key_pem: null, last_error: null,
+    ...overrides,
+  };
+}
+
 export const RAISED_ISSUE: ConstructIssue = {
   id: 'gi_01M1',
   state: 'OPEN',
@@ -1909,6 +1919,9 @@ export interface FakeApi extends Api {
   seedEvidenceChainStatus(status: EvidenceChainStatus): void;
   seedDailyRoots(roots: DailyRoot[]): void;
   seedRetentionState(state: RetentionState): void;
+  /** Story S11.3.2: seed the Evidence Export progress `evidenceExportStatus` reads --
+   * `startEvidenceExport` otherwise sets a real, already-finished result of its own. */
+  seedEvidenceExportProgress(progress: EvidenceExportProgress): void;
 }
 
 export function fakeApi(
@@ -1993,6 +2006,9 @@ export function fakeApi(
   let evidenceChainStatusState: EvidenceChainStatus = { tip_seq: 0, tip_hash: null, total_entries: 0, by_category: {} };
   let dailyRootRows: DailyRoot[] = [];
   let retentionStateState: RetentionState = retentionState();
+  // Story S11.3.2. Not running, nothing exported yet, until a test seeds one or calls
+  // `startEvidenceExport`.
+  let evidenceExportProgressState: EvidenceExportProgress = evidenceExportProgress();
   const programmeRows = programmes.programmes.map((row) => ({ ...row }));
   const trainRows = trains.trains.map((train) => ({
     ...train,
@@ -2097,6 +2113,9 @@ export function fakeApi(
     },
     seedRetentionState(state) {
       retentionStateState = { ...state };
+    },
+    seedEvidenceExportProgress(progress) {
+      evidenceExportProgressState = { ...progress, counts: progress.counts ? { ...progress.counts } : null };
     },
     async estate(query: EstateQuery, _identity: Identity) {
       calls.estate.push(query);
@@ -3439,6 +3458,38 @@ export function fakeApi(
         kind: 'SAVE_RETENTION_POLICY', id: identity.principal, reason: String(retentionYears),
       });
       return saved;
+    },
+    async startEvidenceExport(scope: EvidenceExportScope, identity: Identity) {
+      maybeFail();
+      const exportId = 'evexp_01M1';
+      recorded.push({ kind: 'START_EVIDENCE_EXPORT', id: identity.principal, reason: scope.kind });
+      evidenceExportProgressState = {
+        running: false,
+        export_id: exportId,
+        started_at: '2027-06-01T00:00:00.000Z',
+        finished_at: '2027-06-01T00:00:04.000Z',
+        scope: {
+          kind: scope.kind, ref: scope.ref ?? null,
+          date_from: scope.date_from ?? null, date_to: scope.date_to ?? null,
+        },
+        counts: { events: 3, decisions: 1, provenance_records: 1, verdicts: 0, artefact_hashes: 1, charter_versions: 1, chain_roots: 0 },
+        artefact_id: 'af_01M1',
+        signature: 'ZmFrZS1zaWduYXR1cmU=',
+        public_key_pem: '-----BEGIN PUBLIC KEY-----\nZmFrZS1rZXk=\n-----END PUBLIC KEY-----\n',
+        last_error: null,
+      };
+      return { state: 'QUEUED', export_id: exportId };
+    },
+    async evidenceExportStatus(_identity: Identity) {
+      return evidenceExportProgressState;
+    },
+    async evidenceExportDownload(_exportId: string, _identity: Identity) {
+      maybeFail();
+      return new Blob(['PK fake evidence export zip bytes'], { type: 'application/zip' });
+    },
+    async evidenceExportPublicKey(_identity: Identity) {
+      maybeFail();
+      return { public_key_pem: evidenceExportProgressState.public_key_pem ?? '-----BEGIN PUBLIC KEY-----\nZmFrZS1rZXk=\n-----END PUBLIC KEY-----\n' };
     },
   };
 }
