@@ -258,6 +258,13 @@ DEFAULT_STRATEGY_ORDER: tuple[ExecutionStrategy, ...] = (
 #: §10.2 schedules executions "with retry and timeout"; S2.4.1 fixes the default.
 DEFAULT_TIMEOUT_SECONDS = 120.0
 
+#: Story S11.2.1, spec §18.2 ("resource limits per query"): a defensive ceiling on how many
+#: rows one execution may return, independent of whatever row limit the target model or
+#: source connection itself might apply. Not specified by the AC -- an invented, disclosed
+#: bound, the same footing `DEFAULT_RETRY_TIMEOUT_MULTIPLIER` (case_execution.py) already
+#: has for its own unspecified knob.
+DEFAULT_MAX_ROWS = 100_000
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutionCharter:
@@ -276,6 +283,11 @@ class ExecutionCharter:
     version: str = "unversioned"
     strategy_order: tuple[ExecutionStrategy, ...] = DEFAULT_STRATEGY_ORDER
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
+    max_rows: int = DEFAULT_MAX_ROWS
+    """Story S11.2.1's own resource limit, on the target/XMLA side: the candidate-side DAX
+    query is built with a `TOPN` wrap at this bound (`case_execution_query.build_dax_query`),
+    so the limit is enforced by the query text itself, not by discarding rows a target
+    engine already spent resources producing."""
     per_case: dict[str, ExecutionStrategy] = field(default_factory=dict)
     """A case the client has agreed to prove a particular way. Rare, and always a decision
     somebody made: a sheet whose extract is stale proves nothing useful from an extract read.

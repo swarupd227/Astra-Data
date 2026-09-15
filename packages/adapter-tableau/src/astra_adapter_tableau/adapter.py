@@ -73,6 +73,7 @@ from .faults import FaultingTransport
 from .fragments import build, secret_references
 from .grammar import GRAMMAR_VERSION as TABLEAU_GRAMMAR_VERSION
 from .grammar import TableauGrammar
+from .live_replay_policy import LiveReplayPolicy, PolicyGatedLiveQueryRunner
 from .metadata import MetadataWorkbook, TableauMetadataClient
 from .ports import (
     ExtractReader,
@@ -140,7 +141,15 @@ class TableauAdapter:
         self._grammar = TableauGrammar()
         self._faults = FaultingTransport()
         self._extract_reader: ExtractReader = extract_reader or NoExtractReader()
-        self._live_runner: LiveQueryRunner = live_runner or NoLiveQueryRunner()
+        # Story S11.2.1: every deployment's own live-replay runner, including the
+        # default `NoLiveQueryRunner`, is wrapped in the tenant-policy/allow-list gate --
+        # so a future story landing a real `LiveQueryRunner` needs no change here.
+        self._live_runner: LiveQueryRunner = PolicyGatedLiveQueryRunner(
+            live_runner or NoLiveQueryRunner(),
+            LiveReplayPolicy(
+                enabled=config.live_replay_enabled, max_rows=config.live_replay_max_rows
+            ),
+        )
         self._rest = rest or TableauRestClient(
             config,
             throttle=self._throttle,

@@ -1423,6 +1423,11 @@ export interface SvidRecordsResponse {
   svids: SvidRecord[];
 }
 
+export interface ExecutionSafetyPolicy {
+  production_workspaces: string[];
+  version: number;
+}
+
 export interface RebuildStatus {
   running: boolean;
   started_at: string | null;
@@ -2453,6 +2458,8 @@ export interface Api {
   agentRecords(identity: Identity): Promise<AgentRecordsResponse>;
   svidRecords(identity: Identity, agentId?: string): Promise<SvidRecordsResponse>;
   revokeSvid(jti: string, reason: string, identity: Identity): Promise<SvidRecord>;
+  executionSafetyPolicy(identity: Identity): Promise<ExecutionSafetyPolicy>;
+  saveExecutionSafetyPolicy(productionWorkspaces: string[], identity: Identity): Promise<ExecutionSafetyPolicy>;
 }
 
 function decisionRegisterQueryString(filters: DecisionRegisterFilters): string {
@@ -3040,6 +3047,14 @@ export function createApi(base = ''): Api {
       return (await post(
         `/v1/tenant-access/svids/${encodeURIComponent(jti)}:revoke`, { reason }, identity,
       )) as SvidRecord;
+    },
+    async executionSafetyPolicy(identity) {
+      return (await get('/v1/execution-safety/policy', identity)) as ExecutionSafetyPolicy;
+    },
+    async saveExecutionSafetyPolicy(productionWorkspaces, identity) {
+      return (await put(
+        '/v1/execution-safety/policy', { production_workspaces: productionWorkspaces }, identity,
+      )) as ExecutionSafetyPolicy;
     },
   };
 }

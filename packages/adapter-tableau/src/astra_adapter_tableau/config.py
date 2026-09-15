@@ -185,6 +185,17 @@ class TableauConfig:
     """Off only for a client's self-signed staging server, and never silently: the adapter
     logs it at start-up so a deployment that turned it off says so."""
 
+    live_replay_enabled: bool = False
+    """Story S11.2.1's own tenant policy: "custom SQL replay is disabled unless the
+    tenant policy enables it". `False` is the honest default for a worker nobody has
+    configured -- live replay also needs a real `LiveQueryRunner` this codebase does not
+    have yet (`ports.py`), so this flag alone never makes the strategy available; it only
+    ever narrows it further."""
+
+    live_replay_max_rows: int = 100_000
+    """The same "resource limits per query" bound `ExecutionCharter.max_rows` gives the
+    target side, for this side's own live-replay strategy -- see `live_replay_policy.py`."""
+
     @property
     def site_label(self) -> str:
         return self.site or "(default)"
@@ -200,6 +211,8 @@ class TableauConfig:
             download_timeout=self.download_timeout,
             max_retries=self.max_retries,
             verify_tls=self.verify_tls,
+            live_replay_enabled=self.live_replay_enabled,
+            live_replay_max_rows=self.live_replay_max_rows,
         )
 
     @classmethod
@@ -207,7 +220,8 @@ class TableauConfig:
         """Read the worker's configuration.
 
         ``ASTRA_TABLEAU_URL``, ``ASTRA_TABLEAU_SITE``, ``ASTRA_TABLEAU_CREDENTIAL`` (the JSON
-        document), ``ASTRA_TABLEAU_CONCURRENCY``, ``ASTRA_TABLEAU_VERIFY_TLS``.
+        document), ``ASTRA_TABLEAU_CONCURRENCY``, ``ASTRA_TABLEAU_VERIFY_TLS``,
+        ``ASTRA_TABLEAU_LIVE_REPLAY_ENABLED``, ``ASTRA_TABLEAU_LIVE_REPLAY_MAX_ROWS``.
         """
         env = environ if environ is not None else dict(os.environ)
         base_url = env.get(f"{ENV_PREFIX}_URL", "").strip()
@@ -230,6 +244,9 @@ class TableauConfig:
             page_size=_positive_int(env, f"{ENV_PREFIX}_PAGE_SIZE", 200),
             max_retries=_positive_int(env, f"{ENV_PREFIX}_MAX_RETRIES", 5),
             verify_tls=env.get(f"{ENV_PREFIX}_VERIFY_TLS", "1").lower() not in {"0", "false", "no"},
+            live_replay_enabled=env.get(f"{ENV_PREFIX}_LIVE_REPLAY_ENABLED", "").lower()
+            in {"1", "true", "yes"},
+            live_replay_max_rows=_positive_int(env, f"{ENV_PREFIX}_LIVE_REPLAY_MAX_ROWS", 100_000),
         )
 
 

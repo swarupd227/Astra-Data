@@ -35,6 +35,7 @@ from .api import (
     estate_router,
     events_stream_router,
     exceptions_router,
+    execution_safety_router,
     explain_router,
     failure_classification_router,
     families_router,
@@ -91,6 +92,7 @@ from .errors import AstraGraphError
 from .estate import EstateReader
 from .events import source_for
 from .exception_desk import ExceptionDeskService
+from .execution_safety import PostgresExecutionSafetyPolicyStore
 from .g2 import PostgresQuestionStore
 from .g2_reminders import LocalNotificationChannel, PostgresReminderStore
 from .g3_card import G3CardService
@@ -370,9 +372,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # cheap and stateless to construct a second time) and the target adapter already
     # wired above for report deploy.
     app.state.source_adapter = build_source_adapter(config)
+    # Story S11.2.1, opening F11.2: which workspaces this tenant calls production --
+    # execution against one is refused to anyone but the regression runner.
+    app.state.execution_safety_policy_store = PostgresExecutionSafetyPolicyStore(
+        pool, graph_name=config.graph_name
+    )
     app.state.case_execution = CaseExecutionService(
         pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
         source_adapter=app.state.source_adapter, target_adapter=app.state.target_adapter,
+        safety_policy_store=app.state.execution_safety_policy_store,
     )
     # Story S9.2.2, continuing F9.2: adoption tracking during parallel run -- weekly
     # source-views/target-views snapshots over the same source/target adapters S7.3.1
@@ -603,6 +611,7 @@ def create_app() -> FastAPI:
     app.include_router(notifications_router)
     app.include_router(deployment_bom_router)
     app.include_router(tenant_access_router)
+    app.include_router(execution_safety_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

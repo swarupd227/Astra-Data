@@ -88,7 +88,22 @@ variable "egress_allow_list_fqdns" {
     "*.vault.azure.net",         # Key Vault (credentials.py's own KeyVaultCredentialProvider)
     "*.azurecr.io",              # the deployment's own container registry
     "*.blob.core.windows.net",   # artefact/BOM storage (artefacts.py, bom.py)
+    "api.powerbi.com",           # story S11.2.1's own first "data endpoint" -- the real, documented
+    # Fabric/Power BI XMLA connection host (powerbi://api.powerbi.com/...),
+    # target/candidate-side execution's only real network destination
   ]
+}
+
+variable "source_warehouse_allow_list_fqdns" {
+  description = <<-EOT
+    Story S11.2.1's own second "data endpoint": the client's own source warehouse
+    host(s) that live SQL replay (`live_replay_policy.py`, disabled by default) would
+    reach, under `NoLiveQueryRunner`'s own eventual real successor. Empty by default --
+    this is genuinely tenant-specific (SQL Server/Snowflake/Postgres/Sybase/Hive, per
+    spec §19), unlike the target side's one real, documented Fabric host above.
+  EOT
+  type        = list(string)
+  default     = []
 }
 
 variable "postgres_admin_password_secret_name" {

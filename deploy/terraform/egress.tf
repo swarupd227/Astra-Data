@@ -3,6 +3,14 @@
 # route table (network.tf) forces every outbound packet through, with exactly one
 # application rule collection: the FQDNs in var.egress_allow_list_fqdns, on 443 only.
 # Everything else is the firewall's own implicit deny.
+#
+# Story S11.2.1's own "executor workers run with no outbound network except the two data
+# endpoints": this deployment has no separate executor pod (see that story's own ADR for
+# why -- execution runs inline in graph-svc today, and a genuinely separate worker is
+# real, disclosed future scope), so the two data endpoints below are graph-svc's own
+# egress allow-list, not a second, narrower one -- var.egress_allow_list_fqdns' own
+# "api.powerbi.com" entry is the target/XMLA side; var.source_warehouse_allow_list_fqdns
+# is the source-replay side, genuinely tenant-specific and empty until a client names one.
 
 resource "azurerm_public_ip" "firewall" {
   name                = "pip-${local.name_prefix}-firewall"
@@ -38,7 +46,13 @@ resource "azurerm_firewall_application_rule_collection" "allow_list" {
   rule {
     name             = "broker-approved-endpoints"
     source_addresses = [azurerm_subnet.aks.address_prefixes[0]]
-    target_fqdns     = var.egress_allow_list_fqdns
+    # HTTPS-only: correct for api.powerbi.com and every HTTPS-based warehouse (e.g.
+    # Snowflake). A real SQL Server (1433) or PostgreSQL (5432) source warehouse would
+    # need its own network-rule-collection entry once a client actually names one and a
+    # real live-replay driver is built -- disclosed rather than guessed at here, since
+    # `var.source_warehouse_allow_list_fqdns` is empty by default and no real driver
+    # exists yet (`live_replay_policy.py`'s own module docstring).
+    target_fqdns = concat(var.egress_allow_list_fqdns, var.source_warehouse_allow_list_fqdns)
 
     protocol {
       port = 443

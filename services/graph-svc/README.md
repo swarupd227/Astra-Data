@@ -4043,6 +4043,56 @@ worked example gives direct, checkable evidence for.
   `DeploymentBomReaderDep`'s own shape), revoke gated `PlatformEngineerDep`, this story's
   own literal persona.
 
+## Execution safety (story S11.2.1, opens F11.2)
+
+Spec §18.2: generated DAX, M and adapter queries execute only in sandboxed, read-only
+contexts. Target execution is 100% fixture today (`target_fake.FixtureTargetAdapter`) and
+no adapter-fabric package exists in this codebase — see [ADR 0081](../../docs/adr/0081-execution-safety-real-enforcement-around-a-fixture-executor.md)
+for the full design. In one line: **structurally read-only already**, since
+`TargetAdapter.evaluate` has no write-shaped parameter at all; **a real, closed gap** for
+"production execution is limited to the regression runner" (nothing restricted this
+before this story); **real resource limits, two independent mechanisms**, one per side.
+
+- `execution_safety.py`: `ExecutionSafetyPolicy` (`production_workspaces`, `version`) —
+  a real, `graph`-scoped, versioned Postgres record (migration v0041, `public.
+  execution_safety_policy`, no ontology change), the identical shape `mender_config`/
+  `tolerance_charter_version` already have. `authorize_target_workspace(principal_value,
+  *, workspace, policy)` refuses any principal other than `REGRESSION_RUNNER_PRINCIPAL`
+  (`"agent:steward"`) against a workspace the policy names — a literal identity check,
+  not an `AgentScope` gate, since it has to refuse a human Parity Engineer too, not only
+  a differently-scoped agent (`agent_identity.py`'s own module docstring is explicit its
+  own enforcement never scopes a `user:`/`service:` principal).
+- Wired into `CaseExecutionService.execute()` as the first check, before any case is
+  read — an optional `safety_policy_store`, defaulting to `None` (every existing caller
+  unaffected); when configured but unconfigured by a platform engineer,
+  `ExecutionSafetyPolicy()`'s own empty default leaves every workspace exactly as open
+  as it already was.
+- `GET`/`PUT /v1/execution-safety/policy` (`routes_execution_safety.py`) — read gated
+  `TenantAccessReaderDep` (Artizent or the InfoSec reviewer), edit gated
+  `PlatformEngineerDep`, the identical shape S11.1.2's own SVID-revoke route already set.
+- Resource limits, one per side: target/XMLA — `ExecutionCharter.max_rows` (adapter-sdk,
+  default 100,000) wraps the real DAX query text in a `TOPN`
+  (`case_execution_query.build_dax_query`), so the cap is embedded in what is actually
+  sent to XMLA, not applied after a target engine already spent resources producing more
+  rows than needed. Source/live-replay — `packages/adapter-tableau`'s own
+  `LiveReplayPolicy.max_rows`, truncating and flagging returned rows, since
+  `SourceAdapter.execute_case` carries no per-call charter across the adapter RPC
+  boundary at all (the adapter decides its own strategy from its own internally held
+  configuration).
+- Custom SQL replay's tenant policy and SELECT-only allow-list are real and
+  independently tested (`packages/adapter-tableau/README.md` has the detail); live
+  replay itself stays the disclosed, permanently-unavailable stub it already was
+  (`NoLiveQueryRunner`) — no database driver for any source warehouse exists yet, and
+  that was already this codebase's own, pre-existing, E11-scoped disclosure before this
+  story.
+- `deploy/terraform`: a second, distinct Key Vault secret slot (`fabric-execution-sp`,
+  `identity.tf`) reserved for the read-only XMLA execution principal, separate from the
+  existing (legitimately write-capable) `fabric-workspace-sp`; `api.powerbi.com` (the
+  real, documented Fabric/Power BI XMLA host) added to the default egress allow-list,
+  plus a new `source_warehouse_allow_list_fqdns` variable for the AC's own "two data
+  endpoints" — the deliberate choice not to invent a separate "executor worker"
+  deployable this codebase does not have; see the ADR for why.
+
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,

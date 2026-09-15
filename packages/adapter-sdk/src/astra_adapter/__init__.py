@@ -63,6 +63,7 @@ from .contract import (
 )
 from .faults import Fault, FaultInjector, RateLimited, classify
 from .proof import (
+    DEFAULT_MAX_ROWS,
     Column,
     ColumnRole,
     ExecutionCharter,
@@ -92,6 +93,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "BACKLOG_METHOD_NAMES",
+    "DEFAULT_MAX_ROWS",
     "INTERFACE_VERSION",
     "TARGET_INTERFACE_VERSION",
     "ActivityResult",

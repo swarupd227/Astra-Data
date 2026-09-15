@@ -54,6 +54,12 @@ from astra_graph.case_execution import (  # noqa: E402
 )
 from astra_graph.config import Settings  # noqa: E402
 from astra_graph.events import source_for  # noqa: E402
+from astra_graph.execution_safety import (  # noqa: E402
+    ExecutionSafetyPolicy,
+    InMemoryExecutionSafetyPolicyStore,
+    PostgresExecutionSafetyPolicyStore,
+    ProductionExecutionRefused,
+)
 from astra_graph.graph import AgeGraphRepository, create_pool  # noqa: E402
 from astra_graph.graph.queries import EDGE_INDEX_TABLE, NODE_INDEX_TABLE, accessor  # noqa: E402
 from astra_graph.ids import new_ulid  # noqa: E402
@@ -66,6 +72,7 @@ from astra_graph.writes import EdgeWrite, GraphWriter, NodeWrite  # noqa: E402
 
 PRINCIPAL = Principal("agent:harvester", run_id="run-harvester")
 PARITY_ENGINEER = Principal("user:parity@artizent.example")
+REGRESSION_RUNNER = Principal("agent:steward", run_id="run-regression")
 
 
 def _settings(graph_name: str) -> Settings:
@@ -223,14 +230,17 @@ async def estate(settings: Settings, tmp_path: Path):
             [FixtureSite(name=site_name, workbooks=[FixtureWorkbook(name="Daily VaR", luid=workbook_luid, project="Risk Core")])]
         )
         target_adapter = FixtureTargetAdapter(repo_path=tmp_path / "repo", workspace_root=tmp_path / "workspaces")
+        safety_policy_store = PostgresExecutionSafetyPolicyStore(pool, graph_name=settings.graph_name)
         service = CaseExecutionService(
             pool, graph_name=settings.graph_name, writer=writer, artefact_store=artefact_store,
             source_adapter=source_adapter, target_adapter=target_adapter,
+            safety_policy_store=safety_policy_store,
         )
 
         yield {
             "pool": pool, "settings": settings, "writer": writer, "artefact_store": artefact_store,
             "service": service, "source_adapter": source_adapter, "target_adapter": target_adapter,
+            "safety_policy_store": safety_policy_store,
             "workbook": book, "workbook_luid": workbook_luid, "sheet": sheet, "desk": desk,
         }
     finally:
@@ -309,6 +319,48 @@ async def test_a_real_maps_to_binding_qualifies_the_dax_table_reference(estate) 
 
     result = await estate["service"].execute(estate["workbook"], workspace="dev", principal=PARITY_ENGINEER)
     assert any("'Geography'[Desk]" in one["query_text"] for one in result["results"])
+
+
+async def test_the_dax_query_is_wrapped_in_a_real_topn_row_cap(estate) -> None:
+    """Story S11.2.1's own "resource limits per query" -- `ExecutionCharter`'s own
+    default `max_rows` reaches the real DAX text this service sends."""
+    result = await estate["service"].execute(estate["workbook"], workspace="dev", principal=PARITY_ENGINEER)
+    assert result["cases_executed"] > 0
+    for one in result["results"]:
+        assert "TOPN(" in one["query_text"]
+        assert "100000" in one["query_text"]
+
+
+async def test_a_non_production_workspace_is_unaffected_by_a_configured_policy(estate) -> None:
+    """A workspace this tenant has not named production stays exactly as open as it
+    already was -- the policy only narrows what it names."""
+    service = CaseExecutionService(
+        estate["pool"], graph_name=estate["settings"].graph_name, writer=estate["writer"],
+        artefact_store=estate["artefact_store"], source_adapter=estate["source_adapter"],
+        target_adapter=estate["target_adapter"],
+        safety_policy_store=InMemoryExecutionSafetyPolicyStore(
+            ExecutionSafetyPolicy(production_workspaces=frozenset({"prod"}))
+        ),
+    )
+    result = await service.execute(estate["workbook"], workspace="dev", principal=PARITY_ENGINEER)
+    assert result["cases_executed"] > 0
+
+
+async def test_a_production_workspace_refuses_a_parity_engineer_but_allows_the_regression_runner(estate) -> None:
+    service = CaseExecutionService(
+        estate["pool"], graph_name=estate["settings"].graph_name, writer=estate["writer"],
+        artefact_store=estate["artefact_store"], source_adapter=estate["source_adapter"],
+        target_adapter=estate["target_adapter"],
+        safety_policy_store=InMemoryExecutionSafetyPolicyStore(
+            ExecutionSafetyPolicy(production_workspaces=frozenset({"prod"}))
+        ),
+    )
+    with pytest.raises(ProductionExecutionRefused, match="classified production"):
+        await service.execute(estate["workbook"], workspace="prod", principal=PARITY_ENGINEER)
+
+    # The regression runner -- and only the regression runner -- may still execute here.
+    result = await service.execute(estate["workbook"], workspace="prod", principal=REGRESSION_RUNNER)
+    assert result["cases_executed"] > 0
 
 
 async def test_a_source_side_luid_mismatch_is_recorded_inconclusive_not_a_crash(estate) -> None:
@@ -498,6 +550,7 @@ async def http_client(estate):
 
     app = create_app()
     app.state.case_execution = estate["service"]
+    app.state.execution_safety_policy_store = estate["safety_policy_store"]
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://graph-svc") as async_client:
@@ -554,3 +607,59 @@ async def test_platform_health_over_http_reports_the_real_inconclusive_rate(esta
     assert execution["inconclusive"] == 0
     assert execution["threshold"] == pytest.approx(0.02)
     assert execution["alert"] is False
+
+
+# ------------------------------------------------------------- execution safety (S11.2.1)
+
+
+async def test_execution_safety_policy_over_http_round_trips(estate, http_client) -> None:
+    get_before = await http_client.get(
+        "/v1/execution-safety/policy", headers=_headers("client_infosec_reviewer", PARITY_ENGINEER),
+    )
+    assert get_before.status_code == 200
+    assert get_before.json() == {"production_workspaces": [], "version": 0}
+
+    put_response = await http_client.put(
+        "/v1/execution-safety/policy",
+        json={"production_workspaces": ["prod"]},
+        headers=_headers("platform_engineer", PARITY_ENGINEER),
+    )
+    assert put_response.status_code == 200
+    assert put_response.json() == {"production_workspaces": ["prod"], "version": 1}
+
+    get_after = await http_client.get(
+        "/v1/execution-safety/policy", headers=_headers("client_infosec_reviewer", PARITY_ENGINEER),
+    )
+    assert get_after.json()["production_workspaces"] == ["prod"]
+
+
+async def test_execution_safety_policy_edit_requires_the_platform_engineer_role(estate, http_client) -> None:
+    response = await http_client.put(
+        "/v1/execution-safety/policy",
+        json={"production_workspaces": ["prod"]},
+        headers=_headers("parity_engineer", PARITY_ENGINEER),
+    )
+    assert response.status_code == 403
+
+
+async def test_a_production_workspace_set_via_http_refuses_execution_over_http(estate, http_client) -> None:
+    put_response = await http_client.put(
+        "/v1/execution-safety/policy",
+        json={"production_workspaces": ["prod"]},
+        headers=_headers("platform_engineer", PARITY_ENGINEER),
+    )
+    assert put_response.status_code == 200
+
+    response = await http_client.post(
+        f"/v1/workbooks/{estate['workbook']}:execute-parity-cases?workspace=prod",
+        headers=_headers("parity_engineer", PARITY_ENGINEER),
+    )
+    assert response.status_code == 403
+    assert response.json()["error"] == "production_execution_refused"
+
+    # The regression runner is still refused nothing -- dev/test stays exactly as open.
+    dev_response = await http_client.post(
+        f"/v1/workbooks/{estate['workbook']}:execute-parity-cases?workspace=dev",
+        headers=_headers("parity_engineer", PARITY_ENGINEER),
+    )
+    assert dev_response.status_code == 200

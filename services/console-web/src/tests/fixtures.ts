@@ -40,6 +40,7 @@ import type {
   ExceptionCaseDetail,
   ExceptionQueueEntry,
   ExceptionQueueResponse,
+  ExecutionSafetyPolicy,
   ExplainEntry,
   FailingCellRow,
   FamiliesResponse,
@@ -1846,6 +1847,10 @@ export function svidRecord(overrides: Partial<SvidRecord> = {}): SvidRecord {
   };
 }
 
+export function executionSafetyPolicy(overrides: Partial<ExecutionSafetyPolicy> = {}): ExecutionSafetyPolicy {
+  return { production_workspaces: [], version: 0, ...overrides };
+}
+
 export const RAISED_ISSUE: ConstructIssue = {
   id: 'gi_01M1',
   state: 'OPEN',
@@ -1866,6 +1871,9 @@ export interface FakeApi extends Api {
   /** Story S11.1.2: seed the SVID records `svidRecords`/`revokeSvid` operate over --
    * empty by default, since most tests never issue one. */
   seedSvids(svids: SvidRecord[]): void;
+  /** Story S11.2.1: seed the execution-safety policy `executionSafetyPolicy`/
+   * `saveExecutionSafetyPolicy` operate over -- the honest empty default otherwise. */
+  seedExecutionSafetyPolicy(policy: ExecutionSafetyPolicy): void;
 }
 
 export function fakeApi(
@@ -1943,6 +1951,9 @@ export function fakeApi(
   let notificationPreferencesState: NotificationPreferences | null = null;
   // Story S11.1.2. Empty by default -- a test that wants one calls `api.seedSvids(...)`.
   const svidRows: SvidRecord[] = [];
+  // Story S11.2.1. The honest default (no production workspace named) until a test
+  // calls `api.seedExecutionSafetyPolicy(...)`.
+  let executionSafetyPolicyState: ExecutionSafetyPolicy = executionSafetyPolicy();
   const programmeRows = programmes.programmes.map((row) => ({ ...row }));
   const trainRows = trains.trains.map((train) => ({
     ...train,
@@ -2035,6 +2046,9 @@ export function fakeApi(
     },
     seedSvids(svids) {
       svidRows.splice(0, svidRows.length, ...svids.map((s) => ({ ...s })));
+    },
+    seedExecutionSafetyPolicy(policy) {
+      executionSafetyPolicyState = { ...policy };
     },
     async estate(query: EstateQuery, _identity: Identity) {
       calls.estate.push(query);
@@ -3322,6 +3336,21 @@ export function fakeApi(
       svidRows[index] = updated;
       recorded.push({ kind: 'REVOKE_SVID', id: jti, reason });
       return updated;
+    },
+    async executionSafetyPolicy(_identity: Identity) {
+      maybeFail();
+      return executionSafetyPolicyState;
+    },
+    async saveExecutionSafetyPolicy(productionWorkspaces: string[], identity: Identity) {
+      maybeFail();
+      executionSafetyPolicyState = {
+        production_workspaces: [...productionWorkspaces], version: executionSafetyPolicyState.version + 1,
+      };
+      recorded.push({
+        kind: 'SAVE_EXECUTION_SAFETY_POLICY', id: identity.principal,
+        reason: productionWorkspaces.join(','),
+      });
+      return executionSafetyPolicyState;
     },
   };
 }

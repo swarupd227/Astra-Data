@@ -149,6 +149,40 @@ def test_the_last_named_expression_has_no_trailing_comma() -> None:
     assert not body_lines[closing_index - 1].rstrip().endswith(",")
 
 
+def test_max_rows_none_omits_the_topn_wrap() -> None:
+    query = build_dax_query(
+        grain=("Desk",), measures=("Margin",), sdk_filters=(), sdk_parameters=(), table_map={},
+    )
+    assert "TOPN" not in query
+    assert query.startswith("EVALUATE\nSUMMARIZECOLUMNS(")
+
+
+def test_max_rows_wraps_the_body_in_a_real_topn() -> None:
+    query = build_dax_query(
+        grain=("Desk",), measures=("Margin",), sdk_filters=(), sdk_parameters=(),
+        table_map={}, max_rows=100_000,
+    )
+    assert query.startswith("EVALUATE\nTOPN(\n    100000,\n    SUMMARIZECOLUMNS(")
+    # The wrap is balanced -- one closer for SUMMARIZECOLUMNS, one for TOPN itself --
+    # and ORDER BY stays a top-level EVALUATE clause, outside the wrap.
+    assert query.count("(") == query.count(")")
+    assert query.endswith("ORDER BY 'Desk'[Desk]")
+    assert "\n    )\n)\nORDER BY" in query
+
+
+def test_max_rows_is_valid_dax_via_sqlglot_agnostic_bracket_balance() -> None:
+    # This codebase has no DAX parser to validate against; a real target engine is the
+    # only thing that can truly confirm the syntax. Bracket balance is the one thing
+    # checkable here without one -- a real, if partial, correctness signal.
+    query = build_dax_query(
+        grain=("Desk", "Region"), measures=("Margin", "Revenue"),
+        sdk_filters=(("Region", "EMEA"), ("Region", "APAC")), sdk_parameters=(("Growth Rate", "0.05"),),
+        table_map={"Desk": "Geography"}, max_rows=50,
+    )
+    assert query.count("(") == query.count(")")
+    assert "TOPN(\n    50," in query
+
+
 # ------------------------------------------------------------------------ result_set_to_parquet
 
 

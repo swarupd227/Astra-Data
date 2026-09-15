@@ -21,7 +21,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import type { AgentRecord, Api, Identity, SvidRecord } from '../lib/api';
+import type { AgentRecord, Api, ExecutionSafetyPolicy, Identity, SvidRecord } from '../lib/api';
 import { ApiError } from '../lib/api';
 
 interface Props {
@@ -38,25 +38,32 @@ const STATUS_LABEL: Record<SvidRecord['status'], string> = {
 export function TenantAccess({ api, identity }: Props): JSX.Element {
   const [agents, setAgents] = useState<AgentRecord[] | null>(null);
   const [svids, setSvids] = useState<SvidRecord[] | null>(null);
+  const [safetyPolicy, setSafetyPolicy] = useState<ExecutionSafetyPolicy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedAgent, setSelectedAgent] = useState<AgentRecord | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [revokeReason, setRevokeReason] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  const [editingPolicy, setEditingPolicy] = useState(false);
+  const [policyDraft, setPolicyDraft] = useState('');
+  const [policyNotice, setPolicyNotice] = useState<string | null>(null);
 
   const canRevoke = identity.roles.includes('platform_engineer');
+  const canEditPolicy = identity.roles.includes('platform_engineer');
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [agentResult, svidResult] = await Promise.all([
+      const [agentResult, svidResult, policyResult] = await Promise.all([
         api.agentRecords(identity),
         api.svidRecords(identity),
+        api.executionSafetyPolicy(identity),
       ]);
       setAgents(agentResult.agents);
       setSvids(svidResult.svids);
+      setSafetyPolicy(policyResult);
     } catch (caught: unknown) {
       setError(caught instanceof ApiError ? caught.message : 'Tenant & Access could not be read.');
     } finally {
@@ -85,6 +92,24 @@ export function TenantAccess({ api, identity }: Props): JSX.Element {
       setNotice(caught instanceof ApiError ? caught.message : 'The SVID could not be revoked.');
     }
   }, [api, identity, revoking, revokeReason, load]);
+
+  const startEditPolicy = useCallback(() => {
+    setPolicyDraft((safetyPolicy?.production_workspaces ?? []).join(', '));
+    setPolicyNotice(null);
+    setEditingPolicy(true);
+  }, [safetyPolicy]);
+
+  const savePolicy = useCallback(async () => {
+    const workspaces = policyDraft.split(',').map((w) => w.trim()).filter(Boolean);
+    try {
+      const saved = await api.saveExecutionSafetyPolicy(workspaces, identity);
+      setSafetyPolicy(saved);
+      setEditingPolicy(false);
+      setPolicyNotice(null);
+    } catch (caught: unknown) {
+      setPolicyNotice(caught instanceof ApiError ? caught.message : 'The policy could not be saved.');
+    }
+  }, [api, identity, policyDraft]);
 
   return (
     <div className="workspace tenant-access-workspace">
@@ -175,6 +200,50 @@ export function TenantAccess({ api, identity }: Props): JSX.Element {
                 ))}
               </tbody>
             </table>
+          )}
+        </div>
+      </section>
+
+      <section className="pane" aria-label="Execution safety policy">
+        <header className="pane-header">
+          <h2>Execution safety</h2>
+          <span className="faint">spec §18.2 -- which workspaces this tenant calls production</span>
+        </header>
+        <div className="pane-body">
+          {policyNotice && <p className="faint">{policyNotice}</p>}
+          {!error && loading && !safetyPolicy && <p className="empty">Reading the execution-safety policy…</p>}
+          {!error && safetyPolicy && !editingPolicy && (
+            <>
+              <p>
+                <strong>Production workspaces</strong>:{' '}
+                {safetyPolicy.production_workspaces.length > 0
+                  ? safetyPolicy.production_workspaces.join(', ')
+                  : <span className="faint">(none named -- every workspace is open to any Parity Engineer)</span>}
+              </p>
+              <p className="faint">
+                Execution against a named workspace is limited to the regression runner; version {safetyPolicy.version}.
+              </p>
+              {canEditPolicy && (
+                <button type="button" className="btn" onClick={startEditPolicy}>Edit</button>
+              )}
+            </>
+          )}
+          {editingPolicy && (
+            <div className="detail">
+              <label>
+                Production workspaces (comma-separated)
+                <input
+                  type="text"
+                  value={policyDraft}
+                  onChange={(e) => setPolicyDraft(e.target.value)}
+                />
+              </label>
+              <footer className="statusbar">
+                <button type="button" className="btn" onClick={() => setEditingPolicy(false)}>Cancel</button>
+                <span className="spacer" />
+                <button type="button" className="btn" onClick={() => void savePolicy()}>Save</button>
+              </footer>
+            </div>
           )}
         </div>
       </section>

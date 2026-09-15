@@ -17,6 +17,7 @@ from .routes_deployment_bom import router as deployment_bom_router
 from .routes_estate import router as estate_router
 from .routes_events_stream import router as events_stream_router
 from .routes_exceptions import router as exceptions_router
+from .routes_execution_safety import router as execution_safety_router
 from .routes_explain import router as explain_router
 from .routes_failure_classification import router as failure_classification_router
 from .routes_families import router as families_router
@@ -68,6 +69,7 @@ __all__ = [
     "estate_router",
     "events_stream_router",
     "exceptions_router",
+    "execution_safety_router",
     "explain_router",
     "failure_classification_router",
     "families_router",

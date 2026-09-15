@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { TenantAccess } from '../tenant-access/TenantAccess';
-import { fakeApi, svidRecord } from './fixtures';
+import { executionSafetyPolicy, fakeApi, svidRecord } from './fixtures';
 
 const ARTIZENT_IDENTITY = { principal: 'user:p.eng@artizent.example', roles: ['platform_engineer'] };
 const INFOSEC_IDENTITY = { principal: 'user:infosec@client.example', roles: ['client_infosec_reviewer'] };
@@ -96,5 +96,44 @@ describe("revoke (the platform engineer's own action)", () => {
     await user.type(screen.getByLabelText('Reason'), 'short');
 
     expect(screen.getByRole('button', { name: 'Confirm revoke' })).toBeDisabled();
+  });
+});
+
+describe("execution safety (story S11.2.1's own tenant policy)", () => {
+  it('shows the honest default when no workspace is named production', async () => {
+    render(<TenantAccess api={fakeApi()} identity={ARTIZENT_IDENTITY} />);
+    expect(await screen.findByText(/none named/)).toBeInTheDocument();
+  });
+
+  it('shows a real, previously saved list of production workspaces', async () => {
+    const api = fakeApi();
+    api.seedExecutionSafetyPolicy(executionSafetyPolicy({ production_workspaces: ['prod'], version: 3 }));
+    render(<TenantAccess api={api} identity={ARTIZENT_IDENTITY} />);
+    expect(await screen.findByText('prod', { exact: false })).toBeInTheDocument();
+    expect(screen.getByText(/version 3/)).toBeInTheDocument();
+  });
+
+  it('hides Edit for a role that is not the platform engineer', async () => {
+    render(<TenantAccess api={fakeApi()} identity={INFOSEC_IDENTITY} />);
+    await screen.findByText(/none named/);
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+  });
+
+  it('saves a real, edited list of production workspaces', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    render(<TenantAccess api={api} identity={ARTIZENT_IDENTITY} />);
+    await screen.findByText(/none named/);
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const input = screen.getByLabelText('Production workspaces (comma-separated)');
+    await user.clear(input);
+    await user.type(input, 'prod, prod-eu');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText(/prod, prod-eu/)).toBeInTheDocument();
+    expect(api.recorded).toContainEqual(
+      expect.objectContaining({ kind: 'SAVE_EXECUTION_SAFETY_POLICY', reason: 'prod,prod-eu' }),
+    );
   });
 });

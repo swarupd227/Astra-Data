@@ -65,12 +65,21 @@ def build_dax_query(
     sdk_filters: tuple[tuple[str, str], ...],
     sdk_parameters: tuple[tuple[str, str], ...],
     table_map: dict[str, str],
+    max_rows: int | None = None,
 ) -> str:
     """§10.2's own worked-example shape, from real grain/measures/filters/parameters.
     ``table_map`` is field name -> DAX table name, from a real `Field -> ModelTable`
     binding when one exists (honestly empty today -- see `case_execution.py`'s own
     docstring); a field absent from it is qualified against its own name, a disclosed
-    placeholder, not a guess."""
+    placeholder, not a guess.
+
+    ``max_rows`` (story S11.2.1, spec §18.2's own "resource limits per query") wraps the
+    body in a real DAX ``TOPN`` when given, so the row cap is part of what is actually
+    sent to XMLA rather than a limit applied after a target engine already spent
+    resources producing more than was needed. ``ORDER BY`` stays an ``EVALUATE``-level
+    clause outside the wrap -- valid DAX either way, and the cap does not need its own
+    tie-break ordering when the outer ``ORDER BY`` already re-sorts the capped rows for
+    display."""
 
     def column_ref(field: str) -> str:
         table = table_map.get(field, field)
@@ -94,7 +103,11 @@ def build_dax_query(
     if body:
         body[-1] = body[-1].rstrip(",")
 
-    lines = ["EVALUATE", "SUMMARIZECOLUMNS(", *body, ")"]
+    table_expr = ["SUMMARIZECOLUMNS(", *body, ")"]
+    if max_rows is not None:
+        table_expr = [f"TOPN(\n    {max_rows},", *(f"    {line}" for line in table_expr), ")"]
+
+    lines = ["EVALUATE", *table_expr]
     if grain:
         lines.append(f"ORDER BY {', '.join(column_ref(dim) for dim in grain)}")
     return "\n".join(lines)

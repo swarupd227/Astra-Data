@@ -78,6 +78,28 @@ resource "azurerm_key_vault_secret" "fabric_service_principal_placeholder" {
   depends_on = [azurerm_role_assignment.keyvault_admin_deployer]
 }
 
+# Story S11.2.1, spec §18.2: "a service principal that has no write on data" for XMLA
+# execution -- deliberately a *second*, distinct slot from `fabric-workspace-sp` above,
+# not a second reference to the same one. `fabric-workspace-sp` backs `commit`/`deploy`
+# (§7.1, a real, already-accepted write path gated to the Steward); this one backs
+# `TargetAdapter.evaluate` alone (the DAX/XMLA read this story's own AC is about) and
+# must never be granted more than Fabric's own read-only workspace role. Registering the
+# app and assigning that role is the client's own Fabric-admin action -- the identical
+# "not something an Azure Resource Manager deployment can reach into" limit this file's
+# own header comment already states for `fabric-workspace-sp`; this module only reserves
+# the name.
+resource "azurerm_key_vault_secret" "fabric_execution_service_principal_placeholder" {
+  name         = "fabric-execution-sp"
+  value        = "REPLACE_ME_VIA_AZ_CLI_NOT_TERRAFORM"
+  key_vault_id = azurerm_key_vault.main.id
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+
+  depends_on = [azurerm_role_assignment.keyvault_admin_deployer]
+}
+
 resource "azurerm_key_vault_secret" "tableau_service_principal_placeholder" {
   name         = "tableau-rqa"
   value        = "REPLACE_ME_VIA_AZ_CLI_NOT_TERRAFORM"

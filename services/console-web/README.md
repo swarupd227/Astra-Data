@@ -341,6 +341,14 @@ Revoke additionally hidden client-side unless `identity.roles` includes
 `platform_engineer` — hidden, not disabled, the same convention every other gated action
 in this console already follows.
 
+**Story S11.2.1 added a third `Tenant & Access` pane, Execution safety** — the real
+`ExecutionSafetyPolicy` (which workspaces this tenant calls production), read via
+`lib/api.ts`'s new `executionSafetyPolicy` and edited via `saveExecutionSafetyPolicy`.
+Not a new top-level surface — this is exactly the kind of governance fact the existing
+screen already exists to show. Edit is hidden, not disabled, for every role but the
+platform engineer, the identical convention Revoke above already set; every other role
+still sees the current list read-only.
+
 ## Performance
 
 S1.4.1 budgets two seconds for a 1,067-workbook site. The server's share is measured in

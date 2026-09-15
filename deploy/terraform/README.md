@@ -60,8 +60,16 @@ Tableau Server/Cloud's own admin console, then:
 az keyvault secret set --vault-name "$(terraform output -raw key_vault_name)" \
   --name tableau-rqa --value "<the real Tableau personal access token or connected-app secret>"
 az keyvault secret set --vault-name "$(terraform output -raw key_vault_name)" \
-  --name fabric-workspace-sp --value "<the real Fabric service principal secret>"
+  --name fabric-workspace-sp --value "<the real Fabric service principal secret -- commit/deploy>"
+az keyvault secret set --vault-name "$(terraform output -raw key_vault_name)" \
+  --name fabric-execution-sp --value "<a SECOND, DISTINCT Fabric service principal secret>"
 ```
+
+**`fabric-execution-sp` (story S11.2.1, spec §18.2) must be granted Fabric's own
+read-only "Viewer" workspace role, never Contributor/Member/Admin** -- it backs XMLA
+`evaluate` (the DAX read this story's AC is about), and is deliberately not the same
+principal as `fabric-workspace-sp`, which backs `commit`/`deploy` and legitimately needs
+write access to publish a model.
 
 **After apply**, wire the outputs into graph-svc/console-web's own configuration —
 `outputs.tf` names exactly which environment variable each one is:

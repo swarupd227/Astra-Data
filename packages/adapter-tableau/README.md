@@ -42,6 +42,16 @@ says why rather than pretending (`ports.py`, and Platform Health shows it):
 A stub reader returning empty rows would be worse than the absence: it would be a parity case
 that passed against nothing.
 
+**Story S11.2.1 wraps whichever `LiveQueryRunner` this deployment has — including the
+default absent one above — in a real tenant-policy gate and a SELECT-only statement
+allow-list** (`live_replay_policy.py`), so the safety property is real and independently
+tested even though live replay itself stays exactly as unavailable as the table above
+already says. `ASTRA_TABLEAU_LIVE_REPLAY_ENABLED` (default off) and
+`ASTRA_TABLEAU_LIVE_REPLAY_MAX_ROWS` (default 100,000) — see Configuration below — are
+this worker's own tenant policy; enabling the flag changes nothing on its own, since no
+real driver exists to enable, but the gate is where a future story's real driver lands
+without touching `execution.py`/`TableauExecutor` at all.
+
 ## Conformance
 
 **This adapter passes**, for the capabilities it claims:
@@ -82,6 +92,8 @@ ASTRA_TABLEAU_URL=https://tableau.client.example
 ASTRA_TABLEAU_SITE=rqa
 ASTRA_TABLEAU_CREDENTIAL='{"kind":"personal_access_token","token_name":"astra","secret":"..."}'
 ASTRA_TABLEAU_CONCURRENCY=4
+ASTRA_TABLEAU_LIVE_REPLAY_ENABLED=false   # story S11.2.1's own tenant policy; off by default
+ASTRA_TABLEAU_LIVE_REPLAY_MAX_ROWS=100000 # this side's own resource limit per query
 ```
 
 A connected app instead of a token:

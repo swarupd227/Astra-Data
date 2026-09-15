@@ -171,6 +171,11 @@ from astra_adapter.target_contract import TargetAdapter
 from .artefacts import ArtefactStore
 from .case_derivation import _worksheet_field_index  # same epic (E7); see module docstring
 from .case_execution_query import build_dax_query, to_sdk_filters, to_sdk_parameters
+from .execution_safety import (
+    ExecutionSafetyPolicy,
+    ExecutionSafetyPolicyStore,
+    authorize_target_workspace,
+)
 from .graph.queries import EDGE_INDEX_TABLE, NODE_INDEX_TABLE
 from .ids import new_ulid
 from .lineage import hydrate
@@ -458,7 +463,7 @@ async def _execute_one_case(
 
     query_text = build_dax_query(
         grain=grain, measures=measures, sdk_filters=sdk_filters,
-        sdk_parameters=sdk_parameters, table_map=table_map,
+        sdk_parameters=sdk_parameters, table_map=table_map, max_rows=charter.max_rows,
     )
 
     # A stable id (case_key, S7.2.1), not the graph node's own ULID: a re-derivation
@@ -679,6 +684,7 @@ class CaseExecutionService:
         fabric_concurrency: int = DEFAULT_FABRIC_CONCURRENCY,
         tableau_concurrency: int = DEFAULT_TABLEAU_CONCURRENCY,
         execution_charter: ExecutionCharter | None = None,
+        safety_policy_store: ExecutionSafetyPolicyStore | None = None,
     ) -> None:
         self._pool = pool
         self._graph = graph_name
@@ -689,6 +695,7 @@ class CaseExecutionService:
         self._fabric_concurrency = max(1, fabric_concurrency)
         self._tableau_concurrency = max(1, tableau_concurrency)
         self._charter = execution_charter or ExecutionCharter()
+        self._safety_policy_store = safety_policy_store
         self._workspace_semaphores: dict[str, asyncio.Semaphore] = {}
         self._site_semaphores: dict[str, asyncio.Semaphore] = {}
 
@@ -709,6 +716,13 @@ class CaseExecutionService:
     async def execute(self, workbook_id: str, *, workspace: str, principal: Principal) -> dict[str, Any]:
         if self._source_adapter is None:
             raise CaseExecutionError("no source adapter is enabled on this deployment")
+        # Story S11.2.1: refuses a production-classified workspace to any caller other
+        # than the regression runner, before any work is scheduled. Unrestricted when no
+        # policy store is configured -- the honest default for a deployment nobody has
+        # set one up for yet, the identical "always the dataclass default until
+        # configured" posture `self._charter` already has.
+        policy = await self._safety_policy_store.latest() if self._safety_policy_store else ExecutionSafetyPolicy()
+        authorize_target_workspace(principal.value, workspace=workspace, policy=policy)
         async with self._pool.acquire() as conn:
             site = await _resolve_site(conn, self._graph, workbook_id)
         if site is None:
