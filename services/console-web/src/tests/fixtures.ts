@@ -41,6 +41,10 @@ import type {
   ExceptionQueueEntry,
   ExceptionQueueResponse,
   ExecutionSafetyPolicy,
+  EvidenceChainStatus,
+  DailyRoot,
+  RetentionPolicy,
+  RetentionState,
   ExplainEntry,
   FailingCellRow,
   FamiliesResponse,
@@ -1851,6 +1855,32 @@ export function executionSafetyPolicy(overrides: Partial<ExecutionSafetyPolicy> 
   return { production_workspaces: [], version: 0, ...overrides };
 }
 
+export function evidenceChainStatus(overrides: Partial<EvidenceChainStatus> = {}): EvidenceChainStatus {
+  return {
+    tip_seq: 12, tip_hash: 'a'.repeat(64), total_entries: 12,
+    by_category: { state_transition: 8, gate_decision: 2, verdict: 1, agent_run: 1 },
+    ...overrides,
+  };
+}
+
+export function dailyRoot(overrides: Partial<DailyRoot> = {}): DailyRoot {
+  return {
+    id: 'evroot_01M1', day: '2027-06-01', first_chain_seq: 1, last_chain_seq: 12,
+    entry_count: 12, root_hash: 'b'.repeat(64), computed_at: '2027-06-02T02:00:00.000Z',
+    anchor_kind: null, anchor_ref: null, anchored_at: null,
+    ...overrides,
+  };
+}
+
+export function retentionState(overrides: Partial<RetentionState> = {}): RetentionState {
+  return {
+    policy: 'programme lifetime plus 84 months', prunable_before: null,
+    reason: 'no programme is recorded, so the platform cannot tell whether it is holding evidence for one. Nothing may be pruned.',
+    retention_years: 7, policy_version: 0, pruning_implemented: false,
+    ...overrides,
+  };
+}
+
 export const RAISED_ISSUE: ConstructIssue = {
   id: 'gi_01M1',
   state: 'OPEN',
@@ -1874,6 +1904,11 @@ export interface FakeApi extends Api {
   /** Story S11.2.1: seed the execution-safety policy `executionSafetyPolicy`/
    * `saveExecutionSafetyPolicy` operate over -- the honest empty default otherwise. */
   seedExecutionSafetyPolicy(policy: ExecutionSafetyPolicy): void;
+  /** Story S11.3.1: seed the Evidence Chain's own status/daily-roots/retention state --
+   * each has an honest, empty-ish default otherwise. */
+  seedEvidenceChainStatus(status: EvidenceChainStatus): void;
+  seedDailyRoots(roots: DailyRoot[]): void;
+  seedRetentionState(state: RetentionState): void;
 }
 
 export function fakeApi(
@@ -1954,6 +1989,10 @@ export function fakeApi(
   // Story S11.2.1. The honest default (no production workspace named) until a test
   // calls `api.seedExecutionSafetyPolicy(...)`.
   let executionSafetyPolicyState: ExecutionSafetyPolicy = executionSafetyPolicy();
+  // Story S11.3.1. Each has an honest, empty-ish default until a test seeds one.
+  let evidenceChainStatusState: EvidenceChainStatus = { tip_seq: 0, tip_hash: null, total_entries: 0, by_category: {} };
+  let dailyRootRows: DailyRoot[] = [];
+  let retentionStateState: RetentionState = retentionState();
   const programmeRows = programmes.programmes.map((row) => ({ ...row }));
   const trainRows = trains.trains.map((train) => ({
     ...train,
@@ -2049,6 +2088,15 @@ export function fakeApi(
     },
     seedExecutionSafetyPolicy(policy) {
       executionSafetyPolicyState = { ...policy };
+    },
+    seedEvidenceChainStatus(status) {
+      evidenceChainStatusState = { ...status, by_category: { ...status.by_category } };
+    },
+    seedDailyRoots(roots) {
+      dailyRootRows = roots.map((r) => ({ ...r }));
+    },
+    seedRetentionState(state) {
+      retentionStateState = { ...state };
     },
     async estate(query: EstateQuery, _identity: Identity) {
       calls.estate.push(query);
@@ -3351,6 +3399,46 @@ export function fakeApi(
         reason: productionWorkspaces.join(','),
       });
       return executionSafetyPolicyState;
+    },
+    async evidenceChainStatus(_identity: Identity) {
+      maybeFail();
+      return evidenceChainStatusState;
+    },
+    async advanceEvidenceChain(identity: Identity) {
+      maybeFail();
+      recorded.push({ kind: 'ADVANCE_EVIDENCE_CHAIN', id: identity.principal, reason: '' });
+      return {
+        graph: 'astra_estate', entries_added: 0,
+        tip_seq: evidenceChainStatusState.tip_seq, tip_hash: evidenceChainStatusState.tip_hash ?? ''.padEnd(64, '0'),
+      };
+    },
+    async verifyEvidenceChain(identity: Identity) {
+      maybeFail();
+      recorded.push({ kind: 'VERIFY_EVIDENCE_CHAIN', id: identity.principal, reason: '' });
+      return {
+        graph: 'astra_estate', entries_checked: evidenceChainStatusState.total_entries,
+        intact: true, first_break: null,
+      };
+    },
+    async dailyRoots(_identity: Identity) {
+      maybeFail();
+      return { daily_roots: dailyRootRows };
+    },
+    async retentionState(_identity: Identity) {
+      maybeFail();
+      return retentionStateState;
+    },
+    async saveRetentionPolicy(retentionYears: number, identity: Identity) {
+      maybeFail();
+      const saved: RetentionPolicy = { retention_years: retentionYears, version: retentionStateState.policy_version + 1 };
+      retentionStateState = {
+        ...retentionStateState, retention_years: retentionYears, policy_version: saved.version,
+        policy: `programme lifetime plus ${retentionYears * 12} months`,
+      };
+      recorded.push({
+        kind: 'SAVE_RETENTION_POLICY', id: identity.principal, reason: String(retentionYears),
+      });
+      return saved;
     },
   };
 }

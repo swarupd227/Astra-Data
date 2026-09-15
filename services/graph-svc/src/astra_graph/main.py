@@ -34,6 +34,7 @@ from .api import (
     deployment_bom_router,
     estate_router,
     events_stream_router,
+    evidence_chain_router,
     exceptions_router,
     execution_safety_router,
     explain_router,
@@ -136,7 +137,7 @@ from .regression import (
 )
 from .release import PostgresPromotionStore, ReleaseService
 from .report_deploy import PostgresReportDeployStore
-from .retention import PostgresProgrammeStore
+from .retention import PostgresProgrammeStore, PostgresRetentionPolicyStore
 from .rules import RulesEngine
 from .scope import PostgresScopeStore
 from .target_setup import build_target_adapter
@@ -247,6 +248,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.provenance_store = PostgresProvenanceStore(pool, graph_name=config.graph_name)
     app.state.artefact_store = PostgresArtefactStore(pool, graph_name=config.graph_name)
     app.state.programme_store = PostgresProgrammeStore(pool, graph_name=config.graph_name)
+    # Story S11.3.1, opening F11.3: this tenant's own configured retention duration.
+    app.state.retention_policy_store = PostgresRetentionPolicyStore(pool, graph_name=config.graph_name)
     app.state.cartographer = Cartographer(
         pool, graph_name=config.graph_name, writer=writer, programme_store=app.state.programme_store
     )
@@ -612,6 +615,7 @@ def create_app() -> FastAPI:
     app.include_router(deployment_bom_router)
     app.include_router(tenant_access_router)
     app.include_router(execution_safety_router)
+    app.include_router(evidence_chain_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

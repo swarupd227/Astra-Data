@@ -4,8 +4,14 @@
 # Seeds the test estate, rebuilds it from nothing but the mutation events, and compares
 # the two graphs element by element. A failure means the record and the estate disagree,
 # which is a defect in the platform's evidence, not a flaky test.
+#
+# Story S11.3.1's own second job, opens F11.3: "verification tool recomputes the chain
+# and reports the first break; runs nightly and on demand." The identical shape --
+# `workflow_dispatch` above is already the "on demand" half; this job is the "nightly"
+# half, advancing then verifying the Evidence Chain the same way the job above rebuilds
+# and compares the graph.
 
-name: Nightly replay verification
+name: Nightly replay and evidence-chain verification
 
 on:
   schedule:
@@ -63,6 +69,64 @@ jobs:
       - name: Verify the event stream reproduces the estate
         working-directory: services/graph-svc
         run: python tools/verify_replay.py
+
+      - name: Database log on failure
+        if: failure()
+        run: docker logs "${{ job.services.postgres.id }}" --tail 100
+
+  evidence-chain:
+    name: Evidence Chain advances and verifies
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: apache/age:release_PG16_1.6.0
+        env:
+          POSTGRES_DB: astra
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      ASTRA_POSTGRES_HOST: localhost
+      ASTRA_POSTGRES_PORT: "5432"
+      ASTRA_POSTGRES_DB: astra
+      ASTRA_POSTGRES_USER: astra
+      ASTRA_POSTGRES_PASSWORD: astra_ci
+      ASTRA_GRAPH_NAME: astra_estate_nightly_evidence
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -e "services/graph-svc[dev]"
+
+      - name: Migrate
+        working-directory: services/graph-svc
+        run: python tools/migrate.py
+
+      - name: Seed the test estate
+        working-directory: services/graph-svc
+        run: python tools/seed_test_estate.py --workbooks 25
+
+      - name: Advance the Evidence Chain
+        working-directory: services/graph-svc
+        run: python tools/advance_evidence_chain.py
+
+      - name: Verify the Evidence Chain
+        working-directory: services/graph-svc
+        run: python tools/verify_evidence_chain.py
 
       - name: Database log on failure
         if: failure()

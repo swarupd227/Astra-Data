@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { TenantAccess } from '../tenant-access/TenantAccess';
-import { executionSafetyPolicy, fakeApi, svidRecord } from './fixtures';
+import { dailyRoot, evidenceChainStatus, executionSafetyPolicy, fakeApi, svidRecord } from './fixtures';
 
 const ARTIZENT_IDENTITY = { principal: 'user:p.eng@artizent.example', roles: ['platform_engineer'] };
 const INFOSEC_IDENTITY = { principal: 'user:infosec@client.example', roles: ['client_infosec_reviewer'] };
@@ -115,25 +115,119 @@ describe("execution safety (story S11.2.1's own tenant policy)", () => {
 
   it('hides Edit for a role that is not the platform engineer', async () => {
     render(<TenantAccess api={fakeApi()} identity={INFOSEC_IDENTITY} />);
-    await screen.findByText(/none named/);
-    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    const pane = await screen.findByRole('region', { name: 'Execution safety policy' });
+    await within(pane).findByText(/none named/);
+    expect(within(pane).queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
   });
 
   it('saves a real, edited list of production workspaces', async () => {
     const user = userEvent.setup();
     const api = fakeApi();
     render(<TenantAccess api={api} identity={ARTIZENT_IDENTITY} />);
-    await screen.findByText(/none named/);
+    const pane = await screen.findByRole('region', { name: 'Execution safety policy' });
+    await within(pane).findByText(/none named/);
 
-    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(within(pane).getByRole('button', { name: 'Edit' }));
     const input = screen.getByLabelText('Production workspaces (comma-separated)');
     await user.clear(input);
     await user.type(input, 'prod, prod-eu');
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(within(pane).getByRole('button', { name: 'Save' }));
 
-    expect(await screen.findByText(/prod, prod-eu/)).toBeInTheDocument();
+    expect(await within(pane).findByText(/prod, prod-eu/)).toBeInTheDocument();
     expect(api.recorded).toContainEqual(
       expect.objectContaining({ kind: 'SAVE_EXECUTION_SAFETY_POLICY', reason: 'prod,prod-eu' }),
+    );
+  });
+});
+
+describe("evidence chain (story S11.3.1's own hash-linked record)", () => {
+  it('shows the honest empty state when nothing has been chained yet', async () => {
+    render(<TenantAccess api={fakeApi()} identity={ARTIZENT_IDENTITY} />);
+    expect(await screen.findByText('nothing chained yet')).toBeInTheDocument();
+  });
+
+  it('shows the real tip and category counts once something has been chained', async () => {
+    const api = fakeApi();
+    api.seedEvidenceChainStatus(evidenceChainStatus({ tip_seq: 5, by_category: { gate_decision: 1, agent_run: 1 } }));
+    render(<TenantAccess api={api} identity={ARTIZENT_IDENTITY} />);
+    expect(await screen.findByText(/seq 5/)).toBeInTheDocument();
+    expect(screen.getByText('gate_decision: 1')).toBeInTheDocument();
+    expect(screen.getByText('agent_run: 1')).toBeInTheDocument();
+  });
+
+  it('shows a real daily root once one has been computed', async () => {
+    const api = fakeApi();
+    api.seedDailyRoots([dailyRoot({ day: '2027-06-01', entry_count: 12 })]);
+    render(<TenantAccess api={api} identity={ARTIZENT_IDENTITY} />);
+    expect(await screen.findByText('2027-06-01')).toBeInTheDocument();
+    expect(screen.getByText('not anchored')).toBeInTheDocument();
+  });
+
+  it('hides Advance/Verify for a role that is not the platform engineer', async () => {
+    render(<TenantAccess api={fakeApi()} identity={INFOSEC_IDENTITY} />);
+    const pane = await screen.findByRole('region', { name: 'Evidence chain' });
+    await within(pane).findByText('nothing chained yet');
+    expect(within(pane).queryByRole('button', { name: 'Advance now' })).not.toBeInTheDocument();
+    expect(within(pane).queryByRole('button', { name: 'Verify now' })).not.toBeInTheDocument();
+  });
+
+  it('verifies the chain and shows an intact result', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    api.seedEvidenceChainStatus(evidenceChainStatus({ total_entries: 7 }));
+    render(<TenantAccess api={api} identity={ARTIZENT_IDENTITY} />);
+    const pane = await screen.findByRole('region', { name: 'Evidence chain' });
+
+    await user.click(within(pane).getByRole('button', { name: 'Verify now' }));
+
+    expect(await within(pane).findByText(/Intact -- 7 entries verified/)).toBeInTheDocument();
+    expect(api.recorded).toContainEqual(expect.objectContaining({ kind: 'VERIFY_EVIDENCE_CHAIN' }));
+  });
+
+  it('advances the chain and re-reads its own status', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    render(<TenantAccess api={api} identity={ARTIZENT_IDENTITY} />);
+    const pane = await screen.findByRole('region', { name: 'Evidence chain' });
+    await within(pane).findByText('nothing chained yet');
+
+    await user.click(within(pane).getByRole('button', { name: 'Advance now' }));
+
+    expect(await within(pane).findByText(/Chained 0 new entries/)).toBeInTheDocument();
+    expect(api.recorded).toContainEqual(expect.objectContaining({ kind: 'ADVANCE_EVIDENCE_CHAIN' }));
+  });
+});
+
+describe("retention (story S11.3.1's own tenant-configurable duration)", () => {
+  it('shows the real default policy', async () => {
+    render(<TenantAccess api={fakeApi()} identity={ARTIZENT_IDENTITY} />);
+    expect(await screen.findByText(/programme lifetime plus 84 months/)).toBeInTheDocument();
+    expect(screen.getByText(/7 years/)).toBeInTheDocument();
+  });
+
+  it('hides Edit for a role that is not the platform engineer', async () => {
+    render(<TenantAccess api={fakeApi()} identity={INFOSEC_IDENTITY} />);
+    const pane = await screen.findByRole('region', { name: 'Retention' });
+    await within(pane).findByText(/7 years/);
+    expect(within(pane).queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+  });
+
+  it('saves a real, edited retention duration', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    render(<TenantAccess api={api} identity={ARTIZENT_IDENTITY} />);
+    const pane = await screen.findByRole('region', { name: 'Retention' });
+    await within(pane).findByText(/7 years/);
+
+    await user.click(within(pane).getByRole('button', { name: 'Edit' }));
+    const input = within(pane).getByLabelText('Retention (years)');
+    await user.clear(input);
+    await user.type(input, '10');
+    await user.click(within(pane).getByRole('button', { name: 'Save' }));
+
+    expect(await within(pane).findByText(/10 years/)).toBeInTheDocument();
+    expect(api.recorded).toContainEqual(
+      expect.objectContaining({ kind: 'SAVE_RETENTION_POLICY', reason: '10' }),
     );
   });
 });

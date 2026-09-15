@@ -1,22 +1,35 @@
 """How long a graph version stays answerable.
 
-S1.3.2: "retention for versions is the programme lifetime plus 12 months".
+S1.3.2: "retention for versions is the programme lifetime plus 12 months". Story
+S11.3.1, opens F11.3, spec §18.4/§4.5's own later, more specific figure: "Retention
+configurable per tenant (default: programme lifetime + 7 years)". The later story wins —
+it is the AC this module is now built to, not S1.3.2's own original number, which stays
+recorded here as history rather than silently overwritten.
 
 A graph version is an event offset (``versions.py``), so retaining a version means
 retaining the events at and below it. Retention is therefore a statement about the outbox,
 and it is the reason nothing in this service deletes an event.
 
-**The floor is computed, not configured.** A programme that is still running has no end
-date, so its retention floor is open: nothing may be pruned at all. A closed programme's
-floor is its close date plus twelve months. Expressing it as a computation rather than a
-number means a programme that runs eighteen months longer than planned does not silently
-lose the first year of its own evidence because somebody set a date once.
+**The floor is computed, not configured — except for the duration itself, which now is.**
+A programme that is still running has no end date, so its retention floor is open:
+nothing may be pruned at all. A closed programme's floor is its close date plus a
+configurable number of years (``RetentionPolicy.retention_years``, default
+``DEFAULT_RETENTION_YEARS = 7``) — the identical ``mender_config``/``execution_safety_
+policy`` shape (a real, versioned, per-``graph`` Postgres row) this codebase already
+established twice for exactly this "one editable policy value per tenant" concern.
+Expressing the floor itself as a computation from a close date, not a stored date,
+remains unchanged from S1.3.2: a programme that runs eighteen months longer than planned
+does not silently lose the first year of its own evidence because somebody set a date
+once.
 
-**Nothing prunes today, and that is deliberate.** There is no pruner, no scheduled
-deletion, no TTL. What exists is ``prunable_before``, which any future pruner has to ask
-and which refuses while a programme is open. Building the policy before the deletion is
-the right order: an audit trail that was pruned by a job written before anybody decided
-the rule is not an audit trail.
+**Nothing prunes today, and that is deliberate — unchanged by this story.** There is no
+pruner, no scheduled deletion, no TTL. What exists is ``prunable_before``, which any
+future pruner has to ask and which refuses while a programme is open. Building the policy
+before the deletion is the right order: an audit trail that was pruned by a job written
+before anybody decided the rule is not an audit trail. This story adds the AC's own
+"with export before deletion" as a real, callable, on-demand action
+(``export_prunable_evidence``) — it exports whatever is already prunable to a real
+artefact; it does not itself delete anything, or make anything else delete anything.
 
 The programme record here is the minimum §21 needs for this question — id, name, when it
 started, whether it has closed. The rest of §21's ``programme`` columns (charter version,
@@ -36,14 +49,23 @@ figures and can be overwritten by a re-cluster nobody has signed off on. See
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-PROGRAMME_TABLE = "public.programme"
+import asyncpg
 
-#: S1.3.2. Months past the end of the programme that versions stay addressable.
-RETENTION_MONTHS = 12
+from .artefacts import ArtefactRecord, ArtefactStore
+from .ids import new_ulid
+
+PROGRAMME_TABLE = "public.programme"
+RETENTION_POLICY_TABLE = "public.retention_policy"
+
+#: Story S11.3.1's own AC default, superseding S1.3.2's original 12 months -- see this
+#: module's own docstring for why the later, more specific story wins.
+DEFAULT_RETENTION_YEARS = 7
+DEFAULT_RETENTION_MONTHS = DEFAULT_RETENTION_YEARS * 12
 
 #: §14.3 / Appendix A: "~150 shared governed models (planning assumption, measured in
 #: Month 1)". A spec constant, not a per-programme value — every programme is measured
@@ -74,20 +96,26 @@ class Programme:
     def open(self) -> bool:
         return self.closed_at is None
 
-    def retain_until(self) -> str | None:
-        """When the earliest version may first be pruned. ``None`` while open."""
+    def retain_until(self, *, retention_months: int = DEFAULT_RETENTION_MONTHS) -> str | None:
+        """When the earliest version may first be pruned. ``None`` while open.
+
+        ``retention_months`` defaults to this story's own AC figure (7 years) but is a
+        real parameter, not a constant, since story S11.3.1 makes the duration tenant-
+        configurable (``RetentionPolicy``) -- a caller holding a tenant's own configured
+        policy passes its months here rather than always getting the default.
+        """
         if self.closed_at is None:
             return None
-        return _iso(_add_months(_parse(self.closed_at), RETENTION_MONTHS))
+        return _iso(_add_months(_parse(self.closed_at), retention_months))
 
-    def as_dict(self) -> dict[str, Any]:
+    def as_dict(self, *, retention_months: int = DEFAULT_RETENTION_MONTHS) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
             "started_at": self.started_at,
             "closed_at": self.closed_at,
             "open": self.open,
-            "retain_until": self.retain_until(),
+            "retain_until": self.retain_until(retention_months=retention_months),
             "clustering": self.clustering,
             "family_count": self.family_count,
             "family_count_confirmed_at": self.family_count_confirmed_at,
@@ -189,8 +217,6 @@ class PostgresProgrammeStore:
     async def record_clustering(
         self, programme_id: str, *, stats: dict[str, Any], principal: str
     ) -> Programme | None:
-        import json
-
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 f"""
@@ -294,20 +320,39 @@ class RetentionState:
     """The instant before which events may be deleted. ``None`` means nothing may be."""
 
     reason: str
+    retention_months: int = DEFAULT_RETENTION_MONTHS
+    """The duration this state was actually computed against -- carried on the response
+    so a reader never has to guess whether the default or a tenant's own configured
+    policy produced ``prunable_before``."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "policy": self.policy,
             "prunable_before": self.prunable_before,
             "reason": self.reason,
-            "programmes": [programme.as_dict() for programme in self.programmes],
+            "retention_years": self.retention_months // 12,
+            "programmes": [
+                programme.as_dict(retention_months=self.retention_months)
+                for programme in self.programmes
+            ],
         }
 
 
-POLICY = f"programme lifetime plus {RETENTION_MONTHS} months"
+def policy_text(retention_months: int) -> str:
+    return f"programme lifetime plus {retention_months} months"
 
 
-def prunable_before(programmes: list[Programme], *, now: datetime | None = None) -> RetentionState:
+#: Kept for any existing import of the original S1.3.2 wording; ``prunable_before``'s own
+#: default no longer matches it -- see this module's own docstring.
+POLICY = policy_text(DEFAULT_RETENTION_MONTHS)
+
+
+def prunable_before(
+    programmes: list[Programme],
+    *,
+    retention_months: int = DEFAULT_RETENTION_MONTHS,
+    now: datetime | None = None,
+) -> RetentionState:
     """The cutoff any pruner must respect.
 
     Three cases, and only the third permits anything:
@@ -316,57 +361,63 @@ def prunable_before(programmes: list[Programme], *, now: datetime | None = None)
       whether it is holding evidence for one. An empty table is not permission;
     * any programme is still open — nothing may be pruned, because its own evidence is
       still accruing and its lifetime has no end yet;
-    * every programme has closed — the cutoff is the *earliest* close plus twelve months,
-      and only if that has already passed. The earliest rather than the latest, because a
-      cutoff has to be safe for every programme sharing this graph.
+    * every programme has closed — the cutoff is the *earliest* close plus
+      ``retention_months`` (this tenant's own configured ``RetentionPolicy``, or the
+      default), and only if that has already passed. The earliest rather than the
+      latest, because a cutoff has to be safe for every programme sharing this graph.
     """
     moment = (now or datetime.now(UTC)).astimezone(UTC)
+    policy = policy_text(retention_months)
 
     if not programmes:
         return RetentionState(
-            policy=POLICY,
+            policy=policy,
             programmes=[],
             prunable_before=None,
             reason=(
                 "no programme is recorded, so the platform cannot tell whether it is "
                 "holding evidence for one. Nothing may be pruned."
             ),
+            retention_months=retention_months,
         )
 
     still_open = [programme for programme in programmes if programme.open]
     if still_open:
         names = ", ".join(sorted(programme.name for programme in still_open))
         return RetentionState(
-            policy=POLICY,
+            policy=policy,
             programmes=programmes,
             prunable_before=None,
             reason=f"{names} still running, so every version remains addressable.",
+            retention_months=retention_months,
         )
 
     floors = [
-        _add_months(_parse(str(programme.closed_at)), RETENTION_MONTHS)
+        _add_months(_parse(str(programme.closed_at)), retention_months)
         for programme in programmes
     ]
     cutoff = min(floors)
     if cutoff > moment:
         return RetentionState(
-            policy=POLICY,
+            policy=policy,
             programmes=programmes,
             prunable_before=None,
             reason=(
                 f"every programme has closed, but the retention floor is {_iso(cutoff)}, "
                 f"which has not passed."
             ),
+            retention_months=retention_months,
         )
     return RetentionState(
-        policy=POLICY,
+        policy=policy,
         programmes=programmes,
         prunable_before=_iso(cutoff),
         reason=(
-            f"every programme closed more than {RETENTION_MONTHS} months ago; events "
+            f"every programme closed more than {retention_months} months ago; events "
             f"committed before {_iso(cutoff)} are outside the retention floor. Note that "
             f"nothing in this service prunes them."
         ),
+        retention_months=retention_months,
     )
 
 
@@ -395,8 +446,6 @@ def _days_in_month(year: int, month: int) -> int:
 
 
 def _from_row(row: Any) -> Programme:
-    import json
-
     clustering_raw = row["clustering_json"]
     return Programme(
         id=row["id"],
@@ -420,15 +469,168 @@ def _iso(moment: datetime) -> str:
     return moment.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+# ---------------------------------------------------------------------- tenant policy
+
+
+@dataclass(frozen=True, slots=True)
+class RetentionPolicy:
+    """This tenant's own configured retention duration -- versioned, per-graph, the
+    identical shape ``mender_config``/``execution_safety_policy`` already established.
+    Always the dataclass's own default (this story's own AC figure) until a platform
+    engineer records one -- the honest state for a deployment nobody has configured yet."""
+
+    retention_years: int = DEFAULT_RETENTION_YEARS
+    version: int = 0
+
+    @property
+    def retention_months(self) -> int:
+        return self.retention_years * 12
+
+    def as_dict(self) -> dict[str, object]:
+        return {"retention_years": self.retention_years, "version": self.version}
+
+
+class RetentionPolicyStore(Protocol):
+    async def latest(self) -> RetentionPolicy: ...
+
+    async def save(self, policy: RetentionPolicy, *, updated_by: str) -> RetentionPolicy: ...
+
+
+class PostgresRetentionPolicyStore:
+    """Versioned, per-graph ('per tenant') -- the identical footing
+    `PostgresMenderConfigStore`/`PostgresExecutionSafetyPolicyStore` already established."""
+
+    def __init__(self, pool: asyncpg.Pool, *, graph_name: str) -> None:
+        self._pool = pool
+        self._graph = graph_name
+
+    async def latest(self) -> RetentionPolicy:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"SELECT version, retention_years FROM {RETENTION_POLICY_TABLE} "
+                f"WHERE graph = $1 ORDER BY version DESC LIMIT 1",
+                self._graph,
+            )
+        if row is None:
+            return RetentionPolicy()
+        return RetentionPolicy(retention_years=row["retention_years"], version=row["version"])
+
+    async def save(self, policy: RetentionPolicy, *, updated_by: str) -> RetentionPolicy:
+        async with self._pool.acquire() as conn, conn.transaction():
+            current = await conn.fetchval(
+                f"SELECT MAX(version) FROM {RETENTION_POLICY_TABLE} WHERE graph = $1", self._graph,
+            )
+            version = (current or 0) + 1
+            await conn.execute(
+                f"""INSERT INTO {RETENTION_POLICY_TABLE}
+                    (id, graph, version, retention_years, updated_by)
+                    VALUES ($1, $2, $3, $4, $5)""",
+                f"retpol_{new_ulid()}", self._graph, version, policy.retention_years, updated_by,
+            )
+        return RetentionPolicy(retention_years=policy.retention_years, version=version)
+
+
+class InMemoryRetentionPolicyStore:
+    def __init__(self, policy: RetentionPolicy | None = None) -> None:
+        self._policy = policy or RetentionPolicy()
+
+    async def latest(self) -> RetentionPolicy:
+        return self._policy
+
+    async def save(self, policy: RetentionPolicy, *, updated_by: str) -> RetentionPolicy:
+        self._policy = RetentionPolicy(
+            retention_years=policy.retention_years, version=self._policy.version + 1
+        )
+        return self._policy
+
+
+# ---------------------------------------------------------- export before deletion
+
+
+class RetentionExportError(Exception):
+    """Nothing was actually prunable, so there is nothing to export."""
+
+
+async def export_prunable_evidence(
+    pool: asyncpg.Pool,
+    graph_name: str,
+    artefact_store: ArtefactStore,
+    *,
+    state: RetentionState,
+    created_by: str,
+) -> ArtefactRecord:
+    """The AC's own "export before deletion" -- a real, on-demand, callable action.
+
+    Exports every ``estate_event`` row this tenant's own retention floor already says is
+    prunable (``state.prunable_before``) to a real artefact. It does not delete anything,
+    and nothing else in this service does either -- see this module's own docstring for
+    why deletion itself stays deliberately unbuilt. Calling this before a future pruner
+    ever exists is not premature: the AC asks for the export capability itself, not for
+    it to be wired to an automatic deletion this codebase does not have.
+    """
+    from .context.canonical import canonical_json
+
+    if state.prunable_before is None:
+        raise RetentionExportError(
+            "nothing is prunable yet (" + state.reason + "); there is nothing to export"
+        )
+
+    cutoff = _parse(state.prunable_before)
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT event_id, type, source, subject, element_kind, label, time,
+                      principal, run_id, data
+                 FROM public.estate_event
+                WHERE graph = $1 AND time < $2
+             ORDER BY seq""",
+            graph_name, cutoff,
+        )
+
+    events = [
+        {
+            "event_id": row["event_id"], "type": row["type"], "source": row["source"],
+            "subject": row["subject"], "element_kind": row["element_kind"], "label": row["label"],
+            "time": row["time"].isoformat(), "principal": row["principal"], "run_id": row["run_id"],
+            "data": json.loads(row["data"]) if isinstance(row["data"], str) else row["data"],
+        }
+        for row in rows
+    ]
+    document = {
+        "graph": graph_name,
+        "prunable_before": state.prunable_before,
+        "retention_years": state.retention_months // 12,
+        "event_count": len(events),
+        "events": events,
+    }
+    content = canonical_json(document)
+    return await artefact_store.store(
+        kind="retention_export",
+        mu_ref="retention",
+        case_id=f"{graph_name}:{state.prunable_before}",
+        content=content,
+        media_type="application/json",
+        created_by=created_by,
+    )
+
+
 __all__ = [
+    "DEFAULT_RETENTION_MONTHS",
+    "DEFAULT_RETENTION_YEARS",
     "PLANNED_FAMILY_COUNT",
     "POLICY",
     "PROGRAMME_TABLE",
-    "RETENTION_MONTHS",
+    "RETENTION_POLICY_TABLE",
     "InMemoryProgrammeStore",
+    "InMemoryRetentionPolicyStore",
     "PostgresProgrammeStore",
+    "PostgresRetentionPolicyStore",
     "Programme",
     "ProgrammeStore",
+    "RetentionExportError",
+    "RetentionPolicy",
+    "RetentionPolicyStore",
     "RetentionState",
+    "export_prunable_evidence",
+    "policy_text",
     "prunable_before",
 ]

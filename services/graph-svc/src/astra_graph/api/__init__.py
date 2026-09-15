@@ -16,6 +16,7 @@ from .routes_decision_register import router as decision_register_router
 from .routes_deployment_bom import router as deployment_bom_router
 from .routes_estate import router as estate_router
 from .routes_events_stream import router as events_stream_router
+from .routes_evidence_chain import router as evidence_chain_router
 from .routes_exceptions import router as exceptions_router
 from .routes_execution_safety import router as execution_safety_router
 from .routes_explain import router as explain_router
@@ -68,6 +69,7 @@ __all__ = [
     "deployment_bom_router",
     "estate_router",
     "events_stream_router",
+    "evidence_chain_router",
     "exceptions_router",
     "execution_safety_router",
     "explain_router",

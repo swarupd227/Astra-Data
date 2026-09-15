@@ -14,7 +14,7 @@ from astra_graph.context import ContextAssembler
 from astra_graph.grammar import InMemoryIssueStore, LocalIssueTracker
 from astra_graph.principal import PRINCIPAL_HEADER, Principal
 from astra_graph.provenance import ContextVerifier, InMemoryProvenanceStore
-from astra_graph.retention import InMemoryProgrammeStore
+from astra_graph.retention import InMemoryProgrammeStore, InMemoryRetentionPolicyStore
 from astra_graph.roles import ROLES_HEADER
 from astra_graph.scope import InMemoryScopeStore
 from astra_graph.workload_identity import InMemorySvidStore, LocalWorkloadIdentityProvider
@@ -56,6 +56,7 @@ async def client(repository: InMemoryGraphRepository) -> AsyncIterator[AsyncClie
     app.state.issue_tracker = LocalIssueTracker()
     app.state.provenance_store = InMemoryProvenanceStore()
     app.state.programme_store = InMemoryProgrammeStore()
+    app.state.retention_policy_store = InMemoryRetentionPolicyStore()
     app.state.artefact_store = InMemoryArtefactStore()
     app.state.svid_provider = LocalWorkloadIdentityProvider()
     app.state.svid_store = InMemorySvidStore()

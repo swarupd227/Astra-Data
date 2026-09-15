@@ -21,8 +21,9 @@ from astra_graph.provenance import (
     new_record,
 )
 from astra_graph.retention import (
+    DEFAULT_RETENTION_MONTHS,
+    DEFAULT_RETENTION_YEARS,
     POLICY,
-    RETENTION_MONTHS,
     InMemoryProgrammeStore,
     Programme,
     prunable_before,
@@ -253,7 +254,10 @@ async def test_nothing_is_prunable_when_no_programme_is_recorded() -> None:
     assert "cannot tell whether it is holding evidence" in state.reason
 
 
-async def test_a_closed_programme_holds_its_versions_for_twelve_months() -> None:
+async def test_a_closed_programme_holds_its_versions_for_twelve_months_when_so_configured() -> None:
+    """The calendar-month arithmetic itself, held constant at the pre-S11.3.1 figure via
+    an explicit ``retention_months`` -- see ``test_the_default_retention_is_now_seven_
+    years`` for what a caller who passes nothing actually gets today."""
     programme = Programme(
         id="prg_1",
         name="RQA migration",
@@ -261,14 +265,31 @@ async def test_a_closed_programme_holds_its_versions_for_twelve_months() -> None
         closed_at="2027-03-31T00:00:00Z",
     )
 
-    assert programme.retain_until() == "2028-03-31T00:00:00.000Z"
+    assert programme.retain_until(retention_months=12) == "2028-03-31T00:00:00.000Z"
 
-    within = prunable_before([programme], now=datetime(2028, 3, 30, tzinfo=UTC))
+    within = prunable_before([programme], retention_months=12, now=datetime(2028, 3, 30, tzinfo=UTC))
     assert within.prunable_before is None
     assert "has not passed" in within.reason
 
-    after = prunable_before([programme], now=datetime(2028, 4, 1, tzinfo=UTC))
+    after = prunable_before([programme], retention_months=12, now=datetime(2028, 4, 1, tzinfo=UTC))
     assert after.prunable_before == "2028-03-31T00:00:00.000Z"
+
+
+async def test_the_default_retention_is_now_seven_years() -> None:
+    """Story S11.3.1's own AC: "default: programme lifetime + 7 years" -- supersedes
+    S1.3.2's original twelve months for any caller that does not configure a tenant
+    policy of its own (`RetentionPolicy`, see test_retention.py)."""
+    programme = Programme(
+        id="prg_1", name="RQA migration", started_at="2026-01-01T00:00:00Z",
+        closed_at="2027-03-31T00:00:00Z",
+    )
+    assert programme.retain_until() == "2034-03-31T00:00:00.000Z"
+
+    within = prunable_before([programme], now=datetime(2034, 3, 30, tzinfo=UTC))
+    assert within.prunable_before is None
+
+    after = prunable_before([programme], now=datetime(2034, 4, 1, tzinfo=UTC))
+    assert after.prunable_before == "2034-03-31T00:00:00.000Z"
 
 
 async def test_the_floor_is_the_earliest_close_across_programmes() -> None:
@@ -280,7 +301,7 @@ async def test_the_floor_is_the_earliest_close_across_programmes() -> None:
         id="b", name="GTAA", started_at="2026-01-01T00:00:00Z", closed_at="2027-09-30T00:00:00Z"
     )
 
-    state = prunable_before([late, early], now=datetime(2029, 1, 1, tzinfo=UTC))
+    state = prunable_before([late, early], retention_months=12, now=datetime(2029, 1, 1, tzinfo=UTC))
 
     assert state.prunable_before == "2028-01-31T00:00:00.000Z"
 
@@ -312,11 +333,12 @@ async def test_the_retention_floor_lands_on_the_anniversary(closed, expected) ->
     programme = Programme(
         id="a", name="RQA", started_at="2026-01-01T00:00:00Z", closed_at=closed
     )
-    assert programme.retain_until() == expected
+    assert programme.retain_until(retention_months=12) == expected
 
 
-async def test_retention_months_is_the_figure_the_story_names() -> None:
-    assert RETENTION_MONTHS == 12
+async def test_default_retention_is_the_figure_story_s11_3_1_names() -> None:
+    assert DEFAULT_RETENTION_YEARS == 7
+    assert DEFAULT_RETENTION_MONTHS == 84
 
 
 async def test_a_closed_programme_cannot_be_re_closed() -> None:
@@ -488,7 +510,11 @@ async def test_retention_is_published(client) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["policy"] == "programme lifetime plus 12 months"
+    # Story S11.3.1's own AC default: programme lifetime plus seven years, until a
+    # platform engineer configures this tenant's own policy.
+    assert body["policy"] == "programme lifetime plus 84 months"
+    assert body["retention_years"] == 7
+    assert body["policy_version"] == 0
     assert body["prunable_before"] is None
     assert body["pruning_implemented"] is False
 
@@ -509,7 +535,8 @@ async def test_a_programme_can_be_opened_and_closed_over_http(client) -> None:
         json={"closed_at": "2027-09-30T00:00:00Z"},
         headers=ARTIZENT_HEADERS,
     )
-    assert closed.json()["retain_until"] == "2028-09-30T00:00:00.000Z"
+    # Seven years (story S11.3.1's own AC default), not S1.3.2's original twelve months.
+    assert closed.json()["retain_until"] == "2034-09-30T00:00:00.000Z"
 
     again = await client.post(
         f"/v1/programmes/{programme_id}:close",
@@ -536,7 +563,7 @@ async def test_platform_health_shows_the_version_and_the_retention_floor(client)
     body = (await client.get("/v1/platform/health", headers=ARTIZENT_HEADERS)).json()
 
     assert "graph_version" in body["graph_version"]
-    assert body["retention"]["policy"] == "programme lifetime plus 12 months"
+    assert body["retention"]["policy"] == "programme lifetime plus 84 months"
     assert body["retention"]["pruning_implemented"] is False
 
 

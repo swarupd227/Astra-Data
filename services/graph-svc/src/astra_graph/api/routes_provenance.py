@@ -27,13 +27,27 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Path, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..artefacts import ArtefactStore
 from ..cartographer import count_families
 from ..context import ContractName
 from ..errors import ElementNotFoundError, InvalidRequestError
 from ..invoicing import UnitPriceStore, programme_acceptance_summary
 from ..provenance import AgentMode, ContextVerifier, ProvenanceStore, new_record
-from ..retention import ProgrammeStore, prunable_before
-from .deps import ArtizentDep, PrincipalDep, ProgrammeManagerDep
+from ..retention import (
+    ProgrammeStore,
+    RetentionExportError,
+    RetentionPolicy,
+    RetentionPolicyStore,
+    export_prunable_evidence,
+    prunable_before,
+)
+from .deps import (
+    ArtizentDep,
+    PlatformEngineerDep,
+    PrincipalDep,
+    ProgrammeManagerDep,
+    TenantAccessReaderDep,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +135,20 @@ def _programmes(request: Request) -> ProgrammeStore:
     store: ProgrammeStore | None = getattr(request.app.state, "programme_store", None)
     if store is None:  # pragma: no cover - set in every wiring path
         raise InvalidRequestError("programmes are not available on this deployment")
+    return store
+
+
+def _retention_policy_store(request: Request) -> RetentionPolicyStore:
+    store: RetentionPolicyStore | None = getattr(request.app.state, "retention_policy_store", None)
+    if store is None:
+        raise InvalidRequestError("retention policy is not available on this deployment")
+    return store
+
+
+def _artefact_store(request: Request) -> ArtefactStore:
+    store: ArtefactStore | None = getattr(request.app.state, "artefact_store", None)
+    if store is None:  # pragma: no cover - set in every wiring path
+        raise InvalidRequestError("the artefact store is not available on this deployment")
     return store
 
 
@@ -295,22 +323,76 @@ async def verify_claim(
 # ------------------------------------------------------- programmes and retention
 
 
+class SetRetentionPolicyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    retention_years: int = Field(ge=1, le=100)
+
+
 @router.get(
     "/v1/retention",
     tags=["provenance"],
     summary="How long graph versions stay addressable, and what may be pruned",
 )
 async def retention(
-    request: Request, principal: PrincipalDep, roles: ArtizentDep
+    request: Request, principal: PrincipalDep, roles: TenantAccessReaderDep
 ) -> dict[str, Any]:
-    """S1.3.2: retention is the programme lifetime plus twelve months.
+    """Story S11.3.1, spec §18.4: retention is configurable per tenant, default the
+    programme lifetime plus seven years (superseding S1.3.2's original twelve months --
+    see `retention.py`'s own module docstring for why the later, more specific story
+    wins). Widened from S1.3.2's original `ArtizentDep` to `TenantAccessReaderDep`
+    (Artizent, or the InfoSec reviewer) -- this story's own persona is the auditor, and
+    the InfoSec reviewer is this codebase's own already-established stand-in for that
+    persona (the identical reasoning `decision_register.py` already gave).
 
     ``prunable_before`` is null while any programme is open, and null when no programme is
     recorded at all — an empty table is not permission to delete. Nothing in this service
     prunes; this is the policy a pruner would have to ask.
     """
-    state = prunable_before(await _programmes(request).programmes())
-    return {**state.as_dict(), "pruning_implemented": False}
+    policy = await _retention_policy_store(request).latest()
+    state = prunable_before(
+        await _programmes(request).programmes(), retention_months=policy.retention_months
+    )
+    return {**state.as_dict(), "policy_version": policy.version, "pruning_implemented": False}
+
+
+@router.put(
+    "/v1/retention",
+    tags=["provenance"],
+    summary="Configure this tenant's own retention duration -- the platform engineer's own action",
+)
+async def set_retention_policy(
+    body: SetRetentionPolicyRequest,
+    request: Request,
+    principal: PrincipalDep,
+    roles: PlatformEngineerDep,
+) -> dict[str, Any]:
+    saved = await _retention_policy_store(request).save(
+        RetentionPolicy(retention_years=body.retention_years), updated_by=principal.value
+    )
+    return saved.as_dict()
+
+
+@router.post(
+    "/v1/retention:export",
+    tags=["provenance"],
+    summary="Export everything already prunable to a real artefact -- before any of it is deleted",
+)
+async def export_retention(
+    request: Request, principal: PrincipalDep, roles: PlatformEngineerDep
+) -> dict[str, Any]:
+    policy = await _retention_policy_store(request).latest()
+    state = prunable_before(
+        await _programmes(request).programmes(), retention_months=policy.retention_months
+    )
+    pool, graph_name = _estate_graph(request)
+    try:
+        record = await export_prunable_evidence(
+            pool, graph_name, _artefact_store(request), state=state, created_by=principal.value,
+        )
+    except RetentionExportError as exc:
+        raise InvalidRequestError(str(exc)) from exc
+    return record.as_dict()
 
 
 @router.post(
@@ -329,13 +411,14 @@ async def open_programme(
         name=body.name, started_at=body.started_at, created_by=principal.value
     )
     logger.info("programme %s opened by %s: %s", programme.id, principal.value, programme.name)
-    return programme.as_dict()
+    retention_months = (await _retention_policy_store(request).latest()).retention_months
+    return programme.as_dict(retention_months=retention_months)
 
 
 @router.post(
     "/v1/programmes/{programme_id}:close",
     tags=["provenance"],
-    summary="Close a programme, starting the twelve-month retention floor",
+    summary="Close a programme, starting this tenant's own retention floor",
 )
 async def close_programme(
     body: CloseProgrammeRequest,
@@ -355,7 +438,8 @@ async def close_programme(
             f"that would move its retention floor."
         )
     logger.info("programme %s closed by %s", programme_id, principal.value)
-    return programme.as_dict()
+    retention_months = (await _retention_policy_store(request).latest()).retention_months
+    return programme.as_dict(retention_months=retention_months)
 
 
 @router.get(
@@ -367,7 +451,8 @@ async def list_programmes(
     request: Request, principal: PrincipalDep, roles: ArtizentDep
 ) -> dict[str, Any]:
     programmes = await _programmes(request).programmes()
-    return {"programmes": [p.as_dict() for p in programmes]}
+    retention_months = (await _retention_policy_store(request).latest()).retention_months
+    return {"programmes": [p.as_dict(retention_months=retention_months) for p in programmes]}
 
 
 @router.post(
@@ -390,7 +475,8 @@ async def confirm_family_count(
     )
     if programme is None:
         raise ElementNotFoundError(f"no programme '{programme_id}'")
-    result = programme.as_dict()
+    retention_months = (await _retention_policy_store(request).latest()).retention_months
+    result = programme.as_dict(retention_months=retention_months)
     logger.info(
         "family count confirmed by %s for programme %s: %d (planned %d, delta %+d)",
         principal.value,

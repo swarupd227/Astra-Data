@@ -1428,6 +1428,67 @@ export interface ExecutionSafetyPolicy {
   version: number;
 }
 
+export interface EvidenceChainStatus {
+  tip_seq: number;
+  tip_hash: string | null;
+  total_entries: number;
+  by_category: Record<string, number>;
+}
+
+export interface ChainAdvanceResult {
+  graph: string;
+  entries_added: number;
+  tip_seq: number;
+  tip_hash: string;
+}
+
+export interface ChainBreak {
+  chain_seq: number;
+  source_table: string;
+  source_id: string;
+  expected_hash: string;
+  stored_hash: string;
+  detail: string;
+}
+
+export interface ChainVerificationResult {
+  graph: string;
+  entries_checked: number;
+  intact: boolean;
+  first_break: ChainBreak | null;
+}
+
+export interface DailyRoot {
+  id: string;
+  day: string;
+  first_chain_seq: number;
+  last_chain_seq: number;
+  entry_count: number;
+  root_hash: string;
+  computed_at: string;
+  anchor_kind: string | null;
+  anchor_ref: string | null;
+  anchored_at: string | null;
+}
+
+export interface DailyRootsResponse {
+  daily_roots: DailyRoot[];
+}
+
+export interface RetentionPolicy {
+  retention_years: number;
+  version: number;
+}
+
+export interface RetentionState {
+  policy: string;
+  prunable_before: string | null;
+  reason: string;
+  retention_years: number;
+  policy_version: number;
+  pruning_implemented: boolean;
+}
+
 export interface RebuildStatus {
   running: boolean;
   started_at: string | null;
@@ -2460,6 +2521,12 @@ export interface Api {
   revokeSvid(jti: string, reason: string, identity: Identity): Promise<SvidRecord>;
   executionSafetyPolicy(identity: Identity): Promise<ExecutionSafetyPolicy>;
   saveExecutionSafetyPolicy(productionWorkspaces: string[], identity: Identity): Promise<ExecutionSafetyPolicy>;
+  evidenceChainStatus(identity: Identity): Promise<EvidenceChainStatus>;
+  advanceEvidenceChain(identity: Identity): Promise<ChainAdvanceResult>;
+  verifyEvidenceChain(identity: Identity): Promise<ChainVerificationResult>;
+  dailyRoots(identity: Identity): Promise<DailyRootsResponse>;
+  retentionState(identity: Identity): Promise<RetentionState>;
+  saveRetentionPolicy(retentionYears: number, identity: Identity): Promise<RetentionPolicy>;
 }
 
 function decisionRegisterQueryString(filters: DecisionRegisterFilters): string {
@@ -3055,6 +3122,24 @@ export function createApi(base = ''): Api {
       return (await put(
         '/v1/execution-safety/policy', { production_workspaces: productionWorkspaces }, identity,
       )) as ExecutionSafetyPolicy;
+    },
+    async evidenceChainStatus(identity) {
+      return (await get('/v1/evidence-chain/status', identity)) as EvidenceChainStatus;
+    },
+    async advanceEvidenceChain(identity) {
+      return (await post('/v1/evidence-chain:advance', {}, identity)) as ChainAdvanceResult;
+    },
+    async verifyEvidenceChain(identity) {
+      return (await post('/v1/evidence-chain:verify', {}, identity)) as ChainVerificationResult;
+    },
+    async dailyRoots(identity) {
+      return (await get('/v1/evidence-chain/daily-roots', identity)) as DailyRootsResponse;
+    },
+    async retentionState(identity) {
+      return (await get('/v1/retention', identity)) as RetentionState;
+    },
+    async saveRetentionPolicy(retentionYears, identity) {
+      return (await put('/v1/retention', { retention_years: retentionYears }, identity)) as RetentionPolicy;
     },
   };
 }

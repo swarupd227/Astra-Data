@@ -21,7 +21,17 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import type { AgentRecord, Api, ExecutionSafetyPolicy, Identity, SvidRecord } from '../lib/api';
+import type {
+  AgentRecord,
+  Api,
+  ChainVerificationResult,
+  DailyRoot,
+  EvidenceChainStatus,
+  ExecutionSafetyPolicy,
+  Identity,
+  RetentionState,
+  SvidRecord,
+} from '../lib/api';
 import { ApiError } from '../lib/api';
 
 interface Props {
@@ -48,22 +58,38 @@ export function TenantAccess({ api, identity }: Props): JSX.Element {
   const [editingPolicy, setEditingPolicy] = useState(false);
   const [policyDraft, setPolicyDraft] = useState('');
   const [policyNotice, setPolicyNotice] = useState<string | null>(null);
+  const [chainStatus, setChainStatus] = useState<EvidenceChainStatus | null>(null);
+  const [dailyRoots, setDailyRoots] = useState<DailyRoot[] | null>(null);
+  const [chainNotice, setChainNotice] = useState<string | null>(null);
+  const [lastVerification, setLastVerification] = useState<ChainVerificationResult | null>(null);
+  const [retention, setRetention] = useState<RetentionState | null>(null);
+  const [editingRetention, setEditingRetention] = useState(false);
+  const [retentionDraft, setRetentionDraft] = useState('');
+  const [retentionNotice, setRetentionNotice] = useState<string | null>(null);
 
   const canRevoke = identity.roles.includes('platform_engineer');
   const canEditPolicy = identity.roles.includes('platform_engineer');
+  const canOperateChain = identity.roles.includes('platform_engineer');
+  const canEditRetention = identity.roles.includes('platform_engineer');
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [agentResult, svidResult, policyResult] = await Promise.all([
+      const [agentResult, svidResult, policyResult, chainResult, rootsResult, retentionResult] = await Promise.all([
         api.agentRecords(identity),
         api.svidRecords(identity),
         api.executionSafetyPolicy(identity),
+        api.evidenceChainStatus(identity),
+        api.dailyRoots(identity),
+        api.retentionState(identity),
       ]);
       setAgents(agentResult.agents);
       setSvids(svidResult.svids);
       setSafetyPolicy(policyResult);
+      setChainStatus(chainResult);
+      setDailyRoots(rootsResult.daily_roots);
+      setRetention(retentionResult);
     } catch (caught: unknown) {
       setError(caught instanceof ApiError ? caught.message : 'Tenant & Access could not be read.');
     } finally {
@@ -110,6 +136,54 @@ export function TenantAccess({ api, identity }: Props): JSX.Element {
       setPolicyNotice(caught instanceof ApiError ? caught.message : 'The policy could not be saved.');
     }
   }, [api, identity, policyDraft]);
+
+  const advanceChain = useCallback(async () => {
+    setChainNotice(null);
+    try {
+      const result = await api.advanceEvidenceChain(identity);
+      setChainNotice(`Chained ${result.entries_added} new entries.`);
+      await load();
+    } catch (caught: unknown) {
+      setChainNotice(caught instanceof ApiError ? caught.message : 'The chain could not be advanced.');
+    }
+  }, [api, identity, load]);
+
+  const verifyChain = useCallback(async () => {
+    setChainNotice(null);
+    try {
+      const result = await api.verifyEvidenceChain(identity);
+      setLastVerification(result);
+      setChainNotice(
+        result.intact
+          ? `Intact -- ${result.entries_checked} entries verified.`
+          : `Break found at chain_seq ${result.first_break?.chain_seq}.`,
+      );
+    } catch (caught: unknown) {
+      setChainNotice(caught instanceof ApiError ? caught.message : 'The chain could not be verified.');
+    }
+  }, [api, identity]);
+
+  const startEditRetention = useCallback(() => {
+    setRetentionDraft(String(retention?.retention_years ?? 7));
+    setRetentionNotice(null);
+    setEditingRetention(true);
+  }, [retention]);
+
+  const saveRetention = useCallback(async () => {
+    const years = Number.parseInt(retentionDraft, 10);
+    if (!Number.isFinite(years) || years < 1) {
+      setRetentionNotice('Enter a whole number of years.');
+      return;
+    }
+    try {
+      await api.saveRetentionPolicy(years, identity);
+      setEditingRetention(false);
+      setRetentionNotice(null);
+      await load();
+    } catch (caught: unknown) {
+      setRetentionNotice(caught instanceof ApiError ? caught.message : 'The retention policy could not be saved.');
+    }
+  }, [api, identity, retentionDraft, load]);
 
   return (
     <div className="workspace tenant-access-workspace">
@@ -242,6 +316,101 @@ export function TenantAccess({ api, identity }: Props): JSX.Element {
                 <button type="button" className="btn" onClick={() => setEditingPolicy(false)}>Cancel</button>
                 <span className="spacer" />
                 <button type="button" className="btn" onClick={() => void savePolicy()}>Save</button>
+              </footer>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="pane" aria-label="Evidence chain">
+        <header className="pane-header">
+          <h2>Evidence chain</h2>
+          <span className="faint">spec §4.5/§18.4 -- an append-only, hash-linked record</span>
+        </header>
+        <div className="pane-body">
+          {chainNotice && <p className="faint">{chainNotice}</p>}
+          {!error && loading && !chainStatus && <p className="empty">Reading the chain's own status…</p>}
+          {!error && chainStatus && (
+            <>
+              <p>
+                <strong>Tip</strong>: {chainStatus.total_entries === 0
+                  ? <span className="faint">nothing chained yet</span>
+                  : <>seq {chainStatus.tip_seq}, <span className="mono faint">{chainStatus.tip_hash}</span></>}
+              </p>
+              {Object.keys(chainStatus.by_category).length > 0 && (
+                <ul>
+                  {Object.entries(chainStatus.by_category).map(([category, count]) => (
+                    <li key={category}>{category}: {count}</li>
+                  ))}
+                </ul>
+              )}
+              {lastVerification && (
+                <p className={lastVerification.intact ? 'faint' : 'banner'}>
+                  {lastVerification.intact
+                    ? `Last verification: intact (${lastVerification.entries_checked} entries).`
+                    : `Last verification: BROKEN at chain_seq ${lastVerification.first_break?.chain_seq} -- ${lastVerification.first_break?.detail}`}
+                </p>
+              )}
+              {canOperateChain && (
+                <p>
+                  <button type="button" className="btn" onClick={() => void advanceChain()}>Advance now</button>{' '}
+                  <button type="button" className="btn" onClick={() => void verifyChain()}>Verify now</button>
+                </p>
+              )}
+            </>
+          )}
+          {!error && dailyRoots && dailyRoots.length > 0 && (
+            <table className="estate">
+              <thead>
+                <tr><th>Day</th><th>Entries</th><th>Root hash</th><th>Anchor</th></tr>
+              </thead>
+              <tbody>
+                {dailyRoots.map((root) => (
+                  <tr key={root.id}>
+                    <td>{root.day}</td>
+                    <td>{root.entry_count}</td>
+                    <td className="faint mono">{root.root_hash}</td>
+                    <td className="faint">{root.anchor_kind ?? 'not anchored'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
+
+      <section className="pane" aria-label="Retention">
+        <header className="pane-header">
+          <h2>Retention</h2>
+          <span className="faint">spec §18.4 -- configurable per tenant</span>
+        </header>
+        <div className="pane-body">
+          {retentionNotice && <p className="faint">{retentionNotice}</p>}
+          {!error && loading && !retention && <p className="empty">Reading the retention policy…</p>}
+          {!error && retention && !editingRetention && (
+            <>
+              <p><strong>Policy</strong>: {retention.policy} ({retention.retention_years} years)</p>
+              <p className="faint">{retention.reason}</p>
+              {canEditRetention && (
+                <button type="button" className="btn" onClick={startEditRetention}>Edit</button>
+              )}
+            </>
+          )}
+          {editingRetention && (
+            <div className="detail">
+              <label>
+                Retention (years)
+                <input
+                  type="number"
+                  min={1}
+                  value={retentionDraft}
+                  onChange={(e) => setRetentionDraft(e.target.value)}
+                />
+              </label>
+              <footer className="statusbar">
+                <button type="button" className="btn" onClick={() => setEditingRetention(false)}>Cancel</button>
+                <span className="spacer" />
+                <button type="button" className="btn" onClick={() => void saveRetention()}>Save</button>
               </footer>
             </div>
           )}

@@ -4093,6 +4093,55 @@ before this story); **real resource limits, two independent mechanisms**, one pe
   endpoints" — the deliberate choice not to invent a separate "executor worker"
   deployable this codebase does not have; see the ADR for why.
 
+## The Evidence Chain (story S11.3.1, opens F11.3)
+
+Spec §4.5/§18.4: an append-only, hash-linked record of every state transition, gate
+decision, agent run, model call and verdict, with daily roots optionally anchored
+externally. Spec §5.2 names a whole separate microservice for this ("evidence-svc")
+that does not exist — see [ADR 0082](../../docs/adr/0082-evidence-chain-a-separate-advancer-over-three-existing-tables.md)
+for the full design. In one line: **built here, not a new service**; **a separate
+chain-advancer, never inline on a graph write**; **three existing tables
+(`estate_event`, `svid_record`, `provenance`) read and chained together, not a new
+event type**.
+
+- `evidence_chain.py`: `advance_chain(pool, graph_name)` — an idempotent,
+  per-source-batch walk that hash-links every not-yet-chained row from
+  `public.estate_event` (state transitions, gate decisions, verdicts — categorised by
+  the node type each `estate.node.upserted` event actually carries), `public.
+  svid_record` (agent runs) and `public.provenance` (model calls) into `public.
+  evidence_chain_entry`. `hash = sha256(prev_hash + canonical_json({source_table,
+  source_id, occurred_at, category, fields}))`, reusing the existing canonical-JSON
+  convention (`context.canonical.canonical_json`, S1.3.1) rather than a second one;
+  seeded from a fixed `GENESIS_HASH`. Every existing write path — `writes.py`,
+  `workload_identity.py`, `provenance.py`, `harvest/scheduler.py`, `regression.py`,
+  `api/routes_g2.py` — is completely untouched.
+- `verify_chain(pool, graph_name)` recomputes every stored hash from its own real
+  source row and reports the first break — a tampered chain-entry row and a tampered
+  *source* row are both caught, each at the correct `chain_seq`/`source_table`/
+  `source_id`.
+- `compute_daily_root(pool, graph_name, day)` — refuses for today or the future;
+  buckets by `chained_at` (when this chain actually linked a row), not by the row's own
+  `occurred_at`, so a closed day's root is provably never recomputed even if a
+  late-arriving row surfaces with an old timestamp. Each day's own root folds the
+  *previous* day's root in, so the roots themselves form a second, coarser chain.
+- `ChainAnchor`/`NullChainAnchor`: a real, disclosed-not-connected interface for a
+  client's own external attestation (their own ledger, a timestamping service) — daily
+  roots are always computed and stored regardless of whether one is configured.
+- `tools/advance_evidence_chain.py`/`tools/verify_evidence_chain.py` — the CLI shape
+  `.github/workflows/nightly.yml`'s new `evidence-chain` job calls (advance, then
+  verify, on the same cron + `workflow_dispatch` as the existing replay job);
+  `POST /v1/evidence-chain:advance`/`:verify` (`routes_evidence_chain.py`,
+  `PlatformEngineerDep`) are the identical functions, callable on demand.
+- `retention.py`: `RETENTION_MONTHS = 12` (S1.3.2) replaced by `DEFAULT_RETENTION_
+  YEARS = 7` — this story's own AC default, disclosed as superseding S1.3.2 rather than
+  silently overwriting its history. New `RetentionPolicy`/`RetentionPolicyStore`
+  (migration v0042, `public.retention_policy`, the identical `mender_config`/
+  `execution_safety_policy` shape) makes the duration real and tenant-configurable
+  (`GET`/`PUT /v1/retention`); `export_prunable_evidence`
+  (`POST /v1/retention:export`) is a real, on-demand export of everything already
+  prunable to a real artefact — deletion itself stays deliberately unbuilt, the
+  identical "no pruner, and that is deliberate" posture this module already had.
+
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,

@@ -349,6 +349,13 @@ screen already exists to show. Edit is hidden, not disabled, for every role but 
 platform engineer, the identical convention Revoke above already set; every other role
 still sees the current list read-only.
 
+**Story S11.3.1 added two more `Tenant & Access` panes, Evidence chain and Retention**
+— real reads via `lib/api.ts`'s new `evidenceChainStatus`/`dailyRoots`/`retentionState`,
+and real actions via `advanceEvidenceChain`/`verifyEvidenceChain`/`saveRetentionPolicy`.
+Neither is a new top-level surface, for the identical reason S11.2.1's own addition
+was not. Advance/Verify/Edit are all hidden, not disabled, for every role but the
+platform engineer.
+
 ## Performance
 
 S1.4.1 budgets two seconds for a 1,067-workbook site. The server's share is measured in

@@ -33,7 +33,11 @@ from astra_graph.ids import new_ulid  # noqa: E402
 from astra_graph.migrations import run as run_migrations  # noqa: E402
 from astra_graph.ontology import EDGE_LABELS, NODE_LABELS  # noqa: E402
 from astra_graph.principal import Principal  # noqa: E402
-from astra_graph.retention import PLANNED_FAMILY_COUNT, PostgresProgrammeStore  # noqa: E402
+from astra_graph.retention import (  # noqa: E402
+    PLANNED_FAMILY_COUNT,
+    InMemoryRetentionPolicyStore,
+    PostgresProgrammeStore,
+)
 from astra_graph.writes import GraphWriter, NodeWrite  # noqa: E402
 
 PRINCIPAL = Principal("agent:programme-manager", run_id="run-family-count")
@@ -191,6 +195,7 @@ async def http_client(estate):
     app = create_app()
     app.state.cartographer = estate["cartographer"]
     app.state.programme_store = estate["programme_store"]
+    app.state.retention_policy_store = InMemoryRetentionPolicyStore()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://graph-svc") as async_client:

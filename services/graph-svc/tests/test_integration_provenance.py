@@ -354,7 +354,9 @@ async def test_a_programme_round_trips_and_sets_the_retention_floor(stack) -> No
 
     closed = await store.close_programme(programme.id, closed_at="2027-09-30T00:00:00Z")
     assert closed is not None
-    assert closed.retain_until() == "2028-09-30T00:00:00.000Z"
+    # Story S11.3.1's own AC default: programme lifetime plus seven years, not S1.3.2's
+    # original twelve months.
+    assert closed.retain_until() == "2034-09-30T00:00:00.000Z"
 
     assert await store.close_programme(programme.id, closed_at="2027-02-01T00:00:00Z") is None
 

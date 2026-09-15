@@ -87,7 +87,15 @@ async def _retention(state: Any) -> dict[str, Any]:
     store = getattr(state, "programme_store", None)
     if store is None:  # pragma: no cover - set in every wiring path
         return {"policy": POLICY, "prunable_before": None, "programmes": []}
-    return {**prunable_before(await store.programmes()).as_dict(), "pruning_implemented": False}
+    policy_store = getattr(state, "retention_policy_store", None)
+    retention_months = (
+        (await policy_store.latest()).retention_months if policy_store is not None else None
+    )
+    kwargs = {} if retention_months is None else {"retention_months": retention_months}
+    return {
+        **prunable_before(await store.programmes(), **kwargs).as_dict(),
+        "pruning_implemented": False,
+    }
 
 
 def _graph_name() -> str:
