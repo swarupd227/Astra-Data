@@ -4180,15 +4180,17 @@ a polling status route**, the identical `routes_rebuild.py` shape.
   public-key` (`routes_evidence_export.py`, `TenantAccessReaderDep` — Artizent or the
   InfoSec reviewer, this story's own literal persona, both triggering and reading).
 
-## Data Handling (story S11.4.1, opens F11.4)
+## Data Handling (stories S11.4.1/S11.4.2, F11.4)
 
 Spec §15.3.7/§18.3: a Data Handling screen stating exactly what reaches a model
-endpoint, a signed position, and a boundary test. See [ADR 0084](../../docs/adr/0084-data-handling-a-real-log-and-real-redaction-before-the-screen.md)
-for the full design. In one line: **a real, always-on gateway request log**, a
-deliberate, narrow pull-forward of the one storage primitive S11.4.2 will need;
-**redaction is real, applied inside `mender.assemble_repair_context`**, the one real
-row-level-data channel this codebase has into a model endpoint; **validity is a
-computed comparison, never a stored flag**.
+endpoint, a signed position, and a boundary test — enforced by the gateway itself, not
+left to each caller's own good behaviour. See [ADR 0084](../../docs/adr/0084-data-handling-a-real-log-and-real-redaction-before-the-screen.md)/[ADR 0085](../../docs/adr/0085-gateway-enforcement-schema-pattern-redaction-and-a-real-toggle.md)
+for the full design. In one line: **a real gateway request/response log, content
+logging off by default**; **structural redaction (`mender.assemble_repair_context`)
+and pattern-based redaction (every real request, every free-text field) are two
+independent layers**; **field-schema validation refuses a request before it is ever
+built, redacted, logged, or sent**; **validity — signed, and now content-logging-
+active — is always a computed comparison, never a stored flag**.
 
 - `redaction.py`: `hash_key_value`/`bucket_measure_value`/`redact_failing_cell` —
   §18.3's own two named rules ("key values redacted to hashes; measure values redacted
@@ -4196,12 +4198,20 @@ computed comparison, never a stored flag**.
   after `_gather_parity_evidence` returns them, before they ever reach `RepairContext`.
   The Transpiler's own path (`generation.build_generation_request`) needs no redaction
   at all — confirmed by direct research to never touch a row-level node of any kind.
-- `gateway.py` gained `GatewayRequestLogStore`/`PostgresGatewayRequestLogStore`: every
-  real outbound request `ModelGateway.generate`/`StaticGateway.generate` is about to
-  send is logged immediately before the real provider call, using the identical
-  `_build_prompt` rendering the real call itself uses — a request that never routes
-  (`GatewayRoutingError`) is never logged, since nothing was ever really about to be
-  sent.
+- `gateway.py` gained `GatewayRequestLogStore`/`PostgresGatewayRequestLogStore`: a real
+  hash of every real request and response is always recorded (a request that never
+  routes, `GatewayRoutingError`, is never logged at all); the literal *text* is
+  persisted only while a real `gateway_content_logging_grant` is active for this graph
+  (S11.4.2, checked fresh on every write). `TASK_CLASS_FIELD_SCHEMAS`/
+  `validate_task_class_schema` (S11.4.2) refuse an unexpected field or a field over
+  `MAX_FIELD_BYTES` before anything is built; `redaction.redact_data_like_literals`
+  (S11.4.2) then scans every free-text field for an email/account-number/long-numeric
+  shape and redacts it in the *real* payload a `_DictRequest` wrapper hands to the
+  provider, logging the redaction count. `ContentLoggingGrant`/
+  `ContentLoggingGrantStore` (S11.4.2): off by default, InfoSec-granted for a real,
+  bounded window (`MAX_CONTENT_LOGGING_MINUTES = 1440`), `active` always computed —
+  gated `POST /v1/data-handling:enable-content-logging`/`:disable-content-logging`
+  (`InfosecReviewerDep`).
 - `data_handling.py`: `DataHandlingPosition`/`DataHandlingPositionStore` (providers,
   region, retention terms, redaction rules — versioned, platform-engineer-editable,
   the identical `execution_safety_policy`/`mender_config` shape) and
@@ -4212,13 +4222,14 @@ computed comparison, never a stored flag**.
   spec-verbatim constant (§18.3's own sent/never-sent table) — never tenant-editable,
   unlike the position itself.
 - `run_boundary_test(pool, graph_name, ...)`: plants a real sentinel inside a real,
-  disposable evidence bundle, calls `assemble_repair_context` for real, then routes the
-  result through a real `ModelGateway` (a synthetic, network-free `ModelCaller`, so CI
-  needs no live provider credentials) wired to the real request log — asserts the
-  sentinel is absent from both the assembled context and the resulting log row, and
-  that a real, non-sentinel marker *is* present (so an empty result can never be
-  mistaken for "nothing was ever logged"). The disposable `Verdict` is retired, never
-  deleted, afterward. `tools/verify_boundary.py` is the CLI shape
+  disposable evidence bundle, calls `assemble_repair_context` for real, grants itself a
+  real, short content-logging window (S11.4.2, revoked again before returning), then
+  routes the result through a real `ModelGateway` (a synthetic, network-free
+  `ModelCaller`, so CI needs no live provider credentials) — asserts the sentinel is
+  absent from both the assembled context and the resulting log row, and that a real,
+  non-sentinel marker *is* present (so an empty result can never be mistaken for
+  "nothing was ever logged"). The disposable `Verdict` is retired, never deleted,
+  afterward. `tools/verify_boundary.py` is the CLI shape
   `.github/workflows/nightly.yml`'s new `boundary-test` job calls (on the identical
   cron + `workflow_dispatch` its own siblings already have);
   `POST /v1/data-handling:verify-boundary` (`routes_data_handling.py`,

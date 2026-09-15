@@ -38,13 +38,19 @@ from astra_graph.calibration import PostgresCalibrationStore  # noqa: E402
 from astra_graph.config import Settings  # noqa: E402
 from astra_graph.credentials import EnvironmentCredentialProvider  # noqa: E402
 from astra_graph.gateway import (  # noqa: E402
+    MENDER_REPAIR,
     ROUTABLE_THRESHOLD,
     TRANSPILE_C3,
     AnthropicModelCaller,
+    ContentLoggingGrantError,
     EvalCase,
+    EvalReport,
     GatewayRoutingError,
+    GatewayValidationError,
     ModelGateway,
+    PostgresContentLoggingGrantStore,
     PostgresGatewayPolicyStore,
+    PostgresGatewayRequestLogStore,
     RawModelResponse,
     run_eval_set,
 )
@@ -120,9 +126,11 @@ def settings() -> Settings:
     async def teardown() -> None:
         conn = await asyncpg.connect(dsn=config.dsn)
         try:
-            await conn.execute(
-                "DELETE FROM public.model_gateway_policy WHERE graph = $1", config.graph_name
-            )
+            for table in (
+                "public.model_gateway_policy", "public.gateway_request_log",
+                "public.gateway_content_logging_grant",
+            ):
+                await conn.execute(f"DELETE FROM {table} WHERE graph = $1", config.graph_name)
         finally:
             await conn.close()
 
@@ -140,6 +148,15 @@ async def store(settings: Settings):
         yield PostgresGatewayPolicyStore(pool, graph_name=settings.graph_name)
     finally:
         await pool.close()
+
+
+@pytest.fixture
+async def pool(settings: Settings):
+    p = await create_pool(settings)
+    try:
+        yield p
+    finally:
+        await p.close()
 
 
 def _ok_response(dax: str = "[Measure] = SUM([Sales])") -> RawModelResponse:
@@ -308,6 +325,206 @@ async def test_running_and_recording_a_real_anthropic_eval_makes_it_routable_or_
     # only if the real pass rate cleared ROUTABLE_THRESHOLD -- not asserted as always true,
     # since a real model's own accuracy is the thing being measured, not assumed.
     assert entry.routable == (report.pass_rate >= ROUTABLE_THRESHOLD)
+
+
+# --------------------------------------------------------------- S11.4.2: gateway enforcement
+
+
+class _DictLikeRequest:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+
+    def as_dict(self) -> dict[str, Any]:
+        return dict(self._payload)
+
+
+def _mender_payload(**overrides: Any) -> dict[str, Any]:
+    payload = {
+        "task": "MENDER_REPAIR", "failure_class": "AGGREGATION", "classification_signals": {},
+        "failing_cells": [], "filter_ctx": {}, "expected_columns": [], "candidate_columns": [],
+        "current_dax": "SUM([Margin])", "source_formula": "SUM([Margin])",
+        "source_formula_ast": None, "class_instruction": "fix it", "dependency_closure": {},
+        "widened": False, "output_schema": {},
+    }
+    payload.update(overrides)
+    return payload
+
+
+async def _seed_routable_policy(store: PostgresGatewayPolicyStore, *, provider: str) -> None:
+    await store.record_eval(
+        task_class=MENDER_REPAIR,
+        report=EvalReport(
+            provider=provider, model="test-model-1", task_class=MENDER_REPAIR,
+            total=1, passed=1, pass_rate=1.0, ran_at="2027-01-01T00:00:00+00:00", results=(),
+        ),
+        updated_by=PRINCIPAL.value,
+    )
+
+
+async def test_a_request_with_an_unexpected_field_is_refused_before_anything_is_sent(store, pool, settings: Settings) -> None:
+    await _seed_routable_policy(store, provider="test_provider")
+    caller = _ScriptedCaller([_ok_response()])
+    log_store = PostgresGatewayRequestLogStore(pool, graph_name=settings.graph_name)
+    gateway = ModelGateway(providers={"test_provider": caller}, policy_store=store, log_store=log_store)
+
+    with pytest.raises(GatewayValidationError):
+        await gateway.generate(
+            task_class=MENDER_REPAIR,
+            request=_DictLikeRequest(_mender_payload(a_field_nobody_declared="leaked!")),
+            previous_error=None,
+        )
+    assert caller.calls == 0
+    assert not await log_store.contains_text("leaked!")
+
+
+async def test_a_field_over_the_byte_limit_is_refused(store, pool, settings: Settings) -> None:
+    await _seed_routable_policy(store, provider="test_provider")
+    caller = _ScriptedCaller([_ok_response()])
+    log_store = PostgresGatewayRequestLogStore(pool, graph_name=settings.graph_name)
+    gateway = ModelGateway(providers={"test_provider": caller}, policy_store=store, log_store=log_store)
+
+    with pytest.raises(GatewayValidationError):
+        await gateway.generate(
+            task_class=MENDER_REPAIR,
+            request=_DictLikeRequest(_mender_payload(current_dax="x" * 40_000)),
+            previous_error=None,
+        )
+    assert caller.calls == 0
+
+
+async def test_a_real_data_like_literal_is_redacted_before_the_provider_ever_sees_it(store, pool, settings: Settings) -> None:
+    await _seed_routable_policy(store, provider="test_provider")
+    caller = _ScriptedCaller([_ok_response()])
+    log_store = PostgresGatewayRequestLogStore(pool, graph_name=settings.graph_name)
+    gateway = ModelGateway(providers={"test_provider": caller}, policy_store=store, log_store=log_store)
+
+    received: dict[str, Any] = {}
+    original_generate = caller.generate
+
+    async def _capture(request: Any, *, previous_error: str | None) -> RawModelResponse:
+        received.update(request.as_dict())
+        return await original_generate(request, previous_error=previous_error)
+
+    caller.generate = _capture  # type: ignore[method-assign]
+
+    await gateway.generate(
+        task_class=MENDER_REPAIR,
+        request=_DictLikeRequest(_mender_payload(
+            source_formula='IF [Email] = "real.person@example.com" THEN 1 ELSE 0',
+        )),
+        previous_error=None,
+    )
+    assert "real.person@example.com" not in received["source_formula"]
+    assert "[REDACTED:EMAIL]" in received["source_formula"]
+
+
+async def test_content_logging_is_off_by_default_only_hashes_are_persisted(store, pool, settings: Settings) -> None:
+    await _seed_routable_policy(store, provider="test_provider")
+    caller = _ScriptedCaller([_ok_response(dax="SUM([RealMeasure])")])
+    log_store = PostgresGatewayRequestLogStore(pool, graph_name=settings.graph_name)
+    gateway = ModelGateway(providers={"test_provider": caller}, policy_store=store, log_store=log_store)
+
+    await gateway.generate(
+        task_class=MENDER_REPAIR, request=_DictLikeRequest(_mender_payload()), previous_error=None,
+    )
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT request_text, response_text, prompt_hash, response_hash, redaction_count "
+            "FROM public.gateway_request_log WHERE graph = $1 ORDER BY created_at DESC LIMIT 1",
+            settings.graph_name,
+        )
+    assert row is not None
+    assert row["request_text"] is None
+    assert row["response_text"] is None
+    assert row["prompt_hash"]
+    assert row["response_hash"]
+    assert row["redaction_count"] == 0
+
+
+async def test_an_active_grant_makes_both_request_and_response_text_visible(store, pool, settings: Settings) -> None:
+    graph_name = settings.graph_name
+    await _seed_routable_policy(store, provider="test_provider")
+    caller = _ScriptedCaller([_ok_response(dax="SUM([RealMeasure])")])
+    log_store = PostgresGatewayRequestLogStore(pool, graph_name=graph_name)
+    gateway = ModelGateway(providers={"test_provider": caller}, policy_store=store, log_store=log_store)
+    grants = PostgresContentLoggingGrantStore(pool, graph_name=graph_name)
+
+    granted = await grants.grant(enabled_by="user:infosec@client.example", duration_minutes=5)
+    assert granted.active is True
+
+    await gateway.generate(
+        task_class=MENDER_REPAIR,
+        request=_DictLikeRequest(_mender_payload(current_dax="SUM([RealMeasure])")),
+        previous_error=None,
+    )
+
+    assert await log_store.contains_text("RealMeasure")
+
+    revoked = await grants.revoke(revoked_by="user:infosec@client.example")
+    assert revoked is not None
+    assert revoked.active is False
+
+    await gateway.generate(
+        task_class=MENDER_REPAIR,
+        request=_DictLikeRequest(_mender_payload(current_dax="SUM([AfterRevoke])")),
+        previous_error=None,
+    )
+    assert not await log_store.contains_text("AfterRevoke")
+
+
+async def test_a_grant_duration_outside_the_bound_is_refused(store, pool, settings: Settings) -> None:
+    grants = PostgresContentLoggingGrantStore(pool, graph_name=settings.graph_name)
+    with pytest.raises(ContentLoggingGrantError):
+        await grants.grant(enabled_by="user:infosec@client.example", duration_minutes=0)
+    with pytest.raises(ContentLoggingGrantError):
+        await grants.grant(enabled_by="user:infosec@client.example", duration_minutes=1441)
+
+
+async def test_revoking_with_no_active_grant_returns_none(store, pool, settings: Settings) -> None:
+    grants = PostgresContentLoggingGrantStore(pool, graph_name=settings.graph_name)
+    assert await grants.revoke(revoked_by="user:infosec@client.example") is None
+
+
+async def test_a_real_pattern_match_is_counted_and_the_count_is_logged(store, pool, settings: Settings) -> None:
+    graph_name = settings.graph_name
+    await _seed_routable_policy(store, provider="test_provider")
+    caller = _ScriptedCaller([_ok_response()])
+    log_store = PostgresGatewayRequestLogStore(pool, graph_name=graph_name)
+    gateway = ModelGateway(providers={"test_provider": caller}, policy_store=store, log_store=log_store)
+
+    await gateway.generate(
+        task_class=MENDER_REPAIR,
+        request=_DictLikeRequest(_mender_payload(
+            source_formula='a@b.com and c@d.com both appear here',
+        )),
+        previous_error=None,
+    )
+    async with pool.acquire() as conn:
+        redaction_count = await conn.fetchval(
+            "SELECT redaction_count FROM public.gateway_request_log "
+            "WHERE graph = $1 ORDER BY created_at DESC LIMIT 1",
+            graph_name,
+        )
+    assert redaction_count == 2
+
+
+async def test_a_request_that_never_routes_is_never_logged_and_validation_never_runs(store, pool, settings: Settings) -> None:
+    log_store = PostgresGatewayRequestLogStore(pool, graph_name=settings.graph_name)
+    gateway = ModelGateway(providers={}, policy_store=store, log_store=log_store)
+    # A unique marker, not "MENDER_REPAIR" -- this fixture's own graph is shared
+    # (module-scoped) across every test above, some of which really do log real
+    # MENDER_REPAIR-tagged text; a generic string would find one of those instead of
+    # proving anything about this call, which must never be logged at all.
+    unique_marker = f"never-routed-{new_ulid()}"
+
+    with pytest.raises(GatewayRoutingError):
+        await gateway.generate(
+            task_class=MENDER_REPAIR,
+            request=_DictLikeRequest(_mender_payload(class_instruction=unique_marker)),
+            previous_error=None,
+        )
+    assert not await log_store.contains_text(unique_marker)
 
 
 # ---------------------------------------------------------------------------------- the API

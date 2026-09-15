@@ -21,12 +21,28 @@
  * screen is -- it is the InfoSec reviewer's own confirmation alone, hidden (not
  * disabled) for every other role including Artizent's own platform engineer, the same
  * hide-not-disable convention every gated action in this console already uses.
+ *
+ * Story S11.4.2 added a fourth pane, Content logging -- off by default; enabling and
+ * disabling it are both the InfoSec reviewer's own action too, the identical gate
+ * "Sign boundary" already has and for the identical reason: this is the client's own
+ * real control over whether literal request/response text is ever persisted, not
+ * Artizent's to switch on for them. The duration field is real, bounded, InfoSec-
+ * specified input (not a single fixed window) -- capped both client-side and, for
+ * real, server-side at `MAX_CONTENT_LOGGING_MINUTES`.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 
-import type { Api, BoundaryTestResult, DataHandlingProvider, DataHandlingStatus, Identity } from '../lib/api';
+import type {
+  Api,
+  BoundaryTestResult,
+  DataHandlingProvider,
+  DataHandlingStatus,
+  Identity,
+} from '../lib/api';
 import { ApiError } from '../lib/api';
+
+const MAX_CONTENT_LOGGING_MINUTES = 1440;
 
 interface Props {
   api: Api;
@@ -50,8 +66,13 @@ export function DataHandling({ api, identity }: Props): JSX.Element {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<BoundaryTestResult | null>(null);
 
+  const [durationMinutes, setDurationMinutes] = useState('60');
+  const [loggingBusy, setLoggingBusy] = useState(false);
+  const [loggingNotice, setLoggingNotice] = useState<string | null>(null);
+
   const canEdit = identity.roles.includes('platform_engineer');
   const canSign = identity.roles.includes('client_infosec_reviewer');
+  const canControlContentLogging = identity.roles.includes('client_infosec_reviewer');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,6 +146,37 @@ export function DataHandling({ api, identity }: Props): JSX.Element {
       setTesting(false);
     }
   }, [api, identity]);
+
+  const enableLogging = useCallback(async () => {
+    const minutes = Number.parseInt(durationMinutes, 10);
+    if (!Number.isFinite(minutes) || minutes < 1 || minutes > MAX_CONTENT_LOGGING_MINUTES) {
+      setLoggingNotice(`Enter a whole number of minutes from 1 to ${MAX_CONTENT_LOGGING_MINUTES}.`);
+      return;
+    }
+    setLoggingBusy(true);
+    setLoggingNotice(null);
+    try {
+      await api.enableContentLogging(minutes, identity);
+      await load();
+    } catch (caught: unknown) {
+      setLoggingNotice(caught instanceof ApiError ? caught.message : 'Content logging could not be enabled.');
+    } finally {
+      setLoggingBusy(false);
+    }
+  }, [api, identity, durationMinutes, load]);
+
+  const disableLogging = useCallback(async () => {
+    setLoggingBusy(true);
+    setLoggingNotice(null);
+    try {
+      await api.disableContentLogging(identity);
+      await load();
+    } catch (caught: unknown) {
+      setLoggingNotice(caught instanceof ApiError ? caught.message : 'Content logging could not be disabled.');
+    } finally {
+      setLoggingBusy(false);
+    }
+  }, [api, identity, load]);
 
   return (
     <div className="workspace data-handling-workspace">
@@ -280,6 +332,62 @@ export function DataHandling({ api, identity }: Props): JSX.Element {
               {testResult.passed ? <span className="pill ok">PASS</span> : <span className="pill bad">FAIL</span>}{' '}
               {testResult.detail}
             </p>
+          )}
+        </div>
+      </section>
+
+      <section className="pane" aria-label="Content logging">
+        <header className="pane-header">
+          <h2>Content logging</h2>
+          <span className="faint">spec §18.3 -- off by default, InfoSec-granted for a bounded window</span>
+        </header>
+        <div className="pane-body">
+          {loggingNotice && <p className="faint">{loggingNotice}</p>}
+          {!error && status && (
+            <>
+              {status.content_logging_grant?.active ? (
+                <p>
+                  <span className="pill ok">Active</span>{' '}
+                  enabled by {status.content_logging_grant.enabled_by}, expires {status.content_logging_grant.expires_at}
+                </p>
+              ) : (
+                <p>
+                  <span className="pill idle">Off</span>{' '}
+                  {status.content_logging_grant
+                    ? `-- last active window ended ${
+                        status.content_logging_grant.revoked_at ?? status.content_logging_grant.expires_at
+                      }.`
+                    : '-- no window has ever been granted.'}
+                </p>
+              )}
+              <p className="faint">
+                While off, every gateway request and response is still logged by its own hash; only the
+                literal text is withheld.
+              </p>
+              {canControlContentLogging && (
+                <>
+                  {!status.content_logging_grant?.active ? (
+                    <div className="statusbar">
+                      <label>
+                        Minutes
+                        <input
+                          type="number" min={1} max={MAX_CONTENT_LOGGING_MINUTES}
+                          value={durationMinutes}
+                          onChange={(e) => setDurationMinutes(e.target.value)}
+                        />
+                      </label>
+                      <button type="button" className="btn" disabled={loggingBusy} onClick={() => void enableLogging()}>
+                        {loggingBusy ? 'Enabling…' : 'Enable content logging'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" className="btn danger" disabled={loggingBusy} onClick={() => void disableLogging()}>
+                      {loggingBusy ? 'Disabling…' : 'Disable now'}
+                    </button>
+                  )}
+                </>
+              )}
+            </>
           )}
         </div>
       </section>

@@ -386,6 +386,17 @@ was built; two existing tests were retargeted as a direct, intended consequence
 (`app.test.tsx`'s own landing-page case; `app-entra.test.tsx`'s own bearer-token
 capture, now watching `api.dataHandling` instead of `api.estate`).
 
+**Story S11.4.2 added a fourth Data Handling pane, Content logging** — off/active
+status, a real InfoSec-specified duration field (capped at the real server-side
+`MAX_CONTENT_LOGGING_MINUTES`), and Enable/Disable (`lib/api.ts`'s new
+`enableContentLogging`/`disableContentLogging`), all hidden for every role but the
+InfoSec reviewer — the identical hide-not-disable gate "Sign boundary" already has,
+for the identical reason: this is the client's own real control over whether literal
+gateway request/response text is ever persisted, not Artizent's to switch on for them.
+`GET /v1/data-handling`'s own response now also carries `content_logging_grant`
+(`active` computed server-side, never a stored flag — the identical `signed` shape
+this screen's own sign-off pane already uses), shown directly rather than re-derived.
+
 ## Performance
 
 S1.4.1 budgets two seconds for a 1,067-workbook site. The server's share is measured in

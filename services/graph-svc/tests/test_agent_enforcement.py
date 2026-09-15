@@ -144,10 +144,21 @@ class _FixedResponseCaller:
         )
 
 
+class _EmptyRequest:
+    """Story S11.4.2: `StaticGateway.generate` now always calls `request.as_dict()`
+    itself (field-schema validation and pattern redaction run unconditionally, not
+    only when a log store happens to be configured) -- a bare `object()` no longer
+    satisfies `SupportsAsDict`, the identical real, disclosed tightening every other
+    caller of the gateway is also now held to."""
+
+    def as_dict(self) -> dict[str, object]:
+        return {}
+
+
 async def test_the_transpiler_can_call_the_gateway_for_its_own_task_class() -> None:
     gateway = StaticGateway(_FixedResponseCaller())
     response = await gateway.generate(
-        task_class="transpile_c3", request=object(), previous_error=None,  # type: ignore[arg-type]
+        task_class="transpile_c3", request=_EmptyRequest(), previous_error=None,
         principal=TRANSPILER.value,
     )
     assert response.raw == {"dax": "SUM(1)"}
@@ -157,7 +168,7 @@ async def test_the_transpiler_is_refused_calling_the_gateway_for_mender_repair()
     gateway = StaticGateway(_FixedResponseCaller())
     with pytest.raises(AgentAuthorizationError):
         await gateway.generate(
-            task_class="mender_repair", request=object(), previous_error=None,  # type: ignore[arg-type]
+            task_class="mender_repair", request=_EmptyRequest(), previous_error=None,
             principal=TRANSPILER.value,
         )
 
@@ -167,5 +178,5 @@ async def test_omitting_principal_is_unchanged_backward_compatible_behaviour() -
     calling the gateway with `mender_repair`, a task class the Transpiler alone would be
     refused, and confirming it still succeeds with no identity asserted."""
     gateway = StaticGateway(_FixedResponseCaller())
-    response = await gateway.generate(task_class="mender_repair", request=object(), previous_error=None)  # type: ignore[arg-type]
+    response = await gateway.generate(task_class="mender_repair", request=_EmptyRequest(), previous_error=None)
     assert response.raw == {"dax": "SUM(1)"}

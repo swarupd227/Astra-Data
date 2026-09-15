@@ -103,7 +103,7 @@ from .g2_reminders import LocalNotificationChannel, PostgresReminderStore
 from .g3_card import G3CardService
 from .g4_card import G4CardService, PostgresDecommissionConfirmationStore
 from .gate_notifications import PostgresGateNotificationStore
-from .gateway import build_gateway
+from .gateway import PostgresContentLoggingGrantStore, build_gateway
 from .generation import GenerationEngine
 from .grammar import LocalIssueTracker, PostgresIssueStore
 from .graph import AgeGraphRepository, create_pool
@@ -390,6 +390,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         pool, graph_name=config.graph_name, config=config
     )
     app.state.data_handling_signoff_store = PostgresDataHandlingSignoffStore(
+        pool, graph_name=config.graph_name
+    )
+    # Story S11.4.2, closing F11.4: content logging is off by default -- this grant
+    # store is the InfoSec reviewer's own bounded-window on/off control.
+    app.state.content_logging_grant_store = PostgresContentLoggingGrantStore(
         pool, graph_name=config.graph_name
     )
     app.state.case_execution = CaseExecutionService(

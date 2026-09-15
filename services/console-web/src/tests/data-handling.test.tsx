@@ -138,3 +138,73 @@ describe('API refusal', () => {
     expect(await screen.findByText(/InfoSec reviewer/)).toBeInTheDocument();
   });
 });
+
+describe("content logging (story S11.4.2's own bounded-window toggle)", () => {
+  it('shows the honest off state when nothing has ever been granted', async () => {
+    render(<DataHandling api={fakeApi()} identity={INFOSEC_IDENTITY} />);
+    expect(await screen.findByText('Off')).toBeInTheDocument();
+    expect(screen.getByText(/no window has ever been granted/)).toBeInTheDocument();
+  });
+
+  it('hides the enable control for every role but the InfoSec reviewer', async () => {
+    render(<DataHandling api={fakeApi()} identity={ARTIZENT_IDENTITY} />);
+    await screen.findByText('Off');
+    expect(screen.queryByRole('button', { name: 'Enable content logging' })).not.toBeInTheDocument();
+  });
+
+  it('lets the InfoSec reviewer enable a real, bounded window', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    render(<DataHandling api={api} identity={INFOSEC_IDENTITY} />);
+    await screen.findByText('Off');
+
+    const minutes = screen.getByLabelText('Minutes');
+    await user.clear(minutes);
+    await user.type(minutes, '30');
+    await user.click(screen.getByRole('button', { name: 'Enable content logging' }));
+
+    expect(await screen.findByText('Active')).toBeInTheDocument();
+    expect(screen.getByText(/enabled by user:infosec@client.example/)).toBeInTheDocument();
+    expect(api.recorded).toContainEqual(
+      expect.objectContaining({ kind: 'ENABLE_CONTENT_LOGGING', id: INFOSEC_IDENTITY.principal, reason: '30' }),
+    );
+  });
+
+  it('lets the InfoSec reviewer disable an active window early', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    api.seedDataHandlingStatus(
+      dataHandlingStatus({
+        content_logging_grant: {
+          enabled_by: 'user:infosec@client.example', enabled_at: '2027-06-01T00:00:00.000Z',
+          expires_at: '2027-06-01T01:00:00.000Z', revoked_at: null, revoked_by: null, active: true,
+        },
+      }),
+    );
+    render(<DataHandling api={api} identity={INFOSEC_IDENTITY} />);
+    await screen.findByText('Active');
+
+    await user.click(screen.getByRole('button', { name: 'Disable now' }));
+
+    expect(await screen.findByText('Off')).toBeInTheDocument();
+    expect(api.recorded).toContainEqual(
+      expect.objectContaining({ kind: 'DISABLE_CONTENT_LOGGING', id: INFOSEC_IDENTITY.principal }),
+    );
+  });
+
+  it('shows a real, previously active window as off once it has been revoked', async () => {
+    const api = fakeApi();
+    api.seedDataHandlingStatus(
+      dataHandlingStatus({
+        content_logging_grant: {
+          enabled_by: 'user:infosec@client.example', enabled_at: '2027-06-01T00:00:00.000Z',
+          expires_at: '2027-06-01T01:00:00.000Z', revoked_at: '2027-06-01T00:10:00.000Z',
+          revoked_by: 'user:infosec@client.example', active: false,
+        },
+      }),
+    );
+    render(<DataHandling api={api} identity={ARTIZENT_IDENTITY} />);
+    expect(await screen.findByText('Off')).toBeInTheDocument();
+    expect(screen.getByText(/last active window ended 2027-06-01T00:10:00.000Z/)).toBeInTheDocument();
+  });
+});

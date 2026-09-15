@@ -118,6 +118,7 @@ def settings() -> Settings:
                 "public.estate_edge_index", "public.estate_element_index", "public.estate_event",
                 "public.artefacts", "public.data_handling_position", "public.data_handling_signoff",
                 "public.gateway_request_log", "public.model_gateway_policy",
+                "public.gateway_content_logging_grant",
             ):
                 await conn.execute(f"DELETE FROM {table} WHERE graph = $1", config.graph_name)
             await conn.execute("SELECT ag_catalog.drop_graph($1, true)", config.graph_name)
@@ -258,6 +259,7 @@ async def http_client(estate):
         PostgresDataHandlingPositionStore,
         PostgresDataHandlingSignoffStore,
     )
+    from astra_graph.gateway import PostgresContentLoggingGrantStore
     from astra_graph.main import create_app
 
     app = create_app()
@@ -268,6 +270,9 @@ async def http_client(estate):
         estate["pool"], graph_name=estate["settings"].graph_name, config=estate["settings"]
     )
     app.state.data_handling_signoff_store = PostgresDataHandlingSignoffStore(
+        estate["pool"], graph_name=estate["settings"].graph_name
+    )
+    app.state.content_logging_grant_store = PostgresContentLoggingGrantStore(
         estate["pool"], graph_name=estate["settings"].graph_name
     )
 
@@ -345,3 +350,77 @@ async def test_verify_boundary_over_http_runs_the_real_check(estate, http_client
     body = response.json()
     assert body["passed"] is True
     assert body["sentinel"].startswith("CANARY-")
+
+
+# --------------------------------------------------- S11.4.2: content-logging grant, over HTTP
+
+
+async def test_content_logging_is_off_by_default_on_a_fresh_deployment(estate, http_client) -> None:
+    response = await http_client.get("/v1/data-handling", headers=_headers("client_infosec_reviewer", INFOSEC))
+    assert response.status_code == 200
+    assert response.json()["content_logging_grant"] is None
+
+
+async def test_the_infosec_reviewer_can_enable_content_logging_for_a_real_bounded_window(estate, http_client) -> None:
+    response = await http_client.post(
+        "/v1/data-handling:enable-content-logging", json={"duration_minutes": 30},
+        headers=_headers("client_infosec_reviewer", INFOSEC),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled_by"] == INFOSEC.value
+    assert body["active"] is True
+
+    status = await http_client.get("/v1/data-handling", headers=_headers("client_infosec_reviewer", INFOSEC))
+    assert status.json()["content_logging_grant"]["active"] is True
+
+
+async def test_the_platform_engineer_cannot_enable_content_logging(estate, http_client) -> None:
+    """The identical departure `sign_data_handling` already has -- this is the InfoSec
+    reviewer's own real control, not Artizent's to grant on the client's behalf."""
+    response = await http_client.post(
+        "/v1/data-handling:enable-content-logging", json={"duration_minutes": 30},
+        headers=_headers("platform_engineer", PLATFORM_ENGINEER),
+    )
+    assert response.status_code == 403
+
+
+async def test_enabling_content_logging_beyond_the_cap_is_refused(estate, http_client) -> None:
+    response = await http_client.post(
+        "/v1/data-handling:enable-content-logging", json={"duration_minutes": 1441},
+        headers=_headers("client_infosec_reviewer", INFOSEC),
+    )
+    assert response.status_code == 422  # pydantic's own le=1440 field constraint
+
+
+async def test_the_infosec_reviewer_can_disable_content_logging_early(estate, http_client) -> None:
+    await http_client.post(
+        "/v1/data-handling:enable-content-logging", json={"duration_minutes": 60},
+        headers=_headers("client_infosec_reviewer", INFOSEC),
+    )
+    response = await http_client.post(
+        "/v1/data-handling:disable-content-logging", headers=_headers("client_infosec_reviewer", INFOSEC),
+    )
+    assert response.status_code == 200
+    assert response.json()["active"] is False
+
+    status = await http_client.get("/v1/data-handling", headers=_headers("client_infosec_reviewer", INFOSEC))
+    assert status.json()["content_logging_grant"]["active"] is False
+
+
+async def test_the_boundary_test_itself_grants_and_revokes_its_own_real_window(estate, http_client) -> None:
+    """`run_boundary_test` (data_handling.py) grants itself a real, short content-
+    logging window so its own check has real text to search -- and revokes it again
+    before returning (this module's own docstring on `_BOUNDARY_TEST_GRANT_MINUTES`
+    explains why). Confirmed here at the HTTP level: no grant is left active
+    afterward, even though the run's own request really was logged with full text."""
+    response = await http_client.post(
+        "/v1/data-handling:verify-boundary", headers=_headers("client_infosec_reviewer", INFOSEC),
+    )
+    assert response.status_code == 200
+    assert response.json()["passed"] is True
+
+    status = await http_client.get("/v1/data-handling", headers=_headers("client_infosec_reviewer", INFOSEC))
+    grant = status.json()["content_logging_grant"]
+    assert grant is not None
+    assert grant["active"] is False, "the boundary test's own grant must be revoked before it returns"

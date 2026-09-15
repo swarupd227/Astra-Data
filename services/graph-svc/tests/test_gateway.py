@@ -19,11 +19,19 @@ from typing import Any
 import pytest
 
 from astra_graph.gateway import (
+    MAX_CONTENT_LOGGING_MINUTES,
+    MAX_FIELD_BYTES,
+    MENDER_REPAIR,
     ROUTABLE_THRESHOLD,
+    TASK_CLASS_FIELD_SCHEMAS,
     TRANSPILE_C3,
+    TRANSPILE_C3_SMALL_MODEL,
+    ContentLoggingGrantError,
     EvalCase,
     EvalReport,
     GatewayRoutingError,
+    GatewayValidationError,
+    InMemoryContentLoggingGrantStore,
     InMemoryGatewayRequestLogStore,
     ModelCaller,
     ModelGateway,
@@ -34,6 +42,7 @@ from astra_graph.gateway import (
     _json_schema_from_output_schema,
     null_gateway,
     run_eval_set,
+    validate_task_class_schema,
 )
 
 
@@ -236,6 +245,138 @@ def test_json_schema_from_output_schema_handles_nullable_and_array_types() -> No
     assert schema["properties"]["m"] == {"anyOf": [{"type": "string"}, {"type": "null"}]}
     assert schema["properties"]["assumptions"] == {"type": "array", "items": {"type": "string"}}
     assert schema["additionalProperties"] is False
+
+
+# ------------------------------------------------------------- S11.4.2: schema validation
+
+
+def test_every_real_task_class_is_registered() -> None:
+    assert TRANSPILE_C3 in TASK_CLASS_FIELD_SCHEMAS
+    assert TRANSPILE_C3_SMALL_MODEL in TASK_CLASS_FIELD_SCHEMAS
+    assert MENDER_REPAIR in TASK_CLASS_FIELD_SCHEMAS
+
+
+def test_an_unregistered_task_class_is_not_this_functions_own_concern() -> None:
+    validate_task_class_schema("some_future_task_class", {"anything": "goes"})  # does not raise
+
+
+def test_a_payload_with_only_registered_fields_passes() -> None:
+    validate_task_class_schema(TRANSPILE_C3, {"task": "TRANSLATE_CALC", "output_schema": {}})
+
+
+def test_an_unexpected_field_is_refused() -> None:
+    with pytest.raises(GatewayValidationError) as exc_info:
+        validate_task_class_schema(TRANSPILE_C3, {"task": "x", "a_field_nobody_declared": "leak"})
+    assert "a_field_nobody_declared" in str(exc_info.value)
+
+
+def test_a_field_exactly_at_the_byte_limit_passes() -> None:
+    # json.dumps of a plain string adds two quote bytes -- sized so the *encoded* value
+    # lands exactly at the limit, not one under it.
+    value = "x" * (MAX_FIELD_BYTES - 2)
+    validate_task_class_schema(TRANSPILE_C3, {"task": value})
+
+
+def test_a_field_one_byte_over_the_limit_is_refused() -> None:
+    value = "x" * (MAX_FIELD_BYTES - 1)
+    with pytest.raises(GatewayValidationError) as exc_info:
+        validate_task_class_schema(TRANSPILE_C3, {"task": value})
+    assert "task" in str(exc_info.value)
+
+
+# ------------------------------------------------------- S11.4.2: real payload enforcement
+
+
+@pytest.mark.asyncio
+async def test_an_unexpected_field_is_refused_before_the_provider_is_ever_called() -> None:
+    policy = _InMemoryPolicyStore(scores={(TRANSPILE_C3, "anthropic"): 0.90})
+    caller = _StubCaller(provider="anthropic")
+    gateway = ModelGateway(providers={"anthropic": caller}, policy_store=policy)
+
+    class _BadRequest:
+        def as_dict(self) -> dict[str, Any]:
+            return {"output_schema": {}, "not_a_real_field": "leak me"}
+
+    with pytest.raises(GatewayValidationError):
+        await gateway.generate(task_class=TRANSPILE_C3, request=_BadRequest(), previous_error=None)
+
+
+@pytest.mark.asyncio
+async def test_a_data_like_literal_is_redacted_before_the_provider_receives_it() -> None:
+    policy = _InMemoryPolicyStore(scores={(TRANSPILE_C3, "anthropic"): 0.90})
+    received: dict[str, Any] = {}
+
+    class _CapturingCaller:
+        provider = "anthropic"
+        model = "test-model"
+
+        async def generate(self, request: Any, *, previous_error: str | None) -> RawModelResponse:
+            received.update(request.as_dict())
+            return RawModelResponse(
+                raw={}, gateway_request_id="g", provider=self.provider, model=self.model,
+                prompt_hash="h", temperature=0.0, tokens_in=1, tokens_out=1,
+            )
+
+    class _LeakyRequest:
+        def as_dict(self) -> dict[str, Any]:
+            return {"task": "contact leak@example.com for help", "output_schema": {}}
+
+    gateway = ModelGateway(providers={"anthropic": _CapturingCaller()}, policy_store=policy)
+    await gateway.generate(task_class=TRANSPILE_C3, request=_LeakyRequest(), previous_error=None)
+    assert "leak@example.com" not in received["task"]
+    assert "[REDACTED:EMAIL]" in received["task"]
+
+
+# ---------------------------------------------------------- S11.4.2: content-logging grant
+
+
+class TestInMemoryContentLoggingGrantStore:
+    @pytest.mark.asyncio
+    async def test_a_fresh_store_has_no_grant(self) -> None:
+        store = InMemoryContentLoggingGrantStore()
+        assert await store.latest() is None
+
+    @pytest.mark.asyncio
+    async def test_a_granted_window_is_active(self) -> None:
+        store = InMemoryContentLoggingGrantStore()
+        grant = await store.grant(enabled_by="user:infosec@client.example", duration_minutes=30)
+        assert grant.active is True
+        assert (await store.latest()).active is True  # type: ignore[union-attr]
+
+    @pytest.mark.asyncio
+    async def test_revoking_deactivates_it(self) -> None:
+        store = InMemoryContentLoggingGrantStore()
+        await store.grant(enabled_by="user:infosec@client.example", duration_minutes=30)
+        revoked = await store.revoke(revoked_by="user:infosec@client.example")
+        assert revoked is not None
+        assert revoked.active is False
+
+    @pytest.mark.asyncio
+    async def test_revoking_with_nothing_active_returns_none(self) -> None:
+        store = InMemoryContentLoggingGrantStore()
+        assert await store.revoke(revoked_by="user:infosec@client.example") is None
+
+    @pytest.mark.asyncio
+    async def test_a_duration_of_zero_is_refused(self) -> None:
+        store = InMemoryContentLoggingGrantStore()
+        with pytest.raises(ContentLoggingGrantError):
+            await store.grant(enabled_by="user:infosec@client.example", duration_minutes=0)
+
+    @pytest.mark.asyncio
+    async def test_a_duration_over_the_cap_is_refused(self) -> None:
+        store = InMemoryContentLoggingGrantStore()
+        with pytest.raises(ContentLoggingGrantError):
+            await store.grant(
+                enabled_by="user:infosec@client.example", duration_minutes=MAX_CONTENT_LOGGING_MINUTES + 1,
+            )
+
+    @pytest.mark.asyncio
+    async def test_the_cap_itself_is_accepted(self) -> None:
+        store = InMemoryContentLoggingGrantStore()
+        grant = await store.grant(
+            enabled_by="user:infosec@client.example", duration_minutes=MAX_CONTENT_LOGGING_MINUTES,
+        )
+        assert grant.active is True
 
 
 # --------------------------------------------------------- S11.4.1: the gateway request log

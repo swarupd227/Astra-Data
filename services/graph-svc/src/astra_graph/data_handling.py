@@ -88,6 +88,7 @@ from .gateway import (
     MENDER_REPAIR,
     EvalReport,
     ModelGateway,
+    PostgresContentLoggingGrantStore,
     PostgresGatewayPolicyStore,
     PostgresGatewayRequestLogStore,
     RawModelResponse,
@@ -403,14 +404,26 @@ class BoundaryTestResult:
         }
 
 
+#: Story S11.4.2: content logging is off by default -- without a real, active grant of
+#: its own, `PostgresGatewayRequestLogStore` would persist only a hash, `contains_text`
+#: would find nothing at all, and this check's own `marker_logged` self-test would
+#: correctly, loudly fail ("no request was logged at all") rather than silently pass.
+#: A short, scoped, self-revoked grant is this function's own real, minimal use of the
+#: exact mechanism it is verifying -- not a bypass of it.
+_BOUNDARY_TEST_GRANT_MINUTES = 5
+
+
 async def run_boundary_test(
     pool: asyncpg.Pool, graph_name: str, *, artefact_store: ArtefactStore, writer: GraphWriter,
 ) -> BoundaryTestResult:
-    """§18.3/S11.4.1's own boundary test -- see this module's own docstring for the full
-    design. Plants a real sentinel inside a real, disposable evidence bundle, drives the
-    one real row-level-data channel (`mender.assemble_repair_context`) for real, then
-    routes the result through a real, log-store-backed `ModelGateway` and asserts the
-    sentinel is absent from both."""
+    """§18.3/S11.4.1's own boundary test, extended by S11.4.2 -- see this module's own
+    docstring for the full design. Plants a real sentinel inside a real, disposable
+    evidence bundle, drives the one real row-level-data channel (`mender.assemble_
+    repair_context`) for real, grants itself a short, real content-logging window (see
+    `_BOUNDARY_TEST_GRANT_MINUTES`), then routes the result through a real, log-store-
+    backed `ModelGateway` and asserts the sentinel is absent from both the assembled
+    context and the resulting real log row -- the grant is revoked again before this
+    function returns, whether the check passes or fails."""
     principal = Principal("agent:mender", run_id=f"boundary-test-{new_ulid()}")
     sentinel = f"CANARY-{new_ulid()}"
     known_marker = "BOUNDARY_TEST_CLASS"
@@ -471,9 +484,14 @@ async def run_boundary_test(
             providers={_BoundaryTestCaller.provider: _BoundaryTestCaller()},
             policy_store=policy_store, log_store=log_store,
         )
-        await gateway.generate(
-            task_class=MENDER_REPAIR, request=context, previous_error=None, principal=principal.value,
-        )
+        grant_store = PostgresContentLoggingGrantStore(pool, graph_name=graph_name)
+        await grant_store.grant(enabled_by=principal.value, duration_minutes=_BOUNDARY_TEST_GRANT_MINUTES)
+        try:
+            await gateway.generate(
+                task_class=MENDER_REPAIR, request=context, previous_error=None, principal=principal.value,
+            )
+        finally:
+            await grant_store.revoke(revoked_by=principal.value)
 
         leaked_in_log = await log_store.contains_text(sentinel)
         marker_logged = await log_store.contains_text(known_marker)

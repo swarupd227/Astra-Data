@@ -1528,6 +1528,19 @@ export interface DataHandlingSignoff {
   signed_at: string;
 }
 
+/** Story S11.4.2: off by default -- `null` means no grant has ever been recorded (or
+ * `active` is `false` once the InfoSec reviewer's own bounded window has lapsed or
+ * been revoked). `active` is computed server-side, never a stored flag -- the
+ * identical `signed`/`SvidRecord.status` discipline this codebase already has twice. */
+export interface ContentLoggingGrant {
+  enabled_by: string;
+  enabled_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  revoked_by: string | null;
+  active: boolean;
+}
+
 export interface DataHandlingStatus {
   position: DataHandlingPosition;
   signoff: DataHandlingSignoff | null;
@@ -1535,6 +1548,7 @@ export interface DataHandlingStatus {
    * server-side, never a stored flag (`data_handling.boundary_status`'s own docstring). */
   signed: boolean;
   inference_boundary_table: InferenceBoundaryTable;
+  content_logging_grant: ContentLoggingGrant | null;
 }
 
 export interface BoundaryTestResult {
@@ -2608,6 +2622,8 @@ export interface Api {
   ): Promise<DataHandlingPosition>;
   signDataHandlingBoundary(identity: Identity): Promise<DataHandlingSignoff>;
   verifyDataHandlingBoundary(identity: Identity): Promise<BoundaryTestResult>;
+  enableContentLogging(durationMinutes: number, identity: Identity): Promise<ContentLoggingGrant>;
+  disableContentLogging(identity: Identity): Promise<ContentLoggingGrant | { active: false }>;
 }
 
 function decisionRegisterQueryString(filters: DecisionRegisterFilters): string {
@@ -3245,6 +3261,16 @@ export function createApi(base = ''): Api {
     },
     async verifyDataHandlingBoundary(identity) {
       return (await post('/v1/data-handling:verify-boundary', {}, identity)) as BoundaryTestResult;
+    },
+    async enableContentLogging(durationMinutes, identity) {
+      return (await post(
+        '/v1/data-handling:enable-content-logging', { duration_minutes: durationMinutes }, identity,
+      )) as ContentLoggingGrant;
+    },
+    async disableContentLogging(identity) {
+      return (await post('/v1/data-handling:disable-content-logging', {}, identity)) as
+        | ContentLoggingGrant
+        | { active: false };
     },
   };
 }

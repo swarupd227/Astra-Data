@@ -47,6 +47,7 @@ import type {
   RetentionState,
   EvidenceExportProgress,
   EvidenceExportScope,
+  ContentLoggingGrant,
   DataHandlingPosition,
   DataHandlingProvider,
   DataHandlingSignoff,
@@ -1919,6 +1920,7 @@ export function dataHandlingStatus(overrides: Partial<DataHandlingStatus> = {}):
       sent: ['Calculation expressions and their ASTs', 'Field, table, datasource and workbook names'],
       never_sent: ['Row-level data of any kind', 'Credentials'],
     },
+    content_logging_grant: null,
     ...overrides,
   };
 }
@@ -3580,6 +3582,28 @@ export function fakeApi(
         passed: true, sentinel: 'CANARY-fake', checked_at: new Date().toISOString(),
         detail: 'OK -- the sentinel never reached the assembled context or the gateway request log',
       };
+    },
+    async enableContentLogging(durationMinutes: number, identity: Identity) {
+      maybeFail();
+      const now = new Date();
+      const grant: ContentLoggingGrant = {
+        enabled_by: identity.principal, enabled_at: now.toISOString(),
+        expires_at: new Date(now.getTime() + durationMinutes * 60_000).toISOString(),
+        revoked_at: null, revoked_by: null, active: true,
+      };
+      dataHandlingStatusState = { ...dataHandlingStatusState, content_logging_grant: grant };
+      recorded.push({ kind: 'ENABLE_CONTENT_LOGGING', id: identity.principal, reason: String(durationMinutes) });
+      return grant;
+    },
+    async disableContentLogging(identity: Identity) {
+      maybeFail();
+      const current = dataHandlingStatusState.content_logging_grant;
+      const grant: ContentLoggingGrant | { active: false } = current
+        ? { ...current, revoked_at: new Date().toISOString(), revoked_by: identity.principal, active: false }
+        : { active: false };
+      dataHandlingStatusState = { ...dataHandlingStatusState, content_logging_grant: current ? (grant as ContentLoggingGrant) : null };
+      recorded.push({ kind: 'DISABLE_CONTENT_LOGGING', id: identity.principal, reason: '' });
+      return grant;
     },
   };
 }

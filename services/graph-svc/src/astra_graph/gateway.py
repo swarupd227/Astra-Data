@@ -27,24 +27,48 @@ calls, honestly named for what it actually checks, not a stand-in for §16.6's "
 rate" (the *artefact*-level, post-proof metric that number names — a different, later
 measurement this module does not compute).
 
-**A real, always-on gateway request log — story S11.4.1's own deliberate, disclosed,
-narrow pull-forward.** Nothing before this story ever recorded the literal outbound
-request text this module builds (`RawModelResponse` only ever carried `prompt_hash`,
-never the prompt itself — confirmed by direct research). S11.4.1's own AC needs a real
-log to run its boundary test against ("asserts sentinel data never appears in a gateway
-request log"); S11.4.2 (the next story in this same feature) is the one actually scoped
-to build the fuller mechanism (secret-pattern redaction, content-logging off by default
-for a bounded window). `GatewayRequestLogStore` here is only the one storage primitive
-S11.4.1's own boundary test needs — always on, no redaction of its own (the request
-text it records has already been through whatever redaction the *request* itself
-applied upstream, e.g. `mender.assemble_repair_context`'s own `redaction.py` call) — not
-S11.4.2's own on/off toggle or secret-pattern scrubbing, which stay that later story's
-scope. Logging happens in `ModelGateway.generate`/`StaticGateway.generate`, immediately
-before the real provider call, using the identical `_build_prompt` rendering
-`AnthropicModelCaller.generate` itself uses (same pure function, same inputs, so the
-logged text is guaranteed byte-identical to what is actually sent) — so a request that
-never reaches a routable provider (`GatewayRoutingError`) is never logged at all, since
-nothing was ever really about to be sent.
+**The gateway enforces the boundary itself — story S11.4.2, closing F11.4.** S11.4.1
+built a real, always-on request log as a deliberate, narrow pull-forward (its own
+module docstring said so explicitly); this story is the one that makes that log real
+governance rather than a permanent, unconditional recording, and adds the two
+enforcement layers the AC's own title names ("the gateway to enforce the boundary, not
+rely on agents to respect it"):
+
+1. **Field-schema validation** (`validate_task_class_schema`, `TASK_CLASS_FIELD_
+   SCHEMAS`). A real, hand-maintained allow-list of field names per task class —
+   deliberately *not* derived from `GenerationRequest`/`RepairContext`'s own declared
+   dataclass fields, since a schema that auto-syncs with whatever a caller happens to
+   send would enforce nothing at all: the whole point is a boundary a caller's own
+   future field addition cannot silently widen. An unexpected field, or a field whose
+   own JSON-encoded value exceeds `MAX_FIELD_BYTES`, raises `GatewayValidationError`
+   before the request is ever built, redacted, logged, or sent.
+2. **Pattern-based redaction** (`redaction.redact_data_like_literals`) — applied to
+   the *real* outbound payload, not merely to what gets logged: every string leaf value
+   is scanned for an email, an account-number-shaped digit group, or a long bare
+   numeric literal, and each match is replaced before the payload is wrapped
+   (`_DictRequest`) and handed to the real `ModelCaller`. The AC's own "so a prompt bug
+   cannot leak data" is a claim about what actually reaches the provider.
+3. **Content logging, off by default, InfoSec-granted for a bounded window**
+   (`ContentLoggingGrant`/`ContentLoggingGrantStore`). `PostgresGatewayRequestLogStore.
+   record` always persists a request's/response's own hash (and the AC's own
+   "redaction count"); it persists the literal *text* only while a real, unexpired,
+   unrevoked `gateway_content_logging_grant` row exists for this graph — the identical
+   "validity is a computed comparison, never a stored flag" discipline `data_handling.
+   py`'s own sign-off status and `workload_identity.SvidRecord`'s own `expires_at`/
+   `revoked_at` shape already established. A grant's own duration is named by the
+   InfoSec reviewer at enable time, capped at `MAX_CONTENT_LOGGING_MINUTES` so it can
+   never be left on indefinitely by accident.
+
+Both request and response are now logged (previously request-only) — `_dispatch`
+(shared by `ModelGateway.generate`/`StaticGateway.generate`) wraps the real provider
+call in `try`/`finally` so a request is always logged even if the call itself fails
+(the identical guarantee S11.4.1 already gave, now extended to also capture a real
+response when the call succeeds), using the identical `_build_prompt` rendering
+`AnthropicModelCaller.generate` itself uses on the same, already-redacted payload — so
+the logged text (when a grant makes it visible at all) is guaranteed byte-identical to
+what was actually sent. A request refused by schema validation, or one that never
+reaches a routable provider (`GatewayRoutingError`), is never logged at all — nothing
+was ever really built or sent.
 
 **Anthropic is real; Azure OpenAI is not wired.** Per an explicit scope decision on this
 story (the platform engineer chose live Anthropic integration over disclosed fixtures, and
@@ -77,7 +101,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 import anthropic
@@ -88,6 +112,7 @@ from .config import Settings
 from .context.canonical import context_hash
 from .credentials import CredentialProvider
 from .ids import new_ulid
+from .redaction import redact_data_like_literals
 
 #: §5.5: "routes by task class" — a plain string alias, not an enum, since a closed set
 #: would need extending for every new caller and buys nothing a string doesn't already
@@ -122,6 +147,12 @@ ROUTABLE_THRESHOLD = 0.80
 
 GATEWAY_POLICY_TABLE = "public.model_gateway_policy"
 GATEWAY_REQUEST_LOG_TABLE = "public.gateway_request_log"
+CONTENT_LOGGING_GRANT_TABLE = "public.gateway_content_logging_grant"
+
+#: Story S11.4.2: the longest a single content-logging grant may run before it needs a
+#: fresh, deliberate re-enable -- so "off by default... for a bounded window" can never
+#: quietly become "on indefinitely" through one long-forgotten grant.
+MAX_CONTENT_LOGGING_MINUTES = 1440
 
 
 class SupportsAsDict(Protocol):
@@ -190,6 +221,86 @@ class GatewayRoutingError(Exception):
             + (f" (considered: {', '.join(considered)}, none met the eval bar)" if considered else " (no provider has ever been eval-scored for this task class)")
         )
         super().__init__(detail)
+
+
+class GatewayValidationError(Exception):
+    """A request's own shape violates its task class's allowed field schema — an
+    unexpected field, or a field whose own JSON-encoded value exceeds
+    `MAX_FIELD_BYTES`. Raised before the request is ever redacted, logged, or sent —
+    the identical "refuse before anything happens" footing `GatewayRoutingError`
+    already has for a request with no routable provider; a caller (`generation.py`'s
+    own ladder, `mender.py`'s own repair loop) treats this the same way, an immediate,
+    non-retryable escalation."""
+
+    def __init__(self, task_class: TaskClass, *, detail: str) -> None:
+        self.task_class = task_class
+        self.detail = detail
+        super().__init__(f"request for task_class {task_class!r} refused: {detail}")
+
+
+#: Story S11.4.2: "validates every request against the task class's allowed field
+#: schema." A real, hand-maintained allow-list per task class — see this module's own
+#: docstring for why this is deliberately not derived from `GenerationRequest`/
+#: `RepairContext`'s own declared fields. Kept here (not in `generation.py`/`mender.py`)
+#: because enforcement belongs to the gateway itself, the AC's own literal point.
+TASK_CLASS_FIELD_SCHEMAS: dict[TaskClass, frozenset[str]] = {
+    TRANSPILE_C3: frozenset({
+        "task", "source", "dependency_closure", "sheet_ctx", "model_ctx",
+        "patterns", "charter_excerpt", "params", "constraints", "output_schema",
+    }),
+    TRANSPILE_C3_SMALL_MODEL: frozenset({
+        "task", "source", "dependency_closure", "sheet_ctx", "model_ctx",
+        "patterns", "charter_excerpt", "params", "constraints", "output_schema",
+    }),
+    MENDER_REPAIR: frozenset({
+        "task", "failure_class", "classification_signals", "failing_cells",
+        "filter_ctx", "expected_columns", "candidate_columns", "current_dax",
+        "source_formula", "source_formula_ast", "class_instruction",
+        "dependency_closure", "widened", "output_schema",
+    }),
+}
+
+#: Bytes of one field's own JSON-encoded value — generous enough for a real,
+#: legitimate dependency closure or a widened (uncapped) failing-cell set, tight
+#: enough to refuse a request a bug has stuffed with something this codebase never
+#: intends a prompt to carry (an entire result set, say). One uniform cap, not tuned
+#: per field: the AC's own wording is "a field over size," not a per-field budget table.
+MAX_FIELD_BYTES = 32_768
+
+
+def validate_task_class_schema(task_class: TaskClass, payload: Mapping[str, Any]) -> None:
+    """A task class with no registered schema is not this function's own concern —
+    `ModelGateway.generate`'s own routing check already refuses anything unrecognised
+    before this ever runs (a task class only reaches here once real routing has picked
+    a real provider for it)."""
+    schema = TASK_CLASS_FIELD_SCHEMAS.get(task_class)
+    if schema is None:
+        return
+    unexpected = sorted(set(payload) - schema)
+    if unexpected:
+        raise GatewayValidationError(
+            task_class, detail=f"unexpected field(s) {unexpected}; allowed: {sorted(schema)}"
+        )
+    for key, value in payload.items():
+        size = len(json.dumps(value, sort_keys=True, default=str).encode("utf-8"))
+        if size > MAX_FIELD_BYTES:
+            raise GatewayValidationError(
+                task_class, detail=f"field {key!r} is {size} bytes, over the {MAX_FIELD_BYTES}-byte limit"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class _DictRequest:
+    """Wraps an already-validated, already-redacted payload dict so it can be handed
+    to a real `ModelCaller` in place of the caller's own original request object — the
+    real outbound call must see the redacted content, not the original (S11.4.2's own
+    "so a prompt bug cannot leak data" is a claim about what actually reaches the
+    provider, not only about what gets logged)."""
+
+    payload: dict[str, Any]
+
+    def as_dict(self) -> dict[str, Any]:
+        return self.payload
 
 
 # --------------------------------------------------------------------------- tenant policy
@@ -293,15 +404,33 @@ class PostgresGatewayPolicyStore:
 class GatewayRequestLogStore(Protocol):
     async def record(
         self, *, provider: str, task_class: TaskClass, agent_id: str | None,
-        prompt_hash: str, request_text: str,
+        prompt_hash: str, request_text: str | None,
+        response_hash: str | None, response_text: str | None, redaction_count: int,
     ) -> None: ...
 
     async def contains_text(self, needle: str) -> bool: ...
 
 
+async def _content_logging_active(conn: asyncpg.Connection, graph_name: str) -> bool:
+    """Story S11.4.2: whether a real, unexpired, unrevoked grant exists right now --
+    computed at read time, exactly the "validity is a comparison, never a stored flag"
+    discipline `data_handling.boundary_status`/`workload_identity.SvidRecord.status`
+    already established, applied a third time."""
+    row = await conn.fetchval(
+        f"""SELECT 1 FROM {CONTENT_LOGGING_GRANT_TABLE}
+             WHERE graph = $1 AND revoked_at IS NULL AND expires_at > now()
+             ORDER BY enabled_at DESC LIMIT 1""",
+        graph_name,
+    )
+    return row is not None
+
+
 class PostgresGatewayRequestLogStore:
-    """Always-on, per-graph -- see this module's own docstring for why a real, narrow
-    log exists here at all before S11.4.2's own fuller mechanism."""
+    """Always records a real hash for every real request/response (the AC's own "all
+    gateway requests and responses are logged with hashes") -- the literal *text* is
+    persisted only while a real content-logging grant is currently active for this
+    graph, checked fresh on every write (never cached), so a grant that has just
+    expired or just been revoked takes effect on the very next request."""
 
     def __init__(self, pool: asyncpg.Pool, *, graph_name: str) -> None:
         self._pool = pool
@@ -309,62 +438,240 @@ class PostgresGatewayRequestLogStore:
 
     async def record(
         self, *, provider: str, task_class: TaskClass, agent_id: str | None,
-        prompt_hash: str, request_text: str,
+        prompt_hash: str, request_text: str | None,
+        response_hash: str | None, response_text: str | None, redaction_count: int,
     ) -> None:
         async with self._pool.acquire() as conn:
+            content_logging = await _content_logging_active(conn, self._graph)
             await conn.execute(
                 f"""INSERT INTO {GATEWAY_REQUEST_LOG_TABLE}
-                    (id, graph, provider, task_class, agent_id, prompt_hash, request_text)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+                    (id, graph, provider, task_class, agent_id, prompt_hash, request_text,
+                     response_hash, response_text, redaction_count)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
                 f"gwreq_{new_ulid()}", self._graph, provider, task_class, agent_id,
-                prompt_hash, request_text,
+                prompt_hash, request_text if content_logging else None,
+                response_hash, response_text if content_logging else None,
+                redaction_count,
             )
 
     async def contains_text(self, needle: str) -> bool:
-        """Story S11.4.1's own boundary test: whether `needle` (a sentinel/canary value)
-        appears in any request this graph has ever really sent. A plain substring
-        search, not a hash lookup -- the AC's own wording is "never appears," which a
-        hash of the sentinel could not check against a log that only ever stores real
-        request text, not a matching hash of it."""
+        """Story S11.4.1's own boundary test (now also covering responses, S11.4.2):
+        whether `needle` (a sentinel/canary value) appears in any request or response
+        text this graph has ever really logged. A plain substring search, not a hash
+        lookup -- the AC's own wording is "never appears," which a hash of the
+        sentinel could not check against a log that only ever stores real text, not a
+        matching hash of it. Finds nothing when content logging was off at write time,
+        the honest, correct behaviour: text that was never persisted cannot be found."""
         async with self._pool.acquire() as conn:
             row = await conn.fetchval(
                 f"""SELECT 1 FROM {GATEWAY_REQUEST_LOG_TABLE}
-                     WHERE graph = $1 AND request_text LIKE '%' || $2 || '%' LIMIT 1""",
+                     WHERE graph = $1 AND (
+                         request_text LIKE '%' || $2 || '%' OR response_text LIKE '%' || $2 || '%'
+                     ) LIMIT 1""",
                 self._graph, needle,
             )
         return row is not None
 
 
 class InMemoryGatewayRequestLogStore:
+    """The simple test double -- always records full text, unconditionally; it models
+    no grant concept of its own (a real Postgres-backed grant is what `test_
+    integration_gateway.py`/`test_integration_data_handling.py` exercise for real)."""
+
     def __init__(self) -> None:
         self.requests: list[dict[str, Any]] = []
 
     async def record(
         self, *, provider: str, task_class: TaskClass, agent_id: str | None,
-        prompt_hash: str, request_text: str,
+        prompt_hash: str, request_text: str | None,
+        response_hash: str | None, response_text: str | None, redaction_count: int,
     ) -> None:
         self.requests.append({
             "provider": provider, "task_class": task_class, "agent_id": agent_id,
             "prompt_hash": prompt_hash, "request_text": request_text,
+            "response_hash": response_hash, "response_text": response_text,
+            "redaction_count": redaction_count,
         })
 
     async def contains_text(self, needle: str) -> bool:
-        return any(needle in r["request_text"] for r in self.requests)
+        return any(
+            needle in (r["request_text"] or "") or needle in (r["response_text"] or "")
+            for r in self.requests
+        )
 
 
-async def _log_request(
-    log_store: GatewayRequestLogStore | None, *, provider: str, task_class: TaskClass,
-    principal: str | None, request: SupportsAsDict, previous_error: str | None,
-) -> None:
-    if log_store is None:
-        return
+async def _dispatch(
+    caller: ModelCaller, log_store: GatewayRequestLogStore | None, *,
+    provider: str, task_class: TaskClass, principal: str | None,
+    request: SupportsAsDict, previous_error: str | None,
+) -> RawModelResponse:
+    """Shared by `ModelGateway.generate`/`StaticGateway.generate`: validate the
+    request's own shape, redact data-like literals from the *real* outbound payload,
+    call the provider, and log request+response (as hashes always, as text only while
+    a content-logging grant is active) regardless of whether the call itself
+    succeeds -- the identical `try`/`finally` guarantee S11.4.1 already gave request
+    logging, now covering the response too."""
     payload = request.as_dict()
-    prompt = _build_prompt(payload, previous_error)
-    await log_store.record(
-        provider=provider, task_class=task_class,
-        agent_id=agent_id_of(principal) if principal else None,
-        prompt_hash=context_hash(prompt.encode("utf-8")), request_text=prompt,
+    validate_task_class_schema(task_class, payload)
+    redacted_payload, redaction_count = redact_data_like_literals(payload)
+    redacted_request = _DictRequest(redacted_payload)
+    prompt = _build_prompt(redacted_payload, previous_error)
+
+    response: RawModelResponse | None = None
+    try:
+        response = await caller.generate(redacted_request, previous_error=previous_error)
+        return response
+    finally:
+        if log_store is not None:
+            response_text = (
+                json.dumps(dict(response.raw), sort_keys=True, default=str)
+                if response is not None else None
+            )
+            await log_store.record(
+                provider=provider, task_class=task_class,
+                agent_id=agent_id_of(principal) if principal else None,
+                prompt_hash=context_hash(prompt.encode("utf-8")), request_text=prompt,
+                response_hash=(
+                    context_hash(response_text.encode("utf-8")) if response_text is not None else None
+                ),
+                response_text=response_text,
+                redaction_count=redaction_count,
+            )
+
+
+class ContentLoggingGrantError(Exception):
+    """A grant/revoke attempt could not proceed for a real, stated reason (an
+    out-of-bounds duration, or revoking when nothing is active)."""
+
+
+@dataclass(frozen=True, slots=True)
+class ContentLoggingGrant:
+    """One real, append-only grant record -- `active` is always computed, never a
+    stored column (this module's own docstring explains why)."""
+
+    enabled_by: str
+    enabled_at: str
+    expires_at: str
+    revoked_at: str | None
+    revoked_by: str | None
+
+    @property
+    def active(self) -> bool:
+        if self.revoked_at is not None:
+            return False
+        return _parse_iso(self.expires_at) > datetime.now(UTC)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "enabled_by": self.enabled_by, "enabled_at": self.enabled_at,
+            "expires_at": self.expires_at, "revoked_at": self.revoked_at,
+            "revoked_by": self.revoked_by, "active": self.active,
+        }
+
+
+def _parse_iso(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+class ContentLoggingGrantStore(Protocol):
+    async def latest(self) -> ContentLoggingGrant | None: ...
+
+    async def grant(self, *, enabled_by: str, duration_minutes: int) -> ContentLoggingGrant: ...
+
+    async def revoke(self, *, revoked_by: str) -> ContentLoggingGrant | None: ...
+
+
+class PostgresContentLoggingGrantStore:
+    """Append-only, per-graph -- the identical `data_handling_signoff`/`svid_record`
+    shape (a grant/revoke is a real event, never overwritten in place)."""
+
+    def __init__(self, pool: asyncpg.Pool, *, graph_name: str) -> None:
+        self._pool = pool
+        self._graph = graph_name
+
+    async def latest(self) -> ContentLoggingGrant | None:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"""SELECT enabled_by, enabled_at, expires_at, revoked_at, revoked_by
+                     FROM {CONTENT_LOGGING_GRANT_TABLE}
+                    WHERE graph = $1 ORDER BY enabled_at DESC LIMIT 1""",
+                self._graph,
+            )
+        return _grant_from_row(row) if row else None
+
+    async def grant(self, *, enabled_by: str, duration_minutes: int) -> ContentLoggingGrant:
+        if not (1 <= duration_minutes <= MAX_CONTENT_LOGGING_MINUTES):
+            raise ContentLoggingGrantError(
+                f"duration_minutes must be between 1 and {MAX_CONTENT_LOGGING_MINUTES} "
+                f"(24 hours); got {duration_minutes}"
+            )
+        expires_at = datetime.now(UTC) + timedelta(minutes=duration_minutes)
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"""INSERT INTO {CONTENT_LOGGING_GRANT_TABLE}
+                    (id, graph, enabled_by, expires_at)
+                    VALUES ($1, $2, $3, $4)
+                 RETURNING enabled_by, enabled_at, expires_at, revoked_at, revoked_by""",
+                f"cloggrant_{new_ulid()}", self._graph, enabled_by, expires_at,
+            )
+        assert row is not None
+        return _grant_from_row(row)
+
+    async def revoke(self, *, revoked_by: str) -> ContentLoggingGrant | None:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"""UPDATE {CONTENT_LOGGING_GRANT_TABLE}
+                       SET revoked_at = now(), revoked_by = $2
+                     WHERE id = (
+                         SELECT id FROM {CONTENT_LOGGING_GRANT_TABLE}
+                          WHERE graph = $1 AND revoked_at IS NULL AND expires_at > now()
+                       ORDER BY enabled_at DESC LIMIT 1
+                     )
+                 RETURNING enabled_by, enabled_at, expires_at, revoked_at, revoked_by""",
+                self._graph, revoked_by,
+            )
+        return _grant_from_row(row) if row else None
+
+
+def _grant_from_row(row: asyncpg.Record) -> ContentLoggingGrant:
+    return ContentLoggingGrant(
+        enabled_by=row["enabled_by"], enabled_at=row["enabled_at"].isoformat(),
+        expires_at=row["expires_at"].isoformat(),
+        revoked_at=row["revoked_at"].isoformat() if row["revoked_at"] else None,
+        revoked_by=row["revoked_by"],
     )
+
+
+class InMemoryContentLoggingGrantStore:
+    def __init__(self) -> None:
+        self._grant: ContentLoggingGrant | None = None
+
+    async def latest(self) -> ContentLoggingGrant | None:
+        return self._grant
+
+    async def grant(self, *, enabled_by: str, duration_minutes: int) -> ContentLoggingGrant:
+        if not (1 <= duration_minutes <= MAX_CONTENT_LOGGING_MINUTES):
+            raise ContentLoggingGrantError(
+                f"duration_minutes must be between 1 and {MAX_CONTENT_LOGGING_MINUTES} "
+                f"(24 hours); got {duration_minutes}"
+            )
+        now = datetime.now(UTC)
+        self._grant = ContentLoggingGrant(
+            enabled_by=enabled_by, enabled_at=now.isoformat(),
+            expires_at=(now + timedelta(minutes=duration_minutes)).isoformat(),
+            revoked_at=None, revoked_by=None,
+        )
+        return self._grant
+
+    async def revoke(self, *, revoked_by: str) -> ContentLoggingGrant | None:
+        if self._grant is None or not self._grant.active:
+            return None
+        self._grant = ContentLoggingGrant(
+            enabled_by=self._grant.enabled_by, enabled_at=self._grant.enabled_at,
+            expires_at=self._grant.expires_at,
+            revoked_at=datetime.now(UTC).isoformat(), revoked_by=revoked_by,
+        )
+        return self._grant
 
 
 class NullGatewayPolicyStore:
@@ -432,11 +739,10 @@ class ModelGateway:
         if not candidates:
             raise GatewayRoutingError(task_class, considered=routable)
         caller = self._providers[candidates[0]]
-        await _log_request(
-            self._log_store, provider=caller.provider, task_class=task_class,
+        return await _dispatch(
+            caller, self._log_store, provider=caller.provider, task_class=task_class,
             principal=principal, request=request, previous_error=previous_error,
         )
-        return await caller.generate(request, previous_error=previous_error)
 
 
 class StaticGateway:
@@ -459,11 +765,10 @@ class StaticGateway:
     ) -> RawModelResponse:
         if principal is not None:
             authorize_gateway_call(principal, task_class)
-        await _log_request(
-            self._log_store, provider=self._caller.provider, task_class=task_class,
+        return await _dispatch(
+            self._caller, self._log_store, provider=self._caller.provider, task_class=task_class,
             principal=principal, request=request, previous_error=previous_error,
         )
-        return await self._caller.generate(request, previous_error=previous_error)
 
 
 # --------------------------------------------------------------------------- the eval set
@@ -682,13 +987,20 @@ def build_gateway(
 
 
 __all__ = [
+    "CONTENT_LOGGING_GRANT_TABLE",
     "DEFAULT_ANTHROPIC_MODEL",
     "GATEWAY_POLICY_TABLE",
     "GATEWAY_REQUEST_LOG_TABLE",
+    "MAX_CONTENT_LOGGING_MINUTES",
+    "MAX_FIELD_BYTES",
     "ROUTABLE_THRESHOLD",
+    "TASK_CLASS_FIELD_SCHEMAS",
     "TRANSPILE_C3",
     "TRANSPILE_C3_SMALL_MODEL",
     "AnthropicModelCaller",
+    "ContentLoggingGrant",
+    "ContentLoggingGrantError",
+    "ContentLoggingGrantStore",
     "EvalCase",
     "EvalCaseResult",
     "EvalReport",
@@ -696,11 +1008,14 @@ __all__ = [
     "GatewayPolicyStore",
     "GatewayRequestLogStore",
     "GatewayRoutingError",
+    "GatewayValidationError",
+    "InMemoryContentLoggingGrantStore",
     "InMemoryGatewayRequestLogStore",
     "ModelCaller",
     "ModelGateway",
     "NullGatewayPolicyStore",
     "PolicyEntry",
+    "PostgresContentLoggingGrantStore",
     "PostgresGatewayPolicyStore",
     "PostgresGatewayRequestLogStore",
     "RawModelResponse",
@@ -710,4 +1025,5 @@ __all__ = [
     "build_gateway",
     "null_gateway",
     "run_eval_set",
+    "validate_task_class_schema",
 ]
