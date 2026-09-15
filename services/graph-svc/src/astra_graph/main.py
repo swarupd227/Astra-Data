@@ -30,6 +30,7 @@ from .api import (
     conformance_router,
     context_router,
     cypher_router,
+    data_handling_router,
     decision_register_router,
     deployment_bom_router,
     estate_router,
@@ -90,6 +91,7 @@ from .compositor import Compositor
 from .config import settings
 from .conformance_rules import PostgresConformanceRulesetStore
 from .context import ContextAssembler
+from .data_handling import PostgresDataHandlingPositionStore, PostgresDataHandlingSignoffStore
 from .errors import AstraGraphError
 from .estate import EstateReader
 from .events import source_for
@@ -382,6 +384,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.execution_safety_policy_store = PostgresExecutionSafetyPolicyStore(
         pool, graph_name=config.graph_name
     )
+    # Story S11.4.1, opening F11.4: the signable data-handling position (providers,
+    # retention terms, redaction rules) and its own append-only sign-off trail.
+    app.state.data_handling_position_store = PostgresDataHandlingPositionStore(
+        pool, graph_name=config.graph_name, config=config
+    )
+    app.state.data_handling_signoff_store = PostgresDataHandlingSignoffStore(
+        pool, graph_name=config.graph_name
+    )
     app.state.case_execution = CaseExecutionService(
         pool, graph_name=config.graph_name, writer=writer, artefact_store=app.state.artefact_store,
         source_adapter=app.state.source_adapter, target_adapter=app.state.target_adapter,
@@ -575,6 +585,7 @@ def create_app() -> FastAPI:
 
     app.include_router(router)
     app.include_router(cypher_router)
+    app.include_router(data_handling_router)
     app.include_router(harvest_router)
     app.include_router(quality_router)
     app.include_router(ownership_router)

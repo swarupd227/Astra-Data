@@ -47,6 +47,10 @@ import type {
   RetentionState,
   EvidenceExportProgress,
   EvidenceExportScope,
+  DataHandlingPosition,
+  DataHandlingProvider,
+  DataHandlingSignoff,
+  DataHandlingStatus,
   ExplainEntry,
   FailingCellRow,
   FamiliesResponse,
@@ -1891,6 +1895,34 @@ export function evidenceExportProgress(overrides: Partial<EvidenceExportProgress
   };
 }
 
+export function dataHandlingPosition(overrides: Partial<DataHandlingPosition> = {}): DataHandlingPosition {
+  return {
+    version: 1,
+    providers: [{ name: 'anthropic', model: 'claude-sonnet-5', region: null }],
+    retention_terms: 'Not yet reviewed for this tenant.',
+    redaction_rules: [
+      'Key/grain values are redacted to a short, non-reversible hash.',
+      'Measure values are redacted to a sign-and-magnitude bucket.',
+    ],
+    updated_by: 'user:pe@artizent.example',
+    updated_at: '2027-06-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function dataHandlingStatus(overrides: Partial<DataHandlingStatus> = {}): DataHandlingStatus {
+  return {
+    position: dataHandlingPosition(),
+    signoff: null,
+    signed: false,
+    inference_boundary_table: {
+      sent: ['Calculation expressions and their ASTs', 'Field, table, datasource and workbook names'],
+      never_sent: ['Row-level data of any kind', 'Credentials'],
+    },
+    ...overrides,
+  };
+}
+
 export const RAISED_ISSUE: ConstructIssue = {
   id: 'gi_01M1',
   state: 'OPEN',
@@ -1922,6 +1954,9 @@ export interface FakeApi extends Api {
   /** Story S11.3.2: seed the Evidence Export progress `evidenceExportStatus` reads --
    * `startEvidenceExport` otherwise sets a real, already-finished result of its own. */
   seedEvidenceExportProgress(progress: EvidenceExportProgress): void;
+  /** Story S11.4.1: seed the Data Handling position/sign-off state `dataHandling`
+   * reads -- the honest, unsigned default otherwise. */
+  seedDataHandlingStatus(status: DataHandlingStatus): void;
 }
 
 export function fakeApi(
@@ -2009,6 +2044,8 @@ export function fakeApi(
   // Story S11.3.2. Not running, nothing exported yet, until a test seeds one or calls
   // `startEvidenceExport`.
   let evidenceExportProgressState: EvidenceExportProgress = evidenceExportProgress();
+  // Story S11.4.1. The honest, unsigned default until a test seeds one.
+  let dataHandlingStatusState: DataHandlingStatus = dataHandlingStatus();
   const programmeRows = programmes.programmes.map((row) => ({ ...row }));
   const trainRows = trains.trains.map((train) => ({
     ...train,
@@ -2116,6 +2153,13 @@ export function fakeApi(
     },
     seedEvidenceExportProgress(progress) {
       evidenceExportProgressState = { ...progress, counts: progress.counts ? { ...progress.counts } : null };
+    },
+    seedDataHandlingStatus(status) {
+      dataHandlingStatusState = {
+        ...status,
+        position: { ...status.position, providers: status.position.providers.map((p) => ({ ...p })) },
+        signoff: status.signoff ? { ...status.signoff } : null,
+      };
     },
     async estate(query: EstateQuery, _identity: Identity) {
       calls.estate.push(query);
@@ -3490,6 +3534,52 @@ export function fakeApi(
     async evidenceExportPublicKey(_identity: Identity) {
       maybeFail();
       return { public_key_pem: evidenceExportProgressState.public_key_pem ?? '-----BEGIN PUBLIC KEY-----\nZmFrZS1rZXk=\n-----END PUBLIC KEY-----\n' };
+    },
+    async dataHandling(_identity: Identity) {
+      maybeFail();
+      return dataHandlingStatusState;
+    },
+    async saveDataHandlingPosition(
+      position: { providers: DataHandlingProvider[]; retention_terms: string; redaction_rules: string[] },
+      identity: Identity,
+    ) {
+      maybeFail();
+      const saved: DataHandlingPosition = {
+        version: dataHandlingStatusState.position.version + 1,
+        providers: position.providers.map((p) => ({ ...p })),
+        retention_terms: position.retention_terms,
+        redaction_rules: [...position.redaction_rules],
+        updated_by: identity.principal,
+        updated_at: new Date().toISOString(),
+      };
+      // A real, saved position edit outpaces whatever version was last signed -- the
+      // identical "validity is a computed comparison, never a stored flag" real
+      // behaviour `data_handling.py`'s own docstring describes.
+      dataHandlingStatusState = {
+        ...dataHandlingStatusState, position: saved,
+        signed: dataHandlingStatusState.signoff?.position_version === saved.version,
+      };
+      recorded.push({ kind: 'SAVE_DATA_HANDLING_POSITION', id: identity.principal, reason: '' });
+      return saved;
+    },
+    async signDataHandlingBoundary(identity: Identity) {
+      maybeFail();
+      const signoff: DataHandlingSignoff = {
+        position_version: dataHandlingStatusState.position.version,
+        reviewer: identity.principal,
+        signed_at: new Date().toISOString(),
+      };
+      dataHandlingStatusState = { ...dataHandlingStatusState, signoff, signed: true };
+      recorded.push({ kind: 'SIGN_DATA_HANDLING_BOUNDARY', id: identity.principal, reason: '' });
+      return signoff;
+    },
+    async verifyDataHandlingBoundary(identity: Identity) {
+      maybeFail();
+      recorded.push({ kind: 'VERIFY_DATA_HANDLING_BOUNDARY', id: identity.principal, reason: '' });
+      return {
+        passed: true, sentinel: 'CANARY-fake', checked_at: new Date().toISOString(),
+        detail: 'OK -- the sentinel never reached the assembled context or the gateway request log',
+      };
     },
   };
 }

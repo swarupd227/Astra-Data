@@ -12,6 +12,7 @@ from .routes_compositor import router as compositor_router
 from .routes_conformance import router as conformance_router
 from .routes_context import router as context_router
 from .routes_cypher import router as cypher_router
+from .routes_data_handling import router as data_handling_router
 from .routes_decision_register import router as decision_register_router
 from .routes_deployment_bom import router as deployment_bom_router
 from .routes_estate import router as estate_router
@@ -66,6 +67,7 @@ __all__ = [
     "conformance_router",
     "context_router",
     "cypher_router",
+    "data_handling_router",
     "decision_register_router",
     "deployment_bom_router",
     "estate_router",

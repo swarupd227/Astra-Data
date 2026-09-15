@@ -175,6 +175,7 @@ from .ontology.types import BASE_NODE_PROPERTIES
 from .patterns import PatternMatch, find_matching_pattern, generalise_from_proof, render_target
 from .principal import Principal
 from .provenance import AgentMode, ProvenanceStore, new_record
+from .redaction import redact_failing_cell
 from .rules import dax_sanity_check
 from .tolerance_charter import ToleranceCharter, ToleranceCharterStore
 from .writes import EdgeWrite, GraphWriter, NodeWrite
@@ -525,7 +526,11 @@ async def assemble_repair_context(
     case_refs = tuple(exception_properties.get("case_refs") or ())
     parity_evidence = await _gather_parity_evidence(pool, graph_name, artefact_store, case_refs=case_refs)
     signals = exception_properties.get("classification_signals") or {}
-    failing_cells = tuple(parity_evidence["failing_cells"])
+    # Story S11.4.1, spec §18.3: redacted here, after `classification_signals` above is
+    # already read from the exception's own stored properties (never re-derived from
+    # these cells) -- the one real row-level-data channel into a model endpoint
+    # (`redaction.py`'s own module docstring has the full reasoning).
+    failing_cells = tuple(redact_failing_cell(cell) for cell in parity_evidence["failing_cells"])
     if not widened:
         failing_cells = failing_cells[:20]
 

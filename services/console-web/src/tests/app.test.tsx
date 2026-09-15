@@ -29,7 +29,7 @@ describe('role landing pages (§15.1)', () => {
     { role: 'client_data_owner', region: 'Families for review' },
     { role: 'client_report_owner', region: 'G3 Gate Card' },
     { role: 'client_licence_admin', region: 'Decommission Tracker' },
-    { role: 'client_infosec_reviewer', region: 'Sites and projects' },
+    { role: 'client_infosec_reviewer', region: 'Providers and retention' },
   ];
 
   for (const { role, region } of cases) {

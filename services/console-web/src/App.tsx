@@ -63,12 +63,12 @@
  *   and building one is exactly the "no screen without an engine feature" scope this
  *   story does not take on. The spec's own second reading is landed on instead: G3's
  *   own gate card already is this platform's closest thing to a "Migration Unit page."
- * - Client InfoSec Reviewer -> **Estate Explorer** (`estate`). §15.1 names "Admin >
- *   Data Handling"; nothing InfoSec-shaped exists anywhere yet (confirmed: zero real
- *   gates, zero UI checks for `client_infosec_reviewer` anywhere in this console before
- *   this story). Estate Explorer is the closest real "what data exists, where" screen
- *   this platform has -- the honest "closest real thing" landing, not a claim that
- *   Data Handling is built.
+ * - Client InfoSec Reviewer -> **Data Handling** (`data-handling`). §15.1 names "Admin >
+ *   Data Handling" as this role's own landing screen; story S11.4.1 finally builds the
+ *   real thing (§18.3's own inference boundary table, provider/retention/redaction
+ *   position, sign-off, boundary test) -- landed on directly, superseding this file's
+ *   own prior "nothing InfoSec-shaped exists yet, Estate Explorer is the closest real
+ *   thing" reading, which stood only until this exact screen was built.
  *
  * **Client roles see only their own landing surface plus whichever surfaces a real,
  * existing screen already gates them to act on** (`CLIENT_VISIBLE_SURFACES`) -- derived
@@ -116,6 +116,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Admin } from './admin/Admin';
 import { CalibrationReport } from './calibration/CalibrationReport';
 import { ToleranceCharter } from './charter/ToleranceCharter';
+import { DataHandling } from './data-handling/DataHandling';
 import { EstateExplorer } from './estate/EstateExplorer';
 import { ExceptionDesk } from './exceptions/ExceptionDesk';
 import { ModelProposal } from './g2/ModelProposal';
@@ -233,6 +234,7 @@ export const SURFACES = [
   { key: 'register', label: 'Decision Register' },
   { key: 'notifications', label: 'Notification Preferences' },
   { key: 'tenant-access', label: 'Tenant & Access' },
+  { key: 'data-handling', label: 'Data Handling' },
 ] as const;
 
 export type Surface = (typeof SURFACES)[number]['key'];
@@ -309,7 +311,11 @@ const LANDING_SURFACE: Partial<Record<string, Surface>> = {
   client_data_owner: 'proposal',
   client_report_owner: 'g3',
   client_licence_admin: 'decommission',
-  client_infosec_reviewer: 'estate',
+  // Story S11.4.1, opens F11.4: this role's own real, named screen finally exists --
+  // updated from `estate` (this file's own prior "nothing InfoSec-shaped exists yet"
+  // landing) now that Data Handling is a real, InfoSec-reviewer-specific screen §15.1
+  // always meant this role to land on.
+  client_infosec_reviewer: 'data-handling',
 };
 
 function landingSurfaceFor(role: string): Surface {
@@ -353,7 +359,11 @@ const CLIENT_VISIBLE_SURFACES: Partial<Record<string, Surface[]>> = {
   // InfoSec reviewer" shape `DecisionRegisterReaderDep`/`DeploymentBomReaderDep` already
   // set) -- agent SVID issuance/rotation/revocation is exactly the kind of evidence this
   // role's own §15.1 remit ("reviews... evidence export") already covers.
-  client_infosec_reviewer: ['estate', 'register', 'tenant-access', NOTIFICATIONS],
+  // Story S11.4.1: Data Handling is real-gated to any Artizent role or this one named
+  // client role too (`deps.py`'s `DataHandlingReaderDep`), the identical shape every
+  // other governance screen in this epic already has -- now also this role's own
+  // landing surface (see `LANDING_SURFACE` above).
+  client_infosec_reviewer: ['estate', 'register', 'tenant-access', 'data-handling', NOTIFICATIONS],
   client_programme_sponsor: [NOTIFICATIONS],
 };
 
@@ -600,6 +610,7 @@ export function App({
       )}
       {surface === 'notifications' && <NotificationPreferences api={api} identity={identity} />}
       {surface === 'tenant-access' && <TenantAccess api={api} identity={identity} />}
+      {surface === 'data-handling' && <DataHandling api={api} identity={identity} />}
     </div>
   );
 }

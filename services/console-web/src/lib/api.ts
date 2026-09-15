@@ -1498,6 +1498,52 @@ export interface EvidenceExportScope {
   date_to?: string;
 }
 
+/** Story S11.4.1, spec §18.3 -- the fixed, spec-verbatim table (never tenant-editable;
+ * see `data_handling.py`'s own module docstring for why). */
+export interface InferenceBoundaryTable {
+  sent: string[];
+  never_sent: string[];
+}
+
+export interface DataHandlingProvider {
+  name: string;
+  model: string;
+  region: string | null;
+}
+
+/** The signable document -- real, versioned, platform-engineer-editable tenant
+ * configuration (`data_handling.DataHandlingPosition`). */
+export interface DataHandlingPosition {
+  version: number;
+  providers: DataHandlingProvider[];
+  retention_terms: string;
+  redaction_rules: string[];
+  updated_by: string;
+  updated_at: string;
+}
+
+export interface DataHandlingSignoff {
+  position_version: number;
+  reviewer: string;
+  signed_at: string;
+}
+
+export interface DataHandlingStatus {
+  position: DataHandlingPosition;
+  signoff: DataHandlingSignoff | null;
+  /** `signoff !== null && signoff.position_version === position.version` -- computed
+   * server-side, never a stored flag (`data_handling.boundary_status`'s own docstring). */
+  signed: boolean;
+  inference_boundary_table: InferenceBoundaryTable;
+}
+
+export interface BoundaryTestResult {
+  passed: boolean;
+  sentinel: string;
+  checked_at: string;
+  detail: string;
+}
+
 /** The identical `RebuildStatus` polling shape, for the same reason -- see
  * `evidence_export.py`'s own `ExportProgress.as_dict()`. */
 export interface EvidenceExportProgress {
@@ -2555,6 +2601,13 @@ export interface Api {
   evidenceExportStatus(identity: Identity): Promise<EvidenceExportProgress>;
   evidenceExportDownload(exportId: string, identity: Identity): Promise<Blob>;
   evidenceExportPublicKey(identity: Identity): Promise<{ public_key_pem: string }>;
+  dataHandling(identity: Identity): Promise<DataHandlingStatus>;
+  saveDataHandlingPosition(
+    position: { providers: DataHandlingProvider[]; retention_terms: string; redaction_rules: string[] },
+    identity: Identity,
+  ): Promise<DataHandlingPosition>;
+  signDataHandlingBoundary(identity: Identity): Promise<DataHandlingSignoff>;
+  verifyDataHandlingBoundary(identity: Identity): Promise<BoundaryTestResult>;
 }
 
 function decisionRegisterQueryString(filters: DecisionRegisterFilters): string {
@@ -3180,6 +3233,18 @@ export function createApi(base = ''): Api {
     },
     async evidenceExportPublicKey(identity) {
       return (await get('/v1/evidence-export/public-key', identity)) as { public_key_pem: string };
+    },
+    async dataHandling(identity) {
+      return (await get('/v1/data-handling', identity)) as DataHandlingStatus;
+    },
+    async saveDataHandlingPosition(position, identity) {
+      return (await put('/v1/data-handling/position', position, identity)) as DataHandlingPosition;
+    },
+    async signDataHandlingBoundary(identity) {
+      return (await post('/v1/data-handling:sign', {}, identity)) as DataHandlingSignoff;
+    },
+    async verifyDataHandlingBoundary(identity) {
+      return (await post('/v1/data-handling:verify-boundary', {}, identity)) as BoundaryTestResult;
     },
   };
 }

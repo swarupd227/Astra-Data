@@ -368,6 +368,24 @@ own CSV/PDF export already uses). Unlike every other action on this screen, Gene
 identically to this screen's own read gate (Artizent, or the InfoSec reviewer), matching
 this story's own literal persona: the InfoSec reviewer is the one who triggers it.
 
+**Story S11.4.1 added a new top-level surface, Data Handling** (`data-handling/
+DataHandling.tsx`) — the identical "own top-level surface, not an Admin sub-screen"
+call the Tolerance Charter and Pattern Library already made, since §15.3.7 names Data
+Handling its own distinct row, separate from Tenant & Access. Three panes: providers/
+retention (real, versioned, platform-engineer-editable, shown and edited via
+`lib/api.ts`'s new `dataHandling`/`saveDataHandlingPosition`), the fixed §18.3
+inference-boundary table alongside the current redaction rules, and sign-off/boundary
+test (`signDataHandlingBoundary`/`verifyDataHandlingBoundary`). "Sign boundary" is
+hidden for every role but the InfoSec reviewer — the one action on this screen gated
+narrower than its own read gate, matching `deps.require_infosec_reviewer`'s own
+real-backend reasoning: this is the client's own attestation, not Artizent's to make on
+their behalf. **`client_infosec_reviewer`'s own landing surface changed from `estate`
+to `data-handling`** — `App.tsx`'s own prior "nothing InfoSec-shaped exists yet,
+Estate Explorer is the closest real thing" reading stood only until this exact screen
+was built; two existing tests were retargeted as a direct, intended consequence
+(`app.test.tsx`'s own landing-page case; `app-entra.test.tsx`'s own bearer-token
+capture, now watching `api.dataHandling` instead of `api.estate`).
+
 ## Performance
 
 S1.4.1 budgets two seconds for a 1,067-workbook site. The server's share is measured in

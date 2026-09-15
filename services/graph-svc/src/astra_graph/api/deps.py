@@ -615,6 +615,42 @@ def require_tenant_access_reader(roles: RoleSetDep) -> RoleSet:
 TenantAccessReaderDep = Annotated[RoleSet, Depends(require_tenant_access_reader)]
 
 
+def require_data_handling_reader(roles: RoleSetDep) -> RoleSet:
+    """Gate the Data Handling screen's own reads on "any Artizent role, or the InfoSec
+    reviewer" (story S11.4.1) -- the identical shape `require_tenant_access_reader`
+    already set for the same client role and the same governance-screen reasoning."""
+    if not (roles.is_artizent() or Role.CLIENT_INFOSEC_REVIEWER in roles.roles):
+        raise ForbiddenError(
+            f"Data Handling is open to Artizent roles and the InfoSec reviewer; "
+            f"declare one in {ROLES_HEADER}"
+        )
+    return roles
+
+
+DataHandlingReaderDep = Annotated[RoleSet, Depends(require_data_handling_reader)]
+
+
+def require_infosec_reviewer(roles: RoleSetDep) -> RoleSet:
+    """Gate 'Sign boundary' on the InfoSec reviewer alone -- deliberately narrower than
+    every other gate this epic has built, which all open to "any Artizent role, or the
+    InfoSec reviewer." This story's own AC is explicit that the inference boundary is
+    "a signed position, not an assurance": Artizent signing its own data-handling claim
+    on the client's behalf would be exactly the assurance the AC is contrasted against,
+    not the client's own attestation. Reading the screen and running the boundary test
+    stay open to any Artizent role too (`DataHandlingReaderDep`) -- only the sign action
+    itself is this one role's own."""
+    if Role.CLIENT_INFOSEC_REVIEWER not in roles.roles:
+        raise ForbiddenError(
+            f"signing the data-handling position is the InfoSec reviewer's own "
+            f"confirmation, not Artizent's; declare '{Role.CLIENT_INFOSEC_REVIEWER.value}' "
+            f"in {ROLES_HEADER}"
+        )
+    return roles
+
+
+InfosecReviewerDep = Annotated[RoleSet, Depends(require_infosec_reviewer)]
+
+
 def open_query_log(surface: str, principal: Principal, roles: RoleSet) -> QueryLog:
     return QueryLog(
         surface=surface,

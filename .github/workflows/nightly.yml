@@ -10,6 +10,13 @@
 # `workflow_dispatch` above is already the "on demand" half; this job is the "nightly"
 # half, advancing then verifying the Evidence Chain the same way the job above rebuilds
 # and compares the graph.
+#
+# Story S11.4.1's own third job, opens F11.4: "a CI and on-demand check sends sentinel
+# row data through every agent path and asserts it never appears in a gateway request
+# log." Needs no seeded test estate at all -- `run_boundary_test` (`tools/verify_
+# boundary.py`) creates and retires its own real, disposable evidence, the identical
+# self-contained shape this job's own two siblings above do not need since their own
+# checks operate on whatever the seed step already wrote.
 
 name: Nightly replay and evidence-chain verification
 
@@ -127,6 +134,56 @@ jobs:
       - name: Verify the Evidence Chain
         working-directory: services/graph-svc
         run: python tools/verify_evidence_chain.py
+
+      - name: Database log on failure
+        if: failure()
+        run: docker logs "${{ job.services.postgres.id }}" --tail 100
+
+  boundary-test:
+    name: Inference boundary -- sentinel data never reaches the gateway log
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: apache/age:release_PG16_1.6.0
+        env:
+          POSTGRES_DB: astra
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      ASTRA_POSTGRES_HOST: localhost
+      ASTRA_POSTGRES_PORT: "5432"
+      ASTRA_POSTGRES_DB: astra
+      ASTRA_POSTGRES_USER: astra
+      ASTRA_POSTGRES_PASSWORD: astra_ci
+      ASTRA_GRAPH_NAME: astra_estate_nightly_boundary
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -e "services/graph-svc[dev]"
+
+      - name: Migrate
+        working-directory: services/graph-svc
+        run: python tools/migrate.py
+
+      - name: Run the boundary test
+        working-directory: services/graph-svc
+        run: python tools/verify_boundary.py
 
       - name: Database log on failure
         if: failure()

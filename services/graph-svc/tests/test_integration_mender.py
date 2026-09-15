@@ -30,6 +30,7 @@ epic's own prior integration suites already carry openly.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import threading
@@ -74,6 +75,7 @@ from astra_graph.mender import (  # noqa: E402
     MenderConfig,
     MenderError,
     MenderService,
+    assemble_repair_context,
 )
 from astra_graph.migrations import run as run_migrations  # noqa: E402
 from astra_graph.ontology import EDGE_LABELS, NODE_LABELS  # noqa: E402
@@ -334,6 +336,44 @@ async def _write_fail_verdict(estate: dict[str, Any], *, case_id: str) -> None:
         content=json.dumps(bundle).encode("utf-8"), media_type="application/json", created_by=PRINCIPAL.value,
     )
     await _write(writer, "Verdict", case_ref=case_id, result="FAIL", failing_cells=bundle["diff"]["failing_cells"], evidence_ref=evidence.id)
+
+
+async def test_assemble_repair_context_redacts_real_failing_cell_content(estate: dict[str, Any]) -> None:
+    """Story S11.4.1, spec §18.3: the one real row-level-data channel into a model
+    endpoint. A real `expected` measure value and a real grain/key value must never
+    reach `RepairContext.as_dict()` unredacted."""
+    case_id = f"case_{new_ulid()}"
+    bundle: dict[str, Any] = {
+        "diff": {
+            "failing_cells": [
+                {
+                    "grain_key": ["Desk-Zero-Real-Value"], "measure": "MarginCalc",
+                    "expected": 123.45, "candidate": None,
+                },
+            ],
+        },
+        "filter_ctx": {}, "expected_columns": [], "candidate_columns": [],
+    }
+    evidence = await estate["artefact_store"].store(
+        kind="mender_test_verdict_evidence", mu_ref=estate["workbook"], case_id=case_id,
+        content=json.dumps(bundle).encode("utf-8"), media_type="application/json", created_by=PRINCIPAL.value,
+    )
+    await _write(estate["writer"], "Verdict", case_ref=case_id, result="FAIL", evidence_ref=evidence.id)
+
+    context = await assemble_repair_context(
+        estate["pool"], estate["settings"].graph_name, estate["artefact_store"],
+        exception_properties={"case_refs": [case_id], "classification_signals": {}, "class": "AGGREGATION"},
+        calc=None, current_dax="", widened=False,
+    )
+
+    cell = context.failing_cells[0]
+    assert cell["grain_key"] == ["sha256:" + hashlib.sha256(b"Desk-Zero-Real-Value").hexdigest()[:16]]
+    assert cell["expected"] == "+1e2"
+    assert cell["candidate"] == "null"
+    assert cell["measure"] == "MarginCalc"  # a name, not a value -- passes through unchanged
+    payload_text = json.dumps(context.as_dict())
+    assert "Desk-Zero-Real-Value" not in payload_text
+    assert "123.45" not in payload_text
 
 
 async def _write_pass_verdict(estate: dict[str, Any], *, case_id: str) -> None:

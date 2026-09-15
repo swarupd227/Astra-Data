@@ -24,6 +24,7 @@ from astra_graph.gateway import (
     EvalCase,
     EvalReport,
     GatewayRoutingError,
+    InMemoryGatewayRequestLogStore,
     ModelCaller,
     ModelGateway,
     NullGatewayPolicyStore,
@@ -235,3 +236,53 @@ def test_json_schema_from_output_schema_handles_nullable_and_array_types() -> No
     assert schema["properties"]["m"] == {"anyOf": [{"type": "string"}, {"type": "null"}]}
     assert schema["properties"]["assumptions"] == {"type": "array", "items": {"type": "string"}}
     assert schema["additionalProperties"] is False
+
+
+# --------------------------------------------------------- S11.4.1: the gateway request log
+
+
+@pytest.mark.asyncio
+async def test_a_real_request_is_logged_before_the_provider_is_called() -> None:
+    policy = _InMemoryPolicyStore(scores={(TRANSPILE_C3, "anthropic"): 0.90})
+    log = InMemoryGatewayRequestLogStore()
+    gateway = ModelGateway(
+        providers={"anthropic": _StubCaller(provider="anthropic")}, policy_store=policy, log_store=log,
+    )
+    await gateway.generate(
+        task_class=TRANSPILE_C3, request=_Request({"dax": "string"}), previous_error=None,
+        principal="agent:transpiler",
+    )
+    assert len(log.requests) == 1
+    assert log.requests[0]["provider"] == "anthropic"
+    assert log.requests[0]["task_class"] == TRANSPILE_C3
+    assert log.requests[0]["agent_id"] == "transpiler"
+    assert "output_schema" in log.requests[0]["request_text"]
+
+
+@pytest.mark.asyncio
+async def test_a_request_that_never_routes_is_never_logged() -> None:
+    log = InMemoryGatewayRequestLogStore()
+    gateway = ModelGateway(
+        providers={"anthropic": _StubCaller(provider="anthropic")}, policy_store=_InMemoryPolicyStore(),
+        log_store=log,
+    )
+    with pytest.raises(GatewayRoutingError):
+        await gateway.generate(task_class=TRANSPILE_C3, request=_Request(), previous_error=None)
+    assert log.requests == []
+
+
+@pytest.mark.asyncio
+async def test_no_log_store_configured_is_silently_a_no_op() -> None:
+    policy = _InMemoryPolicyStore(scores={(TRANSPILE_C3, "anthropic"): 0.90})
+    gateway = ModelGateway(providers={"anthropic": _StubCaller(provider="anthropic")}, policy_store=policy)
+    response = await gateway.generate(task_class=TRANSPILE_C3, request=_Request(), previous_error=None)
+    assert response.provider == "anthropic"
+
+
+@pytest.mark.asyncio
+async def test_static_gateway_also_logs_when_given_a_log_store() -> None:
+    log = InMemoryGatewayRequestLogStore()
+    gateway = StaticGateway(_StubCaller(provider="test_provider"), log_store=log)
+    await gateway.generate(task_class="anything_at_all", request=_Request(), previous_error=None, principal="agent:mender")
+    assert len(log.requests) == 1
+    assert log.requests[0]["agent_id"] == "mender"

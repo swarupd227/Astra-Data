@@ -122,10 +122,13 @@ describe('the bearer token reaches the API layer', () => {
 
     let seenIdentity: Identity | undefined;
     const api = fakeApi();
-    const originalEstate = api.estate.bind(api);
-    api.estate = (query, identity) => {
+    // Story S11.4.1: `client_infosec_reviewer` now lands on Data Handling, not Estate
+    // Explorer (its own real, named landing screen finally exists) -- captured here
+    // instead of `api.estate`, the real call its own new landing page makes.
+    const originalDataHandling = api.dataHandling.bind(api);
+    api.dataHandling = (identity) => {
       seenIdentity = identity;
-      return originalEstate(query, identity);
+      return originalDataHandling(identity);
     };
 
     render(<App api={api} environment="local" initialRole="programme_manager" />);

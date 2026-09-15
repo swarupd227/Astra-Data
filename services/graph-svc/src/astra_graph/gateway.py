@@ -27,6 +27,25 @@ calls, honestly named for what it actually checks, not a stand-in for §16.6's "
 rate" (the *artefact*-level, post-proof metric that number names — a different, later
 measurement this module does not compute).
 
+**A real, always-on gateway request log — story S11.4.1's own deliberate, disclosed,
+narrow pull-forward.** Nothing before this story ever recorded the literal outbound
+request text this module builds (`RawModelResponse` only ever carried `prompt_hash`,
+never the prompt itself — confirmed by direct research). S11.4.1's own AC needs a real
+log to run its boundary test against ("asserts sentinel data never appears in a gateway
+request log"); S11.4.2 (the next story in this same feature) is the one actually scoped
+to build the fuller mechanism (secret-pattern redaction, content-logging off by default
+for a bounded window). `GatewayRequestLogStore` here is only the one storage primitive
+S11.4.1's own boundary test needs — always on, no redaction of its own (the request
+text it records has already been through whatever redaction the *request* itself
+applied upstream, e.g. `mender.assemble_repair_context`'s own `redaction.py` call) — not
+S11.4.2's own on/off toggle or secret-pattern scrubbing, which stay that later story's
+scope. Logging happens in `ModelGateway.generate`/`StaticGateway.generate`, immediately
+before the real provider call, using the identical `_build_prompt` rendering
+`AnthropicModelCaller.generate` itself uses (same pure function, same inputs, so the
+logged text is guaranteed byte-identical to what is actually sent) — so a request that
+never reaches a routable provider (`GatewayRoutingError`) is never logged at all, since
+nothing was ever really about to be sent.
+
 **Anthropic is real; Azure OpenAI is not wired.** Per an explicit scope decision on this
 story (the platform engineer chose live Anthropic integration over disclosed fixtures, and
 Azure OpenAI specifically out of scope for now — no credentials, no SDK, no client request to
@@ -64,7 +83,7 @@ from typing import Any, Protocol
 import anthropic
 import asyncpg
 
-from .agent_identity import authorize_gateway_call
+from .agent_identity import agent_id_of, authorize_gateway_call
 from .config import Settings
 from .context.canonical import context_hash
 from .credentials import CredentialProvider
@@ -102,6 +121,7 @@ MENDER_REPAIR: TaskClass = "mender_repair"
 ROUTABLE_THRESHOLD = 0.80
 
 GATEWAY_POLICY_TABLE = "public.model_gateway_policy"
+GATEWAY_REQUEST_LOG_TABLE = "public.gateway_request_log"
 
 
 class SupportsAsDict(Protocol):
@@ -270,6 +290,83 @@ class PostgresGatewayPolicyStore:
         )
 
 
+class GatewayRequestLogStore(Protocol):
+    async def record(
+        self, *, provider: str, task_class: TaskClass, agent_id: str | None,
+        prompt_hash: str, request_text: str,
+    ) -> None: ...
+
+    async def contains_text(self, needle: str) -> bool: ...
+
+
+class PostgresGatewayRequestLogStore:
+    """Always-on, per-graph -- see this module's own docstring for why a real, narrow
+    log exists here at all before S11.4.2's own fuller mechanism."""
+
+    def __init__(self, pool: asyncpg.Pool, *, graph_name: str) -> None:
+        self._pool = pool
+        self._graph = graph_name
+
+    async def record(
+        self, *, provider: str, task_class: TaskClass, agent_id: str | None,
+        prompt_hash: str, request_text: str,
+    ) -> None:
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                f"""INSERT INTO {GATEWAY_REQUEST_LOG_TABLE}
+                    (id, graph, provider, task_class, agent_id, prompt_hash, request_text)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+                f"gwreq_{new_ulid()}", self._graph, provider, task_class, agent_id,
+                prompt_hash, request_text,
+            )
+
+    async def contains_text(self, needle: str) -> bool:
+        """Story S11.4.1's own boundary test: whether `needle` (a sentinel/canary value)
+        appears in any request this graph has ever really sent. A plain substring
+        search, not a hash lookup -- the AC's own wording is "never appears," which a
+        hash of the sentinel could not check against a log that only ever stores real
+        request text, not a matching hash of it."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchval(
+                f"""SELECT 1 FROM {GATEWAY_REQUEST_LOG_TABLE}
+                     WHERE graph = $1 AND request_text LIKE '%' || $2 || '%' LIMIT 1""",
+                self._graph, needle,
+            )
+        return row is not None
+
+
+class InMemoryGatewayRequestLogStore:
+    def __init__(self) -> None:
+        self.requests: list[dict[str, Any]] = []
+
+    async def record(
+        self, *, provider: str, task_class: TaskClass, agent_id: str | None,
+        prompt_hash: str, request_text: str,
+    ) -> None:
+        self.requests.append({
+            "provider": provider, "task_class": task_class, "agent_id": agent_id,
+            "prompt_hash": prompt_hash, "request_text": request_text,
+        })
+
+    async def contains_text(self, needle: str) -> bool:
+        return any(needle in r["request_text"] for r in self.requests)
+
+
+async def _log_request(
+    log_store: GatewayRequestLogStore | None, *, provider: str, task_class: TaskClass,
+    principal: str | None, request: SupportsAsDict, previous_error: str | None,
+) -> None:
+    if log_store is None:
+        return
+    payload = request.as_dict()
+    prompt = _build_prompt(payload, previous_error)
+    await log_store.record(
+        provider=provider, task_class=task_class,
+        agent_id=agent_id_of(principal) if principal else None,
+        prompt_hash=context_hash(prompt.encode("utf-8")), request_text=prompt,
+    )
+
+
 class NullGatewayPolicyStore:
     """No provider has ever been eval-scored — the honest starting state before any
     deployment has run `run_eval_set` even once. Used as `GenerationEngine`'s own default
@@ -301,9 +398,13 @@ class ModelGateway:
     faked with invented cost numbers), and calls it for real. Never fabricates a response of
     its own: with no routable, registered provider it raises `GatewayRoutingError`."""
 
-    def __init__(self, *, providers: Mapping[str, ModelCaller], policy_store: GatewayPolicyStore) -> None:
+    def __init__(
+        self, *, providers: Mapping[str, ModelCaller], policy_store: GatewayPolicyStore,
+        log_store: GatewayRequestLogStore | None = None,
+    ) -> None:
         self._providers = dict(providers)
         self._policy = policy_store
+        self._log_store = log_store
 
     @property
     def providers(self) -> Mapping[str, ModelCaller]:
@@ -331,6 +432,10 @@ class ModelGateway:
         if not candidates:
             raise GatewayRoutingError(task_class, considered=routable)
         caller = self._providers[candidates[0]]
+        await _log_request(
+            self._log_store, provider=caller.provider, task_class=task_class,
+            principal=principal, request=request, previous_error=previous_error,
+        )
         return await caller.generate(request, previous_error=previous_error)
 
 
@@ -340,8 +445,9 @@ class StaticGateway:
     §5.5/the AC itself requires -- but it is the natural, honest test double for exercising
     the ladder against a scripted caller without needing a live `GatewayPolicyStore`."""
 
-    def __init__(self, caller: ModelCaller) -> None:
+    def __init__(self, caller: ModelCaller, *, log_store: GatewayRequestLogStore | None = None) -> None:
         self._caller = caller
+        self._log_store = log_store
 
     async def generate(
         self,
@@ -353,6 +459,10 @@ class StaticGateway:
     ) -> RawModelResponse:
         if principal is not None:
             authorize_gateway_call(principal, task_class)
+        await _log_request(
+            self._log_store, provider=self._caller.provider, task_class=task_class,
+            principal=principal, request=request, previous_error=previous_error,
+        )
         return await self._caller.generate(request, previous_error=previous_error)
 
 
@@ -566,13 +676,15 @@ def build_gateway(
         "anthropic": AnthropicModelCaller(credentials=credentials, model=config.anthropic_model),
     }
     return ModelGateway(
-        providers=providers, policy_store=PostgresGatewayPolicyStore(pool, graph_name=graph_name)
+        providers=providers, policy_store=PostgresGatewayPolicyStore(pool, graph_name=graph_name),
+        log_store=PostgresGatewayRequestLogStore(pool, graph_name=graph_name),
     )
 
 
 __all__ = [
     "DEFAULT_ANTHROPIC_MODEL",
     "GATEWAY_POLICY_TABLE",
+    "GATEWAY_REQUEST_LOG_TABLE",
     "ROUTABLE_THRESHOLD",
     "TRANSPILE_C3",
     "TRANSPILE_C3_SMALL_MODEL",
@@ -582,12 +694,15 @@ __all__ = [
     "EvalReport",
     "Gateway",
     "GatewayPolicyStore",
+    "GatewayRequestLogStore",
     "GatewayRoutingError",
+    "InMemoryGatewayRequestLogStore",
     "ModelCaller",
     "ModelGateway",
     "NullGatewayPolicyStore",
     "PolicyEntry",
     "PostgresGatewayPolicyStore",
+    "PostgresGatewayRequestLogStore",
     "RawModelResponse",
     "StaticGateway",
     "SupportsAsDict",
