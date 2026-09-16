@@ -205,7 +205,7 @@ class _NoRouteGateway:
 
     async def generate(
         self, *, task_class: str, request: Any, previous_error: str | None,
-        principal: str | None = None,
+        principal: str | None = None, query_tag: str | None = None,
     ) -> RawModelResponse:
         raise GatewayRoutingError(task_class, considered=("anthropic",))
 

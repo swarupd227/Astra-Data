@@ -98,6 +98,7 @@ from .patterns import (
 )
 from .principal import Principal
 from .provenance import AgentMode, ProvenanceStore, new_record
+from .release import _sites_for_workbooks  # cross-epic private reuse; see module docstring
 from .rules import dax_sanity_check
 from .versions import EVENT_TABLE
 from .writes import EdgeWrite, GraphWriter, NodeWrite
@@ -321,6 +322,32 @@ async def _encoding_worksheets(conn: asyncpg.Connection, graph_name: str, calc_i
         graph_name, calc_id,
     )
     return [row["worksheet_id"] for row in rows]
+
+
+async def _site_for_calc(pool: asyncpg.Pool, graph_name: str, calc_id: str) -> str | None:
+    """Story S6.2.3: this field's own real Site, for `query_tag` -- "cost per custodian
+    visible from query tags." Reuses this module's own `_encoding_worksheets` (already
+    computed for `sheet_ctx`, walked a second time here rather than threading the first
+    result down through `build_generation_request`'s own return type), one hop up to a
+    real Workbook via `CONTAINS` (a calc may be encoded by more than one sheet; the
+    first with a resolvable Workbook is used, the identical "the common case is
+    directly readable" reasoning `build_generation_request`'s own `sheet_ctx` already
+    applies to a one-of-several fact), then `release._sites_for_workbooks` (cross-epic
+    private reuse). `None`, honestly, when no such chain resolves."""
+    async with pool.acquire() as conn:
+        worksheet_ids = await _encoding_worksheets(conn, graph_name, calc_id)
+        if not worksheet_ids:
+            return None
+        row = await conn.fetchrow(
+            f"""SELECT from_id AS workbook_id FROM {EDGE_INDEX_TABLE}
+                 WHERE graph = $1 AND label = 'CONTAINS' AND to_id = ANY($2::text[])
+                 LIMIT 1""",
+            graph_name, worksheet_ids,
+        )
+    if row is None:
+        return None
+    sites = await _sites_for_workbooks(pool, graph_name, [row["workbook_id"]])
+    return sites.get(row["workbook_id"])
 
 
 async def _matching_patterns(
@@ -594,12 +621,17 @@ async def _run_ladder(
     gateway: Gateway,
     task_class: str = TRANSPILE_C3,
     principal: Principal | None = None,
+    query_tag: str | None = None,
 ) -> tuple[tuple[LadderAttempt, ...], LadderAttempt | None]:
     """Runs the request through the ladder, up to `MAX_ATTEMPTS` times, calling
     `gateway.generate(task_class=..., ...)` -- never a provider by name (S5.3.2's own AC).
     `task_class` defaults to `TRANSPILE_C3` (the reasoning tier); `generate_c3_field` passes
     `TRANSPILE_C3_SMALL_MODEL` instead when S5.3.3's own calibration floor has been crossed.
-    Returns every attempt made, and the attempt that succeeded (parsed) if one did."""
+    Returns every attempt made, and the attempt that succeeded (parsed) if one did.
+
+    Story S6.2.3: `query_tag` is the real Site id `generate_c3_field` resolved for this
+    field's own workbook, passed straight through to every attempt's own gateway call --
+    "cost per custodian visible from query tags"."""
     attempts: list[LadderAttempt] = []
     previous_error: str | None = None
 
@@ -608,6 +640,7 @@ async def _run_ladder(
             response = await gateway.generate(
                 task_class=task_class, request=request, previous_error=previous_error,
                 principal=principal.value if principal is not None else None,
+                query_tag=query_tag,
             )
         except GatewayRoutingError as exc:
             attempts.append(
@@ -847,8 +880,9 @@ async def generate_c3_field(
         if await calibration_store.is_below_floor(TRANSPILE_C3)
         else TRANSPILE_C3
     )
+    query_tag = await _site_for_calc(pool, graph_name, calc_id)
     attempts, success = await _run_ladder(
-        request, gateway=gateway, task_class=task_class, principal=principal
+        request, gateway=gateway, task_class=task_class, principal=principal, query_tag=query_tag,
     )
 
     # A real observation for every attempt that got far enough to declare a confidence --

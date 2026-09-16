@@ -154,6 +154,29 @@ CONTENT_LOGGING_GRANT_TABLE = "public.gateway_content_logging_grant"
 #: quietly become "on indefinitely" through one long-forgotten grant.
 MAX_CONTENT_LOGGING_MINUTES = 1440
 
+#: Story S6.2.3: "credits ... so that reporting is generated" / "cost per custodian" --
+#: this module's own earlier docstring named the gap directly ("real cost-tier ranking
+#: is §5.5's own TokenOps budget/cost half, not built here, disclosed rather than faked
+#: with invented cost numbers"). A real, invented, disclosed per-provider rate, the
+#: identical footing `invoicing.DEFAULT_UNIT_PRICES` already has for its own per-tier
+#: price -- dollars per million tokens, `(input, output)`, matching Anthropic's own
+#: published Claude Sonnet rate at the time this story was built. A provider with no
+#: entry here is honestly absent from cost reporting, never guessed at.
+PROVIDER_TOKEN_COSTS: dict[str, tuple[float, float]] = {
+    "anthropic": (3.00, 15.00),
+}
+
+
+def token_cost_usd(provider: str, tokens_in: int, tokens_out: int) -> float | None:
+    """`None` when `provider` has no registered rate -- an honest absence, not a
+    guessed cost. Otherwise `tokens_in`/`tokens_out` priced per `PROVIDER_TOKEN_COSTS`,
+    each rate itself already expressed per million tokens."""
+    rate = PROVIDER_TOKEN_COSTS.get(provider)
+    if rate is None:
+        return None
+    rate_in, rate_out = rate
+    return (tokens_in * rate_in + tokens_out * rate_out) / 1_000_000
+
 
 class SupportsAsDict(Protocol):
     """What a `ModelCaller`/`Gateway` needs from a request — not `generation.py`'s own
@@ -203,6 +226,7 @@ class Gateway(Protocol):
         request: SupportsAsDict,
         previous_error: str | None,
         principal: str | None = None,
+        query_tag: str | None = None,
     ) -> RawModelResponse: ...
 
 
@@ -406,6 +430,8 @@ class GatewayRequestLogStore(Protocol):
         self, *, provider: str, task_class: TaskClass, agent_id: str | None,
         prompt_hash: str, request_text: str | None,
         response_hash: str | None, response_text: str | None, redaction_count: int,
+        query_tag: str | None = None, tokens_in: int | None = None,
+        tokens_out: int | None = None, cost_usd: float | None = None,
     ) -> None: ...
 
     async def contains_text(self, needle: str) -> bool: ...
@@ -430,7 +456,11 @@ class PostgresGatewayRequestLogStore:
     gateway requests and responses are logged with hashes") -- the literal *text* is
     persisted only while a real content-logging grant is currently active for this
     graph, checked fresh on every write (never cached), so a grant that has just
-    expired or just been revoked takes effect on the very next request."""
+    expired or just been revoked takes effect on the very next request.
+
+    Story S6.2.3: `query_tag`/`tokens_in`/`tokens_out`/`cost_usd` are metadata about
+    the call, not its content -- persisted unconditionally, the identical footing
+    `redaction_count` already has, never gated by the content-logging grant above."""
 
     def __init__(self, pool: asyncpg.Pool, *, graph_name: str) -> None:
         self._pool = pool
@@ -440,18 +470,21 @@ class PostgresGatewayRequestLogStore:
         self, *, provider: str, task_class: TaskClass, agent_id: str | None,
         prompt_hash: str, request_text: str | None,
         response_hash: str | None, response_text: str | None, redaction_count: int,
+        query_tag: str | None = None, tokens_in: int | None = None,
+        tokens_out: int | None = None, cost_usd: float | None = None,
     ) -> None:
         async with self._pool.acquire() as conn:
             content_logging = await _content_logging_active(conn, self._graph)
             await conn.execute(
                 f"""INSERT INTO {GATEWAY_REQUEST_LOG_TABLE}
                     (id, graph, provider, task_class, agent_id, prompt_hash, request_text,
-                     response_hash, response_text, redaction_count)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
+                     response_hash, response_text, redaction_count, query_tag,
+                     tokens_in, tokens_out, cost_usd)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)""",
                 f"gwreq_{new_ulid()}", self._graph, provider, task_class, agent_id,
                 prompt_hash, request_text if content_logging else None,
                 response_hash, response_text if content_logging else None,
-                redaction_count,
+                redaction_count, query_tag, tokens_in, tokens_out, cost_usd,
             )
 
     async def contains_text(self, needle: str) -> bool:
@@ -485,12 +518,15 @@ class InMemoryGatewayRequestLogStore:
         self, *, provider: str, task_class: TaskClass, agent_id: str | None,
         prompt_hash: str, request_text: str | None,
         response_hash: str | None, response_text: str | None, redaction_count: int,
+        query_tag: str | None = None, tokens_in: int | None = None,
+        tokens_out: int | None = None, cost_usd: float | None = None,
     ) -> None:
         self.requests.append({
             "provider": provider, "task_class": task_class, "agent_id": agent_id,
             "prompt_hash": prompt_hash, "request_text": request_text,
             "response_hash": response_hash, "response_text": response_text,
-            "redaction_count": redaction_count,
+            "redaction_count": redaction_count, "query_tag": query_tag,
+            "tokens_in": tokens_in, "tokens_out": tokens_out, "cost_usd": cost_usd,
         })
 
     async def contains_text(self, needle: str) -> bool:
@@ -504,13 +540,20 @@ async def _dispatch(
     caller: ModelCaller, log_store: GatewayRequestLogStore | None, *,
     provider: str, task_class: TaskClass, principal: str | None,
     request: SupportsAsDict, previous_error: str | None,
+    query_tag: str | None = None,
 ) -> RawModelResponse:
     """Shared by `ModelGateway.generate`/`StaticGateway.generate`: validate the
     request's own shape, redact data-like literals from the *real* outbound payload,
     call the provider, and log request+response (as hashes always, as text only while
     a content-logging grant is active) regardless of whether the call itself
     succeeds -- the identical `try`/`finally` guarantee S11.4.1 already gave request
-    logging, now covering the response too."""
+    logging, now covering the response too.
+
+    Story S6.2.3: `query_tag` is an optional, caller-supplied attribution (the real
+    `Site` id a caller like `generation.py`/`mender.py` resolved for its own workbook)
+    logged verbatim alongside a real token count and its own computed `cost_usd` --
+    the AC's own "cost per custodian visible from query tags" and "credits ... per
+    custodian per day" bullets."""
     payload = request.as_dict()
     validate_task_class_schema(task_class, payload)
     redacted_payload, redaction_count = redact_data_like_literals(payload)
@@ -536,6 +579,13 @@ async def _dispatch(
                 ),
                 response_text=response_text,
                 redaction_count=redaction_count,
+                query_tag=query_tag,
+                tokens_in=response.tokens_in if response is not None else None,
+                tokens_out=response.tokens_out if response is not None else None,
+                cost_usd=(
+                    token_cost_usd(provider, response.tokens_in, response.tokens_out)
+                    if response is not None else None
+                ),
             )
 
 
@@ -728,10 +778,12 @@ class ModelGateway:
         request: SupportsAsDict,
         previous_error: str | None,
         principal: str | None = None,
+        query_tag: str | None = None,
     ) -> RawModelResponse:
         # Story S11.1.2: additive -- `principal` is optional and every existing caller
         # (there were none before this story; both real call sites now pass one, see
         # generation.py/mender.py) that omits it gets the identical, unchanged behaviour.
+        # Story S6.2.3: `query_tag` is additive the same way.
         if principal is not None:
             authorize_gateway_call(principal, task_class)
         routable = await self._policy.routable_providers(task_class)
@@ -742,6 +794,7 @@ class ModelGateway:
         return await _dispatch(
             caller, self._log_store, provider=caller.provider, task_class=task_class,
             principal=principal, request=request, previous_error=previous_error,
+            query_tag=query_tag,
         )
 
 
@@ -762,12 +815,14 @@ class StaticGateway:
         request: SupportsAsDict,
         previous_error: str | None,
         principal: str | None = None,
+        query_tag: str | None = None,
     ) -> RawModelResponse:
         if principal is not None:
             authorize_gateway_call(principal, task_class)
         return await _dispatch(
             self._caller, self._log_store, provider=self._caller.provider, task_class=task_class,
             principal=principal, request=request, previous_error=previous_error,
+            query_tag=query_tag,
         )
 
 
@@ -961,6 +1016,7 @@ class _NoGateway:
         request: SupportsAsDict,
         previous_error: str | None,
         principal: str | None = None,
+        query_tag: str | None = None,
     ) -> RawModelResponse:
         raise GatewayRoutingError(task_class, considered=())
 
@@ -993,6 +1049,7 @@ __all__ = [
     "GATEWAY_REQUEST_LOG_TABLE",
     "MAX_CONTENT_LOGGING_MINUTES",
     "MAX_FIELD_BYTES",
+    "PROVIDER_TOKEN_COSTS",
     "ROUTABLE_THRESHOLD",
     "TASK_CLASS_FIELD_SCHEMAS",
     "TRANSPILE_C3",
@@ -1025,5 +1082,6 @@ __all__ = [
     "build_gateway",
     "null_gateway",
     "run_eval_set",
+    "token_cost_usd",
     "validate_task_class_schema",
 ]

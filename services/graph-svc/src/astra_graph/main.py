@@ -69,6 +69,7 @@ from .api import (
     schedules_router,
     status_pack_router,
     tenant_access_router,
+    throughput_report_router,
     tolerance_charter_router,
     trains_router,
     verdicts_router,
@@ -642,6 +643,7 @@ def create_app() -> FastAPI:
     app.include_router(execution_safety_router)
     app.include_router(evidence_chain_router)
     app.include_router(evidence_export_router)
+    app.include_router(throughput_report_router)
     app.include_router(build_graphql_router(), prefix="/graphql", tags=["query"])
     return app
 

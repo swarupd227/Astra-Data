@@ -695,6 +695,7 @@ async def apply_pattern_repair(
 
 async def call_model_repair(
     gateway: Gateway, request: RepairContext, *, principal: Principal | None = None,
+    query_tag: str | None = None,
 ) -> tuple[str | None, str, dict[str, Any]]:
     """Passes 2/3 -- calls the real gateway under `MENDER_REPAIR` (genuinely unroutable
     in this deployment today, see this module's own docstring), checks §16.1 rungs 1-2
@@ -703,11 +704,17 @@ async def call_model_repair(
     detail)` -- `result` is one of `MODEL_UNAVAILABLE`/`SCHEMA_ERROR`/`PARSE_ERROR`/`OK`.
     Never retried within one call: a schema failure is the prompt contract's own fault,
     and an unroutable gateway will not become routable within the same pass, the
-    identical reasoning `_run_ladder` already gives both outcomes."""
+    identical reasoning `_run_ladder` already gives both outcomes.
+
+    Story S6.2.3: `query_tag` is the real Site id `run_repair_pass` resolved for this
+    exception's own `workbook_id`, passed straight through to the gateway -- "cost per
+    custodian visible from query tags." `None` when this workbook's own site could not
+    be resolved (honestly absent, never guessed)."""
     try:
         response = await gateway.generate(
             task_class=MENDER_REPAIR, request=request, previous_error=None,
             principal=principal.value if principal is not None else None,
+            query_tag=query_tag,
         )
     except GatewayRoutingError as exc:
         return None, "MODEL_UNAVAILABLE", {"gateway_error": str(exc)}
@@ -976,6 +983,27 @@ async def mend_exception(
     case_refs = tuple(exception_properties.get("case_refs") or ())
     artefact_ref = exception_properties.get("artefact_ref")
 
+    # Story S6.2.3: this exception's own real Site, resolved once -- every pass below
+    # calls the gateway for the same workbook, so the same query_tag applies to all of
+    # them. `None`, honestly, when this workbook's own CONTAINS chain up to a Site has
+    # never been harvested. A local copy of `release._sites_for_workbooks`'s own
+    # two-hop join, not an import of it -- `release.py` imports `g3_card.py`, which
+    # already imports this module (`_resolve_calculated_field`, cross-epic private
+    # helper), so importing `release.py` from here would be circular.
+    async with pool.acquire() as conn:
+        site_row = await conn.fetchrow(
+            f"""
+            SELECT site_edge.from_id AS site_id
+              FROM {EDGE_INDEX_TABLE} wb_edge
+              JOIN {EDGE_INDEX_TABLE} site_edge
+                ON site_edge.to_id = wb_edge.from_id AND site_edge.label = 'CONTAINS'
+                   AND site_edge.graph = wb_edge.graph
+             WHERE wb_edge.graph = $1 AND wb_edge.label = 'CONTAINS' AND wb_edge.to_id = $2
+            """,
+            graph_name, workbook_id,
+        )
+    query_tag = site_row["site_id"] if site_row else None
+
     # Story S8.2.2: a real model defect (KEY_MISSING with graph evidence of a missing
     # dimension member, or AGGREGATION with a grain mismatch at the model) is routed to
     # the Foundry before any repair pass is ever attempted -- checked ahead of the (now
@@ -1090,7 +1118,9 @@ async def mend_exception(
                 pool, graph_name, artefact_store, exception_properties=exception_properties,
                 calc=calc, current_dax=current_dax, widened=widened,
             )
-            dax, model_result, detail = await call_model_repair(gateway, request, principal=principal)
+            dax, model_result, detail = await call_model_repair(
+                gateway, request, principal=principal, query_tag=query_tag,
+            )
             evidence["request"] = request.as_dict()
             evidence["response"] = detail
             if model_result != "OK" or dax is None:
