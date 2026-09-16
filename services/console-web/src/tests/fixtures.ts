@@ -110,7 +110,6 @@ import type {
   StatusPackData,
   SubjectEventsResponse,
   SvidRecord,
-  ThroughputReportData,
   ToleranceCharter,
   ToleranceCharterFieldMetadata,
   ToleranceCharterVersion,
@@ -1571,35 +1570,6 @@ export function statusPackData(overrides: Partial<StatusPackData> = {}): StatusP
   };
 }
 
-export function throughputReportData(overrides: Partial<ThroughputReportData> = {}): ThroughputReportData {
-  return {
-    id: 'throughput_1',
-    weeks: 12,
-    days: 30,
-    custodians_live_per_week: [
-      { week_of: '2027-05-31', custodians_live: 2 },
-      { week_of: '2027-06-07', custodians_live: 3 },
-    ],
-    agent_acceptance_per_custodian_per_day: [
-      { day: '2027-06-07', site_id: 'site_rqa', custodian: 'RQA', accepted: 4 },
-      { day: '2027-06-08', site_id: 'site_gtaa', custodian: 'GTAA', accepted: 2 },
-    ],
-    credits_per_custodian_per_day: [
-      {
-        day: '2027-06-07', site_id: 'site_rqa', custodian: 'RQA',
-        calls: 12, tokens_in: 48_000, tokens_out: 9_600, credits_usd: 0.288,
-      },
-      {
-        day: '2027-06-08', site_id: 'site_gtaa', custodian: 'GTAA',
-        calls: 5, tokens_in: 20_000, tokens_out: 4_000, credits_usd: 0.12,
-      },
-    ],
-    generated_by: 'user:pm@artizent.example',
-    generated_at: '2027-06-08T09:00:00.000Z',
-    ...overrides,
-  };
-}
-
 export function g3Card(overrides: Partial<G3Card> = {}): G3Card {
   return {
     workbook_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
@@ -2063,7 +2033,6 @@ export function fakeApi(
   // outright, the same convention those two already set.
   let calibrationReportState: CalibrationReportResponse = calibrationReportResponse();
   let statusPackState: StatusPackData | null = null;
-  let throughputReportState: ThroughputReportData | null = null;
   let notificationPreferencesState: NotificationPreferences | null = null;
   // Story S11.1.2. Empty by default -- a test that wants one calls `api.seedSvids(...)`.
   const svidRows: SvidRecord[] = [];
@@ -3393,27 +3362,6 @@ export function fakeApi(
       return new Blob(['PK fixture'], {
         type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       });
-    },
-    async throughputReport(_identity: Identity) {
-      // Not gated behind `maybeFail()`, the same passive-mount-fetch reasoning as
-      // `statusPack`/`calibrationReport` above.
-      if (!throughputReportState) {
-        throw new ApiError(400, 'invalid_request', 'no throughput report has been generated yet');
-      }
-      return throughputReportState;
-    },
-    async generateThroughputReport(identity: Identity) {
-      maybeFail();
-      throughputReportState = throughputReportData({
-        generated_by: identity.principal,
-        generated_at: new Date().toISOString(),
-      });
-      recorded.push({ kind: 'GENERATE_THROUGHPUT_REPORT', id: throughputReportState.id, reason: '' });
-      return throughputReportState;
-    },
-    async throughputReportCsv(_identity: Identity) {
-      maybeFail();
-      return new Blob(['week_of,custodians_live\n'], { type: 'text/csv' });
     },
     // Story S10.3.1. `muPage` does not call `maybeFail()` -- the identical "a GET is not
     // the action a test is asserting through" reasoning `g3Card`/`explain` above already

@@ -22,7 +22,6 @@ from astra_graph.gateway import (
     MAX_CONTENT_LOGGING_MINUTES,
     MAX_FIELD_BYTES,
     MENDER_REPAIR,
-    PROVIDER_TOKEN_COSTS,
     ROUTABLE_THRESHOLD,
     TASK_CLASS_FIELD_SCHEMAS,
     TRANSPILE_C3,
@@ -43,7 +42,6 @@ from astra_graph.gateway import (
     _json_schema_from_output_schema,
     null_gateway,
     run_eval_set,
-    token_cost_usd,
     validate_task_class_schema,
 )
 
@@ -428,53 +426,4 @@ async def test_static_gateway_also_logs_when_given_a_log_store() -> None:
     gateway = StaticGateway(_StubCaller(provider="test_provider"), log_store=log)
     await gateway.generate(task_class="anything_at_all", request=_Request(), previous_error=None, principal="agent:mender")
     assert len(log.requests) == 1
-
-
-# ----------------------------------------------- S6.2.3: throughput and cost metrics
-
-
-def test_a_known_providers_cost_is_computed_from_its_own_real_rate() -> None:
-    rate_in, rate_out = PROVIDER_TOKEN_COSTS["anthropic"]
-    cost = token_cost_usd("anthropic", 1_000_000, 1_000_000)
-    assert cost == pytest.approx(rate_in + rate_out)
-
-
-def test_zero_tokens_cost_zero() -> None:
-    assert token_cost_usd("anthropic", 0, 0) == 0.0
-
-
-def test_an_unregistered_providers_cost_is_honestly_absent() -> None:
-    assert token_cost_usd("azure_openai", 1_000, 1_000) is None
-
-
-@pytest.mark.asyncio
-async def test_a_real_dispatch_logs_its_own_query_tag_tokens_and_cost() -> None:
-    log = InMemoryGatewayRequestLogStore()
-    policy = _InMemoryPolicyStore(scores={(TRANSPILE_C3, "anthropic"): 0.90})
-    gateway = ModelGateway(
-        providers={"anthropic": _StubCaller(provider="anthropic")}, policy_store=policy, log_store=log,
-    )
-
-    await gateway.generate(
-        task_class=TRANSPILE_C3, request=_Request(), previous_error=None, query_tag="site_rqa",
-    )
-
-    assert len(log.requests) == 1
-    entry = log.requests[0]
-    assert entry["query_tag"] == "site_rqa"
-    assert entry["tokens_in"] == 1
-    assert entry["tokens_out"] == 1
-    assert entry["cost_usd"] == pytest.approx(token_cost_usd("anthropic", 1, 1))
-
-
-@pytest.mark.asyncio
-async def test_a_dispatch_with_no_query_tag_logs_none_honestly() -> None:
-    log = InMemoryGatewayRequestLogStore()
-    policy = _InMemoryPolicyStore(scores={(TRANSPILE_C3, "anthropic"): 0.90})
-    gateway = ModelGateway(
-        providers={"anthropic": _StubCaller(provider="anthropic")}, policy_store=policy, log_store=log,
-    )
-
-    await gateway.generate(task_class=TRANSPILE_C3, request=_Request(), previous_error=None)
-
-    assert log.requests[0]["query_tag"] is None
+    assert log.requests[0]["agent_id"] == "mender"

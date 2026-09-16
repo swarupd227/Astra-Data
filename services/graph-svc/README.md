@@ -4239,44 +4239,6 @@ active — is always a computed comparison, never a stored flag**.
   in this epic ("any Artizent role, or the InfoSec reviewer"): the AC's own "a signed
   position, not an assurance" is a statement about *whose* attestation this is.
 
-## Throughput and cost metrics (story S6.2.3)
-
-None of this story's own vocabulary ("custodian," "credits," "query tags," a "WBS
-2.6.6" numbering scheme) exists anywhere else in this codebase, its spec, or its
-backlog — and the story's own id collides with an already-shipped `S6.2.3` slot under
-`E6`. Four explicit translations were confirmed by the user before any code was
-written; see [ADR 0086](../../docs/adr/0086-throughput-and-cost-metrics-a-vocabulary-translation-before-any-code.md)
-for the full research trail and every decision below.
-
-- **Custodian = `Site`, credits = real LLM token cost, agent acceptance = the existing
-  `commercial_ledger` fact.** `throughput_metrics.py` computes all three real metrics
-  directly from `gateway_request_log`/`commercial_ledger`, resolving a workbook's own
-  real site via the identical two-hop `CONTAINS` join `release._sites_for_workbooks`
-  already established (imported directly in `throughput_metrics.py`/`generation.py`;
-  duplicated locally in `mender.py`, where importing `release.py` would be circular
-  through `g3_card.py`'s own import of `mender._resolve_calculated_field`).
-- **`query_tag` is a new, additive, optional parameter on `Gateway.generate()`**
-  (`ModelGateway`, `StaticGateway`, the shared `_dispatch` helper) — the real site id a
-  caller resolved for its own workbook/calc, logged verbatim alongside a real token
-  count and its own computed `cost_usd` (`gateway.token_cost_usd`, a real, invented,
-  disclosed per-provider rate, `PROVIDER_TOKEN_COSTS`). `generation.py`'s
-  `generate_c3_field` and `mender.py`'s `mend_exception` are the two real call sites
-  that resolve and pass one. All four new columns on `gateway_request_log`
-  (`query_tag`/`tokens_in`/`tokens_out`/`cost_usd`, migration v0045) are persisted
-  unconditionally — metadata about the call, never gated by S11.4.2's content-logging
-  grant, which only ever controls literal request/response *text*.
-- **"Custodians live per week" is tied to the identical two facts the other two
-  metrics already report** (a query-tagged dispatch or an MU acceptance attributed to
-  a site that week) rather than a fourth, separate liveness signal.
-- **The weekly report reuses the Status Pack's own on-demand shape (S10.2.1), not a
-  scheduler.** `throughput_report.py`: `POST /v1/throughput-report:generate`
-  (`ProgrammeManagerDep`, the AC's own literal "as a project manager") computes and
-  persists a new, versioned, append-only row; `GET /v1/throughput-report` reads the
-  latest one (`ArtizentDep`, no client persona named — the identical posture
-  `status_pack`'s own reader gate already has); `GET /v1/throughput-report.csv`
-  exports it as a real CSV (three tabular figures, not a narrative — CSV rather than
-  Status Pack's own PDF/PPTX).
-
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,

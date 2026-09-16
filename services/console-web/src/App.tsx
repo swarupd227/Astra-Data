@@ -149,7 +149,6 @@ import { DecommissionTracker } from './release/DecommissionTracker';
 import { ReleaseBoard } from './release/ReleaseBoard';
 import { StatusPack } from './status-pack/StatusPack';
 import { TenantAccess } from './tenant-access/TenantAccess';
-import { ThroughputReport } from './throughput-report/ThroughputReport';
 import { WaveBoard } from './trains/WaveBoard';
 
 /** The Estate surface's screens (§15.3.2), plus the Programme Board's own figure (S3.1.3),
@@ -230,7 +229,6 @@ export const SURFACES = [
   { key: 'decommission', label: 'Decommission Tracker' },
   { key: 'calibration', label: 'Calibration Report' },
   { key: 'statuspack', label: 'Status Pack' },
-  { key: 'throughput', label: 'Throughput & Cost' },
   { key: 'mu', label: 'Migration Unit' },
   { key: 'inbox', label: 'Gate Inbox' },
   { key: 'register', label: 'Decision Register' },
@@ -368,11 +366,6 @@ const CLIENT_VISIBLE_SURFACES: Partial<Record<string, Surface[]>> = {
   client_infosec_reviewer: ['estate', 'register', 'tenant-access', 'data-handling', NOTIFICATIONS],
   client_programme_sponsor: [NOTIFICATIONS],
 };
-
-// Story S6.2.3: Throughput & Cost is deliberately absent from the table above -- no
-// client persona is named anywhere in this story's own AC ("as a project manager"),
-// the identical "Artizent-only, until a real story names a client reader" posture
-// `statuspack` already has.
 
 function visibleSurfacesFor(role: string): (typeof SURFACES)[number][] {
   if (isArtizentRole([role])) return [...SURFACES];
@@ -605,7 +598,6 @@ export function App({
         <CalibrationReport api={api} identity={identity} liveTick={liveTick} />
       )}
       {surface === 'statuspack' && <StatusPack api={api} identity={identity} liveTick={liveTick} />}
-      {surface === 'throughput' && <ThroughputReport api={api} identity={identity} liveTick={liveTick} />}
       {surface === 'mu' && (
         <MigrationUnitPage
           api={api} identity={identity} locale={locale}

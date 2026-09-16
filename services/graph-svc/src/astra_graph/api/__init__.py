@@ -50,7 +50,6 @@ from .routes_rules import router as rules_router
 from .routes_schedules import router as schedules_router
 from .routes_status_pack import router as status_pack_router
 from .routes_tenant_access import router as tenant_access_router
-from .routes_throughput_report import router as throughput_report_router
 from .routes_tolerance_charter import router as tolerance_charter_router
 from .routes_trains import router as trains_router
 from .routes_verdicts import router as verdicts_router
@@ -107,7 +106,6 @@ __all__ = [
     "schedules_router",
     "status_pack_router",
     "tenant_access_router",
-    "throughput_report_router",
     "tolerance_charter_router",
     "trains_router",
     "verdicts_router",

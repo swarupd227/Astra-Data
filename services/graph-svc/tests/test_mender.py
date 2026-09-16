@@ -227,7 +227,7 @@ class _ScriptedModelCaller:
 class _RoutingErrorGateway:
     async def generate(
         self, *, task_class: Any, request: SupportsAsDict, previous_error: str | None,
-        principal: str | None = None, query_tag: str | None = None,
+        principal: str | None = None,
     ) -> RawModelResponse:
         raise GatewayRoutingError(task_class, considered=())
 

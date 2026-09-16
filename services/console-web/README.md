@@ -397,24 +397,6 @@ gateway request/response text is ever persisted, not Artizent's to switch on for
 (`active` computed server-side, never a stored flag — the identical `signed` shape
 this screen's own sign-off pane already uses), shown directly rather than re-derived.
 
-**Story S6.2.3 added a new top-level surface, Throughput & Cost**
-(`throughput-report/ThroughputReport.tsx`) — the identical "own top-level surface, not
-folded into an existing screen" call Data Handling already made, since this report's
-three real tables (custodians live per week, agent acceptance per custodian per day,
-credits per custodian per day) are a different question from either the Programme
-Board or the Status Pack. None of this story's own vocabulary ("custodian," "credits,"
-"query tags") exists anywhere else in this codebase; see
-[ADR 0086](../../docs/adr/0086-throughput-and-cost-metrics-a-vocabulary-translation-before-any-code.md)
-for the four translations confirmed by the user before any code was written
-(custodian = `Site`, credits = real LLM token cost, agent acceptance = the existing
-MU-acceptance fact, "weekly" = on-demand like the Status Pack). Generate is hidden for
-every role but the Programme Manager (this story's own literal "as a project manager")
-— the identical hide-not-disable gate `statuspack`'s own Generate already has; reading
-the report and its own CSV export (`lib/api.ts`'s new `throughputReport`/
-`generateThroughputReport`/`throughputReportCsv`, the same `downloadBlob` pattern
-`statusPackPdf`/`statusPackPptx` already use) is open to any Artizent role — no client
-persona is named anywhere in this story's own AC.
-
 ## Performance
 
 S1.4.1 budgets two seconds for a 1,067-workbook site. The server's share is measured in

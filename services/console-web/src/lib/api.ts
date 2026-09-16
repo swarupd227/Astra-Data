@@ -1036,41 +1036,6 @@ export interface StatusPackData {
   published_at: string | null;
 }
 
-// ------------------------------------------- S6.2.3: throughput and cost metrics
-
-export interface CustodiansLiveWeek {
-  week_of: string;
-  custodians_live: number;
-}
-
-export interface AgentAcceptanceDay {
-  day: string;
-  site_id: string | null;
-  custodian: string;
-  accepted: number;
-}
-
-export interface CreditsPerCustodianDay {
-  day: string;
-  site_id: string | null;
-  custodian: string;
-  calls: number;
-  tokens_in: number;
-  tokens_out: number;
-  credits_usd: number;
-}
-
-export interface ThroughputReportData {
-  id: string;
-  weeks: number;
-  days: number;
-  custodians_live_per_week: CustodiansLiveWeek[];
-  agent_acceptance_per_custodian_per_day: AgentAcceptanceDay[];
-  credits_per_custodian_per_day: CreditsPerCustodianDay[];
-  generated_by: string;
-  generated_at: string;
-}
-
 // ------------------------------------------------- S10.3.1: the Migration Unit page
 
 /** One gate's own latest decision, the same compact shape used for G1/G2/G4 on the
@@ -2619,9 +2584,6 @@ export interface Api {
   publishStatusPack(identity: Identity): Promise<StatusPackData>;
   statusPackPdf(identity: Identity): Promise<Blob>;
   statusPackPptx(identity: Identity): Promise<Blob>;
-  throughputReport(identity: Identity): Promise<ThroughputReportData>;
-  generateThroughputReport(identity: Identity): Promise<ThroughputReportData>;
-  throughputReportCsv(identity: Identity): Promise<Blob>;
   muPage(workbookId: string, identity: Identity): Promise<MuPageResponse>;
   muProvenance(workbookId: string, identity: Identity, mode?: string): Promise<MuProvenanceResponse>;
   getArtefactContent(artefactId: string, identity: Identity): Promise<Blob>;
@@ -3197,15 +3159,6 @@ export function createApi(base = ''): Api {
     },
     async statusPackPptx(identity) {
       return getBlob('/v1/status-pack.pptx', identity);
-    },
-    async throughputReport(identity) {
-      return (await get('/v1/throughput-report', identity)) as ThroughputReportData;
-    },
-    async generateThroughputReport(identity) {
-      return (await post('/v1/throughput-report:generate', {}, identity)) as ThroughputReportData;
-    },
-    async throughputReportCsv(identity) {
-      return getBlob('/v1/throughput-report.csv', identity);
     },
     async muPage(workbookId, identity) {
       return (await get(`/v1/mu/${encodeURIComponent(workbookId)}`, identity)) as MuPageResponse;
