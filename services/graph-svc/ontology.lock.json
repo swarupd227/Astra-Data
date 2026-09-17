@@ -804,7 +804,8 @@
             "SOURCE_DRIFT",
             "UNKNOWN",
             "VISUAL_REDESIGN",
-            "REGRESSION"
+            "REGRESSION",
+            "INJECTION_SUSPECTED"
           ],
           "name": "class",
           "required": true,
@@ -1242,6 +1243,7 @@
             "REGRESSED",
             "NO_PATTERN_MATCH",
             "MODEL_UNAVAILABLE",
+            "INJECTION_DETECTED",
             "SCHEMA_ERROR",
             "PARSE_ERROR",
             "KEY_MISSING_MODEL_DEFECT",
@@ -1775,7 +1777,8 @@
             "SOURCE_DRIFT",
             "UNKNOWN",
             "VISUAL_REDESIGN",
-            "REGRESSION"
+            "REGRESSION",
+            "INJECTION_SUSPECTED"
           ],
           "name": "failure_class",
           "required": false,

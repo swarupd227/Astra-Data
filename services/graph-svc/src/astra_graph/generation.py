@@ -64,7 +64,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import asyncpg
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from pydantic import Field as PydanticField
 
 from .calibration import CalibrationStore, NullCalibrationStore
@@ -88,6 +88,7 @@ from .gateway import (
 )
 from .graph.queries import EDGE_INDEX_TABLE, NODE_INDEX_TABLE
 from .ids import new_ulid
+from .injection_defense import INJECTION_SUSPECTED_CLASS, reject_if_injection
 from .lineage import children, hydrate
 from .ontology.types import BASE_NODE_PROPERTIES
 from .patterns import (
@@ -139,7 +140,12 @@ class ModelResponseSchema(BaseModel):
     """§16.1 rung 1: "Model response conforms to the declared output schema (JSON schema,
     strict)." A real, working schema check (pydantic, already a dependency) -- not a
     disclosed stand-in; nothing about JSON-schema validation needs infrastructure this
-    platform lacks."""
+    platform lacks.
+
+    Story S11.4.3: also rejects a response whose own string fields look like a
+    prompt-injection attempt (`injection_defense.reject_if_injection`) -- the AC's own
+    "an output containing instructions ... is rejected," checked at this exact rung-1
+    point, the same footing `extra="forbid"` already has for an unexpected field."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -148,6 +154,23 @@ class ModelResponseSchema(BaseModel):
     assumptions: list[str] = PydanticField(default_factory=list)
     confidence: float
     notes: str
+
+    @field_validator("dax", "notes")
+    @classmethod
+    def _reject_injection(cls, value: str) -> str:
+        return reject_if_injection(value)
+
+    @field_validator("m")
+    @classmethod
+    def _reject_injection_m(cls, value: str | None) -> str | None:
+        return reject_if_injection(value) if value is not None else value
+
+    @field_validator("assumptions")
+    @classmethod
+    def _reject_injection_assumptions(cls, value: list[str]) -> list[str]:
+        for item in value:
+            reject_if_injection(item)
+        return value
 
 
 # ------------------------------------------------------------------------- the request
@@ -532,6 +555,12 @@ class LadderAttempt:
     no routable provider to call at all (story S5.3.2's own `GatewayRoutingError`), a
     different, earlier failure than a model responding badly. `None` on every other kind
     of attempt."""
+    injection_flagged_fields: tuple[str, ...] = ()
+    """Story S11.4.3: which of this request's own typed-content fields the gateway's
+    injection scan withheld before this attempt was ever sent
+    (`RawModelResponse.injection_flagged_fields`, carried straight through). Empty on
+    every attempt the scan found nothing on -- which is every attempt except the one
+    that ends the ladder immediately once it is non-empty (see `_run_ladder`)."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -553,6 +582,7 @@ class LadderAttempt:
             "tokens_in": self.tokens_in,
             "tokens_out": self.tokens_out,
             "confidence": self.confidence,
+            "injection_flagged_fields": list(self.injection_flagged_fields),
         }
 
 
@@ -626,6 +656,28 @@ async def _run_ladder(
             # No routable provider won't become one within a single ladder run -- not
             # retried, the same "the fault isn't this attempt's" footing a schema
             # failure already has.
+            break
+
+        if response.injection_flagged_fields:
+            attempts.append(
+                LadderAttempt(
+                    attempt=attempt_number, raw_response=response.raw,
+                    schema_ok=False, schema_error=None,
+                    not_expressible=False, not_expressible_reason=None,
+                    parse_ok=False, parse_error=None,
+                    compile_ok=False, compile_detail="not reached",
+                    proof_ok=False, proof_detail="not reached",
+                    dax=None, gateway_request_id=response.gateway_request_id,
+                    provider=response.provider, model=response.model,
+                    prompt_hash=response.prompt_hash, temperature=response.temperature,
+                    tokens_in=response.tokens_in, tokens_out=response.tokens_out,
+                    injection_flagged_fields=response.injection_flagged_fields,
+                )
+            )
+            # Story S11.4.3: the gateway already withheld the flagged field(s) before
+            # this attempt was ever sent -- the source content itself is the problem,
+            # not this attempt, the identical "not retried" reasoning a routing
+            # failure and a schema failure already have.
             break
 
         try:
@@ -877,26 +929,37 @@ async def generate_c3_field(
             task_class=task_class, pattern_id=pattern_id,
         )
 
+    last = attempts[-1] if attempts else None
+    injection_hit = bool(last and last.injection_flagged_fields)
     exception_case_id = await _write_exception_case(
         pool, graph_name, writer, calc_id, attempts, principal=principal,
+        class_=INJECTION_SUSPECTED_CLASS if injection_hit else "UNKNOWN",
     )
-    if existing_pattern is not None:
+    if existing_pattern is not None and not injection_hit:
         # A shape an existing candidate/active pattern already covers just failed the
         # normal model-call path too -- real evidence against it, so S5.5.1's own "zero
         # failures" promotion gate is a fact this platform checked, not an assumption; if
         # the pattern is currently ACTIVE, this is also the failure S5.5.2's own automatic
-        # retirement threshold is checked against.
+        # retirement threshold is checked against. Skipped on an injection hit (story
+        # S11.4.3): the pattern was never really exercised -- the source content was
+        # withheld before the model ever saw it, so this is not evidence against the
+        # pattern's own correctness.
         await record_failure_and_maybe_retire(
             pool, graph_name, writer, pattern_id=existing_pattern.pattern_id, calc_id=calc_id,
             source="GENERATED_PROVED", principal=principal,
         )
-    last = attempts[-1] if attempts else None
-    reason = (
-        last.gateway_error if last and last.gateway_error
-        else "model response failed schema validation" if last and not last.schema_ok
-        else "model declined: NOT_EXPRESSIBLE" if last and last.not_expressible
-        else f"exhausted {MAX_ATTEMPTS} attempts without a parseable candidate"
-    )
+    if injection_hit and last is not None:
+        reason = (
+            f"prompt-injection scan flagged field(s) {list(last.injection_flagged_fields)}; "
+            "escalated to a human"
+        )
+    else:
+        reason = (
+            last.gateway_error if last and last.gateway_error
+            else "model response failed schema validation" if last and not last.schema_ok
+            else "model declined: NOT_EXPRESSIBLE" if last and last.not_expressible
+            else f"exhausted {MAX_ATTEMPTS} attempts without a parseable candidate"
+        )
     return GenerationOutcome(calc_id, False, None, exception_case_id, attempts, reason, task_class=task_class)
 
 
@@ -986,16 +1049,21 @@ async def _write_exception_case(
     attempts: tuple[LadderAttempt, ...],
     *,
     principal: Principal,
+    class_: str = "UNKNOWN",
 ) -> str:
     """§11.3: "Each ExceptionCase carries the full evidence bundle ... and the model's
     diagnosis where one was made." No Migration Unit exists to name in `mu_ref` (E3/E7's
     own territory, the identical disclosed-gap `regression_status`/`UngatedPromotions`
     already carry) -- the calculated field id stands in, honestly labelled.
 
-    `class` uses `_FAILURE_CLASSES`' own `UNKNOWN` member: that taxonomy (§11.1) is for
-    *parity* failures the Mender diagnoses after a real proof attempt, a different moment
-    from this story's own pre-proof generation failures -- a real, disclosed mismatch, not
-    a false claim to a category that fits.
+    `class` defaults to `_FAILURE_CLASSES`' own `UNKNOWN` member: that taxonomy (§11.1)
+    is for *parity* failures the Mender diagnoses after a real proof attempt, a
+    different moment from this story's own pre-proof generation failures -- a real,
+    disclosed mismatch, not a false claim to a category that fits. `generate_c3_field`
+    passes `injection_defense.INJECTION_SUSPECTED_CLASS` instead (story S11.4.3) when
+    the ladder stopped because the gateway's own injection scan withheld a field --
+    the same "one real work-item mechanism, a disclosed different use" footing
+    `VISUAL_REDESIGN`/`REGRESSION` already established for their own class values.
     """
     case_id = new_ulid()
     evidence = {"calculated_field_id": calc_id, "attempts": [a.as_dict() for a in attempts]}
@@ -1006,7 +1074,7 @@ async def _write_exception_case(
                 id=case_id,
                 properties={
                     "mu_ref": f"calc:{calc_id}",
-                    "class": "UNKNOWN",
+                    "class": class_,
                     "evidence_ref": context_hash(json.dumps(evidence, sort_keys=True).encode("utf-8")),
                     "state": "OPEN",
                 },

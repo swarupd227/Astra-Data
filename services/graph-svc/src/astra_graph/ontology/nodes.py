@@ -53,6 +53,7 @@ _FAILURE_CLASSES = (
     "UNKNOWN",
     "VISUAL_REDESIGN",
     "REGRESSION",
+    "INJECTION_SUSPECTED",
 )
 
 _VALIDATION_STATE_NOTE = (
@@ -773,13 +774,17 @@ NODE_TYPES: tuple[NodeType, ...] = (
                     "ROUTE_TO_FOUNDRY pass never produces a Measure)."),
             _p("result", T.ENUM, required=True,
                enum=("PROVED", "STILL_FAILING", "REGRESSED", "NO_PATTERN_MATCH",
-                     "MODEL_UNAVAILABLE", "SCHEMA_ERROR", "PARSE_ERROR", "KEY_MISSING_MODEL_DEFECT",
-                     "ROUTED_TO_FOUNDRY", "ALREADY_IN_FOUNDRY"),
+                     "MODEL_UNAVAILABLE", "INJECTION_DETECTED", "SCHEMA_ERROR", "PARSE_ERROR",
+                     "KEY_MISSING_MODEL_DEFECT", "ROUTED_TO_FOUNDRY", "ALREADY_IN_FOUNDRY"),
                note="`ROUTED_TO_FOUNDRY` (story S8.2.2): a real change request was opened "
                     "(`MenderPass.evidence_ref` carries it). `ALREADY_IN_FOUNDRY`: the "
                     "family was not `PUBLISHED` at the moment of routing, so no new change "
                     "request was opened, but the exception is still marked BLOCKED on the "
-                    "family -- a real, disclosed distinction, not a silent no-op."),
+                    "family -- a real, disclosed distinction, not a silent no-op. "
+                    "`INJECTION_DETECTED` (story S11.4.3): the gateway's own injection scan "
+                    "withheld a typed-content field before this pass's own model call was "
+                    "ever made -- the identical 'not this pass's own model fault, never "
+                    "retried' footing `MODEL_UNAVAILABLE` already has."),
             _p("cases_reproved", T.STRING_LIST,
                note="Which of this exception's own `case_refs` were actually re-run this "
                     "pass and now pass -- 'the affected cases only' (§11.2), never the "
@@ -1419,6 +1424,24 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "pass/fail/inconclusive counts -- the identical 'evidence_ref names a real "
                "artefact' shape the parity evidence bundle (S7.4.1) already established, "
                "not a second, REGRESSION-only property.",
+    ),
+    SpecDeviation(
+        element="ExceptionCase.class (INJECTION_SUSPECTED)",
+        reason="Section 11.1's own failure taxonomy is for a first-pass parity verdict "
+               "the Mender diagnoses (FILTER_CONTEXT, NULL_HANDLING, ...); a real prompt-"
+               "injection hit on a request's own typed content is a pre-dispatch, "
+               "structural fact about the request itself, the identical 'different "
+               "moment' gap VISUAL_REDESIGN/REGRESSION/`generation.py`'s own UNKNOWN case "
+               "already disclose for their own kinds of case. Story S11.4.3's own AC "
+               "requires exactly this: a hit is 'logged and the field is replaced with a "
+               "placeholder plus an ExceptionCase for a human.'",
+        detail="Reuses the one real work-item mechanism this platform has (`ExceptionCase`) "
+               "for a fourth disclosed use, the same footing VISUAL_REDESIGN/REGRESSION "
+               "already set. No new property is added: `evidence_ref` (already declared) "
+               "carries a hash of which typed field(s) were flagged and by which pattern "
+               "-- the identical 'evidence_ref names or hashes the real evidence' shape "
+               "`generation.py`'s own UNKNOWN-class case already established, not a "
+               "second, INJECTION_SUSPECTED-only property.",
     ),
     SpecDeviation(
         element="ExceptionCase.classification_signals",

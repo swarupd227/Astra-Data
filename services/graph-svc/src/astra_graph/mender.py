@@ -150,7 +150,7 @@ import asyncpg
 from astra_adapter import ExecutionStrategy
 from astra_adapter import ParityCase as SdkParityCase
 from astra_adapter.target_contract import TargetAdapter
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from pydantic import Field as PydanticField
 
 from .artefacts import ArtefactStore
@@ -170,6 +170,7 @@ from .foundry_routing import detect_model_defect, route_to_foundry
 from .gateway import MENDER_REPAIR, Gateway, GatewayRoutingError
 from .graph.queries import EDGE_INDEX_TABLE, NODE_INDEX_TABLE
 from .ids import new_ulid
+from .injection_defense import reject_if_injection
 from .lineage import children, hydrate
 from .ontology.types import BASE_NODE_PROPERTIES
 from .patterns import PatternMatch, find_matching_pattern, generalise_from_proof, render_target
@@ -365,7 +366,11 @@ OUTPUT_SCHEMA: dict[str, str] = {
 class RepairResponseSchema(BaseModel):
     """§16.1 rung 1 (schema): the AC's own "request a corrected artefact under the
     same output schema as generation" -- `generation.ModelResponseSchema`'s own exact
-    field set, a real, working Pydantic check, not a disclosed stand-in."""
+    field set, a real, working Pydantic check, not a disclosed stand-in.
+
+    Story S11.4.3: also rejects a response whose own string fields look like a
+    prompt-injection attempt (`injection_defense.reject_if_injection`) -- the
+    identical validators `generation.ModelResponseSchema` already carries."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -374,6 +379,23 @@ class RepairResponseSchema(BaseModel):
     assumptions: list[str] = PydanticField(default_factory=list)
     confidence: float
     notes: str
+
+    @field_validator("dax", "notes")
+    @classmethod
+    def _reject_injection(cls, value: str) -> str:
+        return reject_if_injection(value)
+
+    @field_validator("m")
+    @classmethod
+    def _reject_injection_m(cls, value: str | None) -> str | None:
+        return reject_if_injection(value) if value is not None else value
+
+    @field_validator("assumptions")
+    @classmethod
+    def _reject_injection_assumptions(cls, value: list[str]) -> list[str]:
+        for item in value:
+            reject_if_injection(item)
+        return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -700,10 +722,12 @@ async def call_model_repair(
     in this deployment today, see this module's own docstring), checks §16.1 rungs 1-2
     (schema, then parse via `dax_sanity_check`) the identical way `generation._run_
     ladder` already does for its own two real rungs. Returns `(dax_or_none, result,
-    detail)` -- `result` is one of `MODEL_UNAVAILABLE`/`SCHEMA_ERROR`/`PARSE_ERROR`/`OK`.
-    Never retried within one call: a schema failure is the prompt contract's own fault,
-    and an unroutable gateway will not become routable within the same pass, the
-    identical reasoning `_run_ladder` already gives both outcomes."""
+    detail)` -- `result` is one of `MODEL_UNAVAILABLE`/`INJECTION_DETECTED`/
+    `SCHEMA_ERROR`/`PARSE_ERROR`/`OK`. Never retried within one call: a schema failure
+    is the prompt contract's own fault, and an unroutable gateway will not become
+    routable within the same pass, the identical reasoning `_run_ladder` already gives
+    both outcomes -- story S11.4.3 gives an injection hit the same footing: the source
+    content itself is the problem, not this call."""
     try:
         response = await gateway.generate(
             task_class=MENDER_REPAIR, request=request, previous_error=None,
@@ -717,6 +741,9 @@ async def call_model_repair(
         "provider": response.provider, "model": response.model, "prompt_hash": response.prompt_hash,
         "temperature": response.temperature, "tokens_in": response.tokens_in, "tokens_out": response.tokens_out,
     }
+    if response.injection_flagged_fields:
+        detail["injection_flagged_fields"] = list(response.injection_flagged_fields)
+        return None, "INJECTION_DETECTED", detail
     try:
         parsed = RepairResponseSchema.model_validate(dict(response.raw))
     except ValidationError as exc:
@@ -1179,6 +1206,13 @@ async def mend_exception(
         # identical "not retried" reasoning `generation._run_ladder` already gives its
         # own identical error; further passes would only repeat the same failure.
         if result == "MODEL_UNAVAILABLE":
+            break
+
+        # Story S11.4.3: the gateway already withheld the flagged field(s) before this
+        # pass was ever sent -- the source content itself is the problem, not this
+        # pass; a further pass would only re-scan the identical hostile content, the
+        # same "not retried" reasoning MODEL_UNAVAILABLE just above already has.
+        if result == "INJECTION_DETECTED":
             break
 
         # §11.2's own "a pass that produces no change in the failing set ends the loop

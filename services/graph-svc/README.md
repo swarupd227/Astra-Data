@@ -4239,6 +4239,53 @@ active — is always a computed comparison, never a stored flag**.
   in this epic ("any Artizent role, or the InfoSec reviewer"): the AC's own "a signed
   position, not an assurance" is a statement about *whose* attestation this is.
 
+## Prompt-injection defence (story S11.4.3, closes F11.4)
+
+Before this story, nothing escaped or delimited a prompt field, no injection
+classifier existed, and `extra="forbid"` caught an unexpected top-level response field
+but nothing embedded inside an allowed field's own string value. See
+[ADR 0086](../../docs/adr/0086-prompt-injection-defence-three-layers-not-one.md) for
+the full research trail and every decision below.
+
+- **`_build_prompt` (`gateway.py`) delimits every field as
+  `<field name="...">...</field>`, escaped** (`_escape_field_value`) so a field's own
+  content can never syntactically close its tag and claim the instruction position.
+  The system prompt states plainly that tagged content is untrusted data, even when
+  it claims otherwise.
+- **`injection_defense.py` is a new, dedicated module — a real, disclosed heuristic
+  scan, not a trained ML classifier** (none exists in this codebase to build or
+  serve). Seven pattern categories (imperative override, role override, delimiter
+  breakout, "reveal your system prompt," and more) scan every string leaf of a
+  scanned field's own value; a match replaces the *whole field* with a fixed,
+  generic placeholder in `scan_payload_for_injection`'s own return value.
+- **`gateway._dispatch` scans `INJECTION_SCAN_FIELDS`** — the source-derived subset
+  of each task class's own `TASK_CLASS_FIELD_SCHEMAS`, run before pattern redaction
+  — and **skips the real provider call entirely on a hit**, more conservative than
+  sending a placeholder: no real API cost or latency spent on a response the ladder
+  is about to discard unread. The hit is logged unconditionally
+  (`gateway_request_log.injection_flagged_fields`, migration v0045, the identical
+  footing `redaction_count` already has, never gated by the S11.4.2 content-logging
+  grant) and carried on a synthetic `RawModelResponse`, so the caller —
+  `generation.py`'s ladder, `mender.py`'s repair loop — escalates to a human.
+- **Model-output validation reuses the existing rung-1 schema-check point.**
+  `generation.ModelResponseSchema`/`mender.RepairResponseSchema` gained pydantic
+  validators (`injection_defense.reject_if_injection`) rejecting injection-looking
+  content in any string field — a hit fails schema validation the identical way
+  `extra="forbid"` already does, no new failure category.
+- **`ExceptionCase.class`/`MenderPass.result` each gained one new, disclosed enum
+  value** — `INJECTION_SUSPECTED`/`INJECTION_DETECTED`, the fourth and second
+  disclosed non-§11.1 uses of these two taxonomies. `generate_c3_field` writes a
+  *new* case (none existed yet); `mend_exception` records the hit on its own
+  already-open case's `MenderPass` history without overwriting the case's own real,
+  earlier diagnosis. Confirmed non-breaking (adding an enum value is never a
+  breaking ontology change) — no migration entry or `SCHEMA_VERSION` bump needed.
+- **The 200-case red-team suite (`tests/test_injection_red_team.py`) is a real cross
+  product**: 15 distinct phrasings × every real typed-content field across both task
+  classes (5 Transpiler + 9 Mender) = 210 cases, each proving a scripted caller that
+  raises if ever called is never actually called. No live Anthropic API calls, no
+  workflow changes: the suite carries no integration marker, so it rides the
+  existing PR-blocking `ci.yml` step automatically.
+
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,

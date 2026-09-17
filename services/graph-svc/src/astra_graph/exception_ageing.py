@@ -68,14 +68,18 @@ import asyncpg
 from .estate import Band, _band_of  # cross-epic private reuse; see module docstring
 from .exception_desk import _age_seconds  # cross-epic private reuse; see module docstring
 from .graph.queries import NODE_INDEX_TABLE
+from .injection_defense import INJECTION_SUSPECTED_CLASS
 from .lineage import hydrate
 
 #: §16.6/§25's own literal R1 floor.
 MENDER_CLOSE_RATE_TARGET = 0.70
 
-#: A real `ExceptionCase` class, but not a real *failure* -- see this module's own
-#: docstring for why it is excluded from the close-rate ratio alone.
-_NOT_A_FAILURE_CLASS = "VISUAL_REDESIGN"
+#: Real `ExceptionCase` classes, but not real *failures* the Mender ever attempts to
+#: fix -- see this module's own docstring for why each is excluded from the
+#: close-rate ratio alone. `VISUAL_REDESIGN` (S6.2.1): a pre-proof structural flag.
+#: `INJECTION_SUSPECTED` (S11.4.3): a pre-dispatch security flag, the identical
+#: "never reaches the Mender's own repair loop at all" reasoning.
+_NOT_A_FAILURE_CLASSES = frozenset({"VISUAL_REDESIGN", INJECTION_SUSPECTED_CLASS})
 
 #: The queue's own live states (`exception_desk._QUEUE_STATES`, duplicated as a literal
 #: here rather than imported, since importing a private *and* re-exporting its exact
@@ -130,7 +134,7 @@ def aggregate_ageing(cases: dict[str, dict[str, Any]]) -> dict[str, Any]:
 
     eligible = [
         properties for properties in cases.values()
-        if properties.get("class") != _NOT_A_FAILURE_CLASS
+        if properties.get("class") not in _NOT_A_FAILURE_CLASSES
     ]
     total_failures = len(eligible)
     mender_closed = sum(
