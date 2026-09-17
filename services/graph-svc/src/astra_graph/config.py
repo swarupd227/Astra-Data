@@ -108,6 +108,19 @@ class Settings:
     established. Empty means no key is configured yet; GET /v1/deployment/bom reports
     signature_verified: null rather than pretending to have checked."""
 
+    temporal_address: str = "localhost:7233"
+    """The real Temporal frontend address (story S12.1.1, §5.4) -- `mu_worker.py`'s own
+    worker process, and any HTTP route that starts a workflow/sends a gate signal,
+    connect here. `localhost:7233` is the honest local-dev default: this docker-compose
+    stack's own `temporal` service (`temporalio/auto-setup`) publishes exactly that
+    port, the identical default the official image itself ships with."""
+
+    temporal_namespace: str = "default"
+    """Temporal's own real multi-tenancy unit. `default` is the one namespace a fresh
+    `temporalio/auto-setup` server creates automatically -- a real per-tenant namespace
+    is E12's own later, disclosed scope, the identical "one name is the honest floor"
+    posture `target_workspace` already has above."""
+
     evidence_export_private_key_pem: str = ""
     """Story S11.3.2's own deliberate departure from `bom_public_key_pem`'s own "the
     key never reaches this service" discipline: Evidence Export must be a real,
@@ -185,6 +198,8 @@ def load_settings() -> Settings:
         key_vault_url=_env("ASTRA_KEY_VAULT_URL", ""),
         bom_public_key_pem=_env("ASTRA_BOM_PUBLIC_KEY_PEM", ""),
         evidence_export_private_key_pem=_env("ASTRA_EVIDENCE_EXPORT_PRIVATE_KEY_PEM", ""),
+        temporal_address=_env("ASTRA_TEMPORAL_ADDRESS", "localhost:7233"),
+        temporal_namespace=_env("ASTRA_TEMPORAL_NAMESPACE", "default"),
     )
 
 

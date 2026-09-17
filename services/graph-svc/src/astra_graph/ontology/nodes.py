@@ -15,6 +15,7 @@ is governed by ``ontology.lock.json`` and the migration guard (S1.1.1 criterion 
 
 from __future__ import annotations
 
+from ..migration_units import MU_STATES as _MU_STATES
 from .properties import PropertyType as T
 from .types import NodeType, Side, SpecDeviation, _p
 
@@ -129,6 +130,14 @@ NODE_TYPES: tuple[NodeType, ...] = (
                note="Fraction of this workbook's source constructs the adapter grammar "
                     "could read, counting constructs an engineer has accepted as "
                     "ignorable (spec §4.1.4, story S1.2.2). Absent until harvested."),
+            _p("mu_state", T.ENUM, enum=_MU_STATES,
+               note="§3.2's own Migration Unit state, written by the real Temporal "
+                    "workflow that drives this workbook's own MU (story S12.1.1) -- "
+                    "'one Migration Unit per Workbook' (this node's own note, above) "
+                    "is what makes the Workbook the real place §3.2's own \"the "
+                    "console never derives state from anything but the graph\" lands. "
+                    "Absent until a workflow has run at least one real transition on "
+                    "this workbook -- honestly not yet known, not a false HARVESTED."),
         ),
     ),
     NodeType(
@@ -1007,6 +1016,22 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "makes it a release-readiness check for the Calibration Wave.",
         detail="Story S1.2.2 requires it on the Workbook node specifically, so the estate "
                "can be filtered by it without joining to harvest history.",
+    ),
+    SpecDeviation(
+        element="Workbook.mu_state",
+        reason="§4.1.1's own Workbook row does not list it -- the Migration Unit is "
+               "specification §3.1's own control-plane concept, not an estate-graph "
+               "fact §4.1 defines a property table for. But §3.2 itself requires \"the "
+               "console never derives state from anything but the graph\", and this "
+               "node's own note above (\"One Migration Unit per Workbook\") is what "
+               "makes Workbook the real place that requirement can land -- story "
+               "S12.1.1's own real Temporal workflow is the first thing that ever "
+               "writes it.",
+        detail="`migration_units.MU_STATES` already named the real §3.2 value set "
+               "(held there, not here, since 'the state machine belongs to the "
+               "control plane' per that module's own docstring); this property "
+               "reuses that exact enum rather than declaring a second one, so the "
+               "two can never drift apart.",
     ),
     SpecDeviation(
         element="ReleaseTrain.actual_start, ReleaseTrain.actual_end, Wave.actual_start, "

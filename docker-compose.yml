@@ -22,6 +22,76 @@ services:
       timeout: 3s
       retries: 20
 
+  # Story S12.1.1, spec §5.4/§14.1: the real Temporal server every MU workflow runs on.
+  # `auto-setup` is Temporal's own real image for exactly this -- on first start it
+  # creates the `temporal`/`temporal_visibility` databases on the shared `postgres`
+  # service and the schema in them itself, then creates the `default` namespace
+  # automatically (the same namespace `config.py`'s own `temporal_namespace` default
+  # names, and the Helm chart's own `deploy/helm/astra-data/values.yaml` already names
+  # for the real AKS deployment, pointed at the same shared Postgres server there too).
+  temporal:
+    image: temporalio/auto-setup:1.24.2
+    environment:
+      DB: postgresql
+      DB_PORT: 5432
+      POSTGRES_USER: ${ASTRA_POSTGRES_USER:-astra}
+      POSTGRES_PWD: ${ASTRA_POSTGRES_PASSWORD:-astra_local_dev_only}
+      POSTGRES_SEEDS: postgres
+    ports:
+      - "${ASTRA_TEMPORAL_PORT:-7233}:7233"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["service"]
+
+  # The real Temporal Web UI -- watch a real `MigrationUnitWorkflow` run, its own real
+  # activity history, and send a real gate-decision signal by hand, all without needing
+  # `tctl`/`temporal` CLI installed locally.
+  temporal-ui:
+    image: temporalio/ui:2.31.3
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:${ASTRA_TEMPORAL_UI_PORT:-8088}
+    ports:
+      - "${ASTRA_TEMPORAL_UI_PORT:-8088}:8080"
+    depends_on:
+      - temporal
+    profiles: ["service"]
+
+  # The real Temporal worker process (`mu_worker.py`) -- polls `TASK_QUEUE` and actually
+  # runs `MigrationUnitWorkflow` and its activities. `graph-svc` itself only starts a
+  # workflow/signals a gate/reads status (`routes_mu_workflow.py`); nothing executes a
+  # workflow's own real code without a worker like this one polling for it, the same
+  # "API pod vs. worker pod" split spec §5.4 already draws for every other agent role.
+  graph-svc-worker:
+    build:
+      context: .
+      dockerfile: ./services/graph-svc/Dockerfile
+    command: ["python", "-m", "astra_graph.mu_worker"]
+    environment:
+      ASTRA_POSTGRES_HOST: postgres
+      ASTRA_POSTGRES_PORT: 5432
+      ASTRA_POSTGRES_DB: ${ASTRA_POSTGRES_DB:-astra}
+      ASTRA_POSTGRES_USER: ${ASTRA_POSTGRES_USER:-astra}
+      ASTRA_POSTGRES_PASSWORD: ${ASTRA_POSTGRES_PASSWORD:-astra_local_dev_only}
+      ASTRA_GRAPH_NAME: ${ASTRA_GRAPH_NAME:-astra_estate}
+      ASTRA_ENV: local
+      # This worker never touches the Tableau fixture adapter (no harvest runs here),
+      # so unlike `graph-svc` it carries no `ASTRA_CREDENTIAL_TABLEAU_*` fixture
+      # values -- nothing here would use them.
+      ASTRA_TEMPORAL_ADDRESS: temporal:7233
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # `service_started`, not `service_healthy`: `auto-setup` has no built-in healthcheck
+      # this file adds one for, so a worker that starts before Temporal's own schema setup
+      # finishes just fails its first connection and needs a restart -- the identical
+      # "disclosed, not fatal" posture `main.py`'s own lifespan already gives `graph-svc`
+      # itself for this exact dependency (see its own comment there).
+      temporal:
+        condition: service_started
+    profiles: ["service"]
+
   graph-svc:
     build:
       # Repository root, so the image can build the sibling adapter SDK it depends on.
@@ -35,6 +105,9 @@ services:
       ASTRA_POSTGRES_PASSWORD: ${ASTRA_POSTGRES_PASSWORD:-astra_local_dev_only}
       ASTRA_GRAPH_NAME: ${ASTRA_GRAPH_NAME:-astra_estate}
       ASTRA_ENV: local
+      # Story S12.1.1: the real Temporal client `routes_mu_workflow.py` starts a
+      # workflow, signals a gate, or reads live status through (`main.py`'s own lifespan).
+      ASTRA_TEMPORAL_ADDRESS: temporal:7233
       # The fixture adapter's credentials. Not secrets: the fixture estate is generated,
       # accepts any token, and is only reachable because ASTRA_ENV is local. Present so
       # that `docker compose up` gives a stack a harvest can actually run on — without
@@ -69,6 +142,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      temporal:
+        condition: service_started
     profiles: ["service"]
 
   console-web:

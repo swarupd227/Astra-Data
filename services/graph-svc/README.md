@@ -4286,6 +4286,79 @@ the full research trail and every decision below.
   workflow changes: the suite carries no integration marker, so it rides the
   existing PR-blocking `ci.yml` step automatically.
 
+## MU workflows (story S12.1.1, opens F12.1/E12)
+
+Before this story, nothing in this service's own Python code talked to Temporal: the
+Helm chart already pinned a real server dependency and several module docstrings
+already disclosed durable orchestration as Temporal's own future territory, but no
+`temporalio` dependency, workflow, activity, or `docker-compose.yml` service existed.
+See [ADR 0087](../../docs/adr/0087-mu-workflows-a-real-temporal-skeleton-over-the-c3-slice.md)
+for the full research trail and every decision below.
+
+- **`mu_state_machine.py` is a new, pure, Temporal-free module** naming every real
+  §3.2 edge (`MU_TRANSITIONS: dict[str, frozenset[str]]`), plus `WITHDRAWN` (legal
+  from any non-terminal state via out-of-band change control). A module-level
+  assertion (`set(MU_TRANSITIONS) == set(migration_units.MU_STATES)`) keeps the table
+  honest against the real state vocabulary forever, not just at the moment this story
+  wrote it.
+- **`mu_workflow.py`'s `MigrationUnitWorkflow` drives one real MU (one Workbook)
+  through the C3-generation/proof/repair/acceptance slice of §3.2 — a disclosed R1
+  "workflow skeleton" scope boundary, not a gap.** It reuses already-real activities
+  (`generation.generate_c3_field`, `mender.mend_exception`) completely unmodified,
+  bound as instance methods on `MuActivities` — Temporal's own documented pattern for
+  sharing a pool/writer/gateway across every activity call, since workflow arguments
+  must be serializable and cannot carry a live connection pool directly.
+- **Timeouts yield INCONCLUSIVE, not FAIL, by catching a real Temporal timeout, never
+  fabricating one.** `_run_activity_or_inconclusive` runs an activity with real
+  retries and catches `ActivityError`; only when its cause is a genuine
+  `temporalio.exceptions.TimeoutError` does it return `None` (read by the caller as
+  INCONCLUSIVE, reusing the mature S7.3.2/ADR-0054 outcome) — any other error is
+  re-raised as a real failure.
+- **Compensation reuses `mend_exception`'s own existing `check_and_revert_
+  regressions` — no new compensation machinery was built.** That mechanism already
+  wrote a fresh `Measure` node carrying the prior DAX the moment a repair regressed a
+  previously-passing sibling case, before this story existed.
+- **Gate waits are a real Temporal signal (`submit_gate_decision`) and
+  `workflow.wait_condition`, not polling** — holding no worker/compute resources for
+  up to `DEFAULT_GATE_WAIT_TIMEOUT` (30 days); a real decision resumes it, a genuine
+  timeout leaves the MU at `ESCALATED` for a human to notice.
+- **Workflow versioning uses Temporal's own real `workflow.patched()`**, gating the
+  adjudication-outcome branch — demonstrated once with real, working code even though
+  nothing yet needs a second branch, so a future deploy can add one without breaking
+  any MU workflow already running past that point.
+- **`routes_mu_workflow.py`** gates starting a workflow and submitting a gate decision
+  to the platform engineer role (this story's own literal persona); reading a
+  workflow's live status (`GET /v1/mu/{workbook_id}/workflow`, backed by a real
+  `workflow.query`) is open to any Artizent role. `app.state.temporal_client`
+  connects at startup with a 5-second timeout and is `None`, disclosed and non-fatal,
+  if Temporal is unreachable — the identical posture this service already gives every
+  other optional real integration (Key Vault, Entra ID) it cannot assume is
+  configured.
+- **`Workbook.mu_state` is a new, optional ontology property** — a real, tracked,
+  non-breaking change (`SCHEMA_VERSION` 37→38; adding an optional property is
+  `add_property`/`breaking=False`, confirmed directly via `ontology/lock.py`'s own
+  `diff()`); no SQL migration file, since Apache AGE has no fixed per-label DB schema.
+- **`mu_worker.py`** is the real worker process — `python -m astra_graph.mu_worker`,
+  polling `TASK_QUEUE = "mu-workflow"` — constructed once with real collaborators
+  (pool, writer, gateway, target adapter, config/charter/calibration stores) bound as
+  `MuActivities` instance attributes. `docker-compose.yml` runs it as
+  `graph-svc-worker`, alongside new `temporal` (`temporalio/auto-setup`, sharing the
+  existing `postgres` service — it creates the `temporal`/`temporal_visibility`
+  databases and the `default` namespace itself on first start, the same namespace the
+  Helm chart's own `values.yaml` already names for the real AKS deployment) and
+  `temporal-ui` (port 8088) services.
+- **A real, disclosed scope gap, found by this story's own research, not fixed by
+  it**: `generate_c3_field`'s own `ExceptionCase` (a pre-proof generation failure)
+  carries no real `case_refs` and a synthetic `mu_ref` (`calc:{calc_id}`) — a real
+  mismatch with `mend_exception`'s own post-proof parity-failure `ExceptionCase`
+  shape it otherwise expects, predating this story. The real generate-then-mend chain
+  inside the workflow is therefore only exercised end to end, in
+  `test_integration_mu_workflow.py`, for the one real failure shape that never
+  reaches `run_mend` at all (a missing/non-C3 calc, straight to `ESCALATED`);
+  `run_mend`'s own real activity wrapper is proven separately, called directly
+  against a properly-seeded parity-failure case, the identical recipe
+  `test_integration_mender.py` already uses.
+
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,

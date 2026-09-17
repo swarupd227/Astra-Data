@@ -2498,6 +2498,29 @@
           "required": false,
           "server_managed": false,
           "type": "float"
+        },
+        {
+          "enum": [
+            "HARVESTED",
+            "CLUSTERED",
+            "BLOCKED",
+            "MODEL_READY",
+            "GENERATED",
+            "PROVING",
+            "FAILED",
+            "MENDING",
+            "ESCALATED",
+            "ADJUDICATED",
+            "PASSED",
+            "ACCEPTED",
+            "RELEASED",
+            "DECOMMISSIONED",
+            "WITHDRAWN"
+          ],
+          "name": "mu_state",
+          "required": false,
+          "server_managed": false,
+          "type": "enum"
         }
       ],
       "side": "source"
@@ -2585,5 +2608,5 @@
       "side": "source"
     }
   },
-  "schema_version": 37
+  "schema_version": 38
 }

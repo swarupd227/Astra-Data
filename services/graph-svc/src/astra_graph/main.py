@@ -53,6 +53,7 @@ from .api import (
     mender_router,
     modeller_router,
     mu_page_router,
+    mu_workflow_router,
     notifications_router,
     ownership_router,
     patterns_router,
@@ -546,6 +547,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         regression_scheduler_task = asyncio.create_task(app.state.regression_scheduler.run_forever())
 
+    # Story S12.1.1: a real Temporal client -- what `routes_mu_workflow.py` starts a
+    # workflow, sends a gate-decision signal, or reads live status through. Not fatal
+    # if unreachable: a fresh local stack may not have `docker compose`'s own
+    # `temporal` service up yet, the identical "disclosed absent, not a fake failing
+    # dependency" posture this codebase already gives every other optional real
+    # integration (Azure Key Vault, Entra ID) it cannot assume is configured.
+    app.state.temporal_client = None
+    try:
+        from temporalio.client import Client as TemporalClient
+
+        app.state.temporal_client = await asyncio.wait_for(
+            TemporalClient.connect(config.temporal_address, namespace=config.temporal_namespace),
+            timeout=5,
+        )
+        logger.info("connected to Temporal at %s", config.temporal_address)
+    except Exception as exc:
+        logger.warning("Temporal not available at %s (%s) -- workflow routes will refuse", config.temporal_address, exc)
+
     try:
         yield
     finally:
@@ -634,6 +653,7 @@ def create_app() -> FastAPI:
     app.include_router(calibration_wave_router)
     app.include_router(status_pack_router)
     app.include_router(mu_page_router)
+    app.include_router(mu_workflow_router)
     app.include_router(gate_inbox_router)
     app.include_router(decision_register_router)
     app.include_router(notifications_router)

@@ -66,6 +66,11 @@ dependencies = [
     # into the bill of materials (bom.py) -- the reference YAML parser, the same
     # "this story needs it, added here" precedent pyarrow/Pillow/reportlab already set.
     "PyYAML>=6,<7",
+    # The real orchestrator (story S12.1.1, §5.4, E12/F12.1) -- durable, resumable MU
+    # workflows. The Helm chart's own `temporal.enabled` dependency (deploy/helm/
+    # astra-data/Chart.yaml) already pins the *server*; this is the first story to add
+    # the client/worker SDK that actually talks to it.
+    "temporalio>=1.7,<2",
 ]
 
 [project.optional-dependencies]

@@ -117,6 +117,21 @@ class EventType(str, Enum):
     decommission just happened. The first notice (and the first event of any kind) whose
     `subject` is a Site rather than a Workbook."""
 
+    ACTIVITY_STARTED = "estate.mu.activity.started"
+    """S12.1.1: a real `MigrationUnitWorkflow` activity (an agent run, an adapter call,
+    a gate wait) began — the AC's own literal "every activity start... is an event on
+    the bus." Not a graph mutation on its own (starting work changes nothing yet); the
+    identical notice footing every event above already has."""
+
+    ACTIVITY_FINISHED = "estate.mu.activity.finished"
+    """S12.1.1: the same activity's own real outcome — the AC's own "...and finish is
+    an event on the bus." Raised whether the activity succeeded, failed, or timed out
+    into `INCONCLUSIVE`; whatever real graph mutation the activity itself performed
+    (a `Measure` write, an `ExceptionCase`, `Workbook.mu_state`) already raised its own
+    `NODE_UPSERTED` event through the normal write path — this notice is the one a
+    workflow-tracing consumer watches to know the activity itself is done, without
+    having to infer that from which node events happened to appear nearby."""
+
     @property
     def element_kind(self) -> str:
         return "edge" if self in (EventType.EDGE_UPSERTED, EventType.EDGE_RETIRED) else "node"
@@ -132,6 +147,7 @@ class EventType(str, Enum):
         return self not in (
             EventType.SOURCE_DRIFT, EventType.PATTERN_RETIRED, EventType.MU_ACCEPTED,
             EventType.MU_PROMOTED, EventType.ADOPTION_CAPTURED, EventType.SITE_DECOMMISSIONED,
+            EventType.ACTIVITY_STARTED, EventType.ACTIVITY_FINISHED,
         )
 
 
@@ -461,6 +477,54 @@ def site_decommissioned(
             "licence_release_value": licence_release_value,
             "gate_decision_id": gate_decision_id,
         },
+    )
+
+
+def activity_started(
+    *,
+    source: str,
+    workbook_id: str,
+    workflow_id: str,
+    activity: str,
+    mu_state: str,
+    principal: Principal,
+) -> PlatformEvent:
+    """A real `MigrationUnitWorkflow` activity began (S12.1.1). Not a graph mutation:
+    the same "carry the whole claim in one place" reasoning every prior notice already
+    gives — a workflow-tracing consumer watching for `mu.activity.started` should not
+    need to separately correlate a workflow id to the workbook it is driving."""
+    return PlatformEvent(
+        type=EventType.ACTIVITY_STARTED,
+        source=source,
+        subject=workbook_id,
+        label="Workbook",
+        principal=principal.value,
+        run_id=principal.run_id,
+        data={"workflow_id": workflow_id, "activity": activity, "mu_state": mu_state},
+    )
+
+
+def activity_finished(
+    *,
+    source: str,
+    workbook_id: str,
+    workflow_id: str,
+    activity: str,
+    mu_state: str,
+    outcome: str,
+    principal: Principal,
+) -> PlatformEvent:
+    """The same activity's own real outcome (S12.1.1) — `outcome` is one of
+    `OK`/`INCONCLUSIVE`/`FAILED`, the identical vocabulary `case_execution.py`'s own
+    real outcomes already use for "a timeout yields INCONCLUSIVE, not FAIL"."""
+    return PlatformEvent(
+        type=EventType.ACTIVITY_FINISHED,
+        source=source,
+        subject=workbook_id,
+        label="Workbook",
+        principal=principal.value,
+        run_id=principal.run_id,
+        data={"workflow_id": workflow_id, "activity": activity, "mu_state": mu_state, "outcome": outcome},
     )
 
 
