@@ -159,6 +159,16 @@ class EventType(str, Enum):
     """S12.1.2: a programme manager resumed a paused source site. Not a graph mutation;
     the real mutation is the Site.paused property write."""
 
+    BUDGET_WARNING = "estate.mu.budget.warning"
+    """S12.2.2: an MU consumed 80% of its daily token budget. Not a graph mutation; the
+    real mutation (if any) is later, when the MU reaches 100% and escalates. Wave Board
+    shows this as a visual warning before hard stop."""
+
+    BUDGET_EXHAUSTED = "estate.mu.budget.exhausted"
+    """S12.2.2: an MU exhausted its daily token budget (reached 100%). Not a graph
+    mutation on its own—the real mutation is the Workbook.mu_state write to ESCALATED
+    with reason BUDGET (story S3.2.3). The MU workflow escalates upon this event."""
+
     @property
     def element_kind(self) -> str:
         return "edge" if self in (EventType.EDGE_UPSERTED, EventType.EDGE_RETIRED) else "node"
@@ -177,6 +187,7 @@ class EventType(str, Enum):
             EventType.ACTIVITY_STARTED, EventType.ACTIVITY_FINISHED,
             EventType.MU_ADMISSION_DECISION, EventType.TRAIN_PAUSED, EventType.TRAIN_RESUMED,
             EventType.SITE_PAUSED, EventType.SITE_RESUMED,
+            EventType.BUDGET_WARNING, EventType.BUDGET_EXHAUSTED,
         )
 
 
@@ -665,6 +676,60 @@ def site_resumed(
         principal=principal.value,
         run_id=principal.run_id,
         data={"site_id": site_id, "reason": reason},
+    )
+
+
+def budget_warning(
+    *,
+    source: str,
+    workbook_id: str,
+    tokens_consumed: int,
+    tokens_limit: int,
+    percent_used: float,
+    principal: Principal,
+) -> PlatformEvent:
+    """An MU consumed 80% of its daily token budget (S12.2.2). Not a graph mutation;
+    the real mutation (if any) is later when the MU escalates at 100%."""
+    return PlatformEvent(
+        type=EventType.BUDGET_WARNING,
+        source=source,
+        subject=workbook_id,
+        label="Workbook",
+        principal=principal.value,
+        run_id=principal.run_id,
+        data={
+            "workbook_id": workbook_id,
+            "tokens_consumed": tokens_consumed,
+            "tokens_limit": tokens_limit,
+            "percent_used": percent_used,
+        },
+    )
+
+
+def budget_exhausted(
+    *,
+    source: str,
+    workbook_id: str,
+    tokens_consumed: int,
+    tokens_limit: int,
+    cost_usd: float,
+    principal: Principal,
+) -> PlatformEvent:
+    """An MU exhausted its daily token budget (S12.2.2). Not a graph mutation on its
+    own; the real mutation is the Workbook.mu_state write to ESCALATED (S3.2.3)."""
+    return PlatformEvent(
+        type=EventType.BUDGET_EXHAUSTED,
+        source=source,
+        subject=workbook_id,
+        label="Workbook",
+        principal=principal.value,
+        run_id=principal.run_id,
+        data={
+            "workbook_id": workbook_id,
+            "tokens_consumed": tokens_consumed,
+            "tokens_limit": tokens_limit,
+            "cost_usd": cost_usd,
+        },
     )
 
 
