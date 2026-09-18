@@ -37,6 +37,7 @@ from .routes_modeller import router as modeller_router
 from .routes_mu_page import router as mu_page_router
 from .routes_mu_workflow import router as mu_workflow_router
 from .routes_notifications import router as notifications_router
+from .routes_scheduler import router as scheduler_router
 from .routes_ownership import router as ownership_router
 from .routes_patterns import router as patterns_router
 from .routes_platform import router as platform_router
@@ -105,6 +106,7 @@ __all__ = [
     "release_router",
     "router",
     "rules_router",
+    "scheduler_router",
     "schedules_router",
     "status_pack_router",
     "tenant_access_router",

@@ -4359,6 +4359,41 @@ for the full research trail and every decision below.
   against a properly-seeded parity-failure case, the identical recipe
   `test_integration_mender.py` already uses.
 
+## Wave scheduler (story S12.1.2, continues E12)
+
+S12.1.1 delivered independent MU workflows; S12.1.2 adds throughput control: a wave
+scheduler that gates MU admissions to execution subject to constraints, provides
+program manager controls (pause/resume trains and sites), and shows scheduler decisions
+on the Wave Board.
+
+See [ADR 0088](../../docs/adr/0088-wave-scheduler-admission-control-for-mus-per-train.md)
+for the full design rationale and tradeoffs.
+
+- **`wave_scheduler.py` is a new application-tier decision-maker** (not Temporal). It
+  evaluates MU admission against seven constraints: family state (≥ BUILT), executor
+  concurrency per source site (default 5) and per Fabric workspace (default 10),
+  model-gateway budget, WIP per train, and train/site pause state. `evaluate_admission`
+  returns a `SchedulerDecision` naming any blocking constraint and a human-readable
+  reason (e.g., "Site concurrency at limit (5/5)").
+- **Program manager control routes** (`routes_scheduler.py`):
+  - `POST /v1/scheduler/trains/{train_id}:pause` + `:resume` — gate all MUs in a train
+  - `POST /v1/scheduler/sites/{site_id}:pause` + `:resume` — gate all MUs from a site
+  - `GET /v1/scheduler/decision/{workbook_id}/{train_id}` — query current admission
+    decision without mutating
+- **Decisions are visible as non-mutating events** — S12.1.1 established this pattern
+  with `ACTIVITY_STARTED`/`ACTIVITY_FINISHED`. S12.1.2 adds `MU_ADMISSION_DECISION`
+  (shows why an MU is waiting), `TRAIN_PAUSED`/`TRAIN_RESUMED`, `SITE_PAUSED`/
+  `SITE_RESUMED`. Wave Board watches these to show scheduler state.
+- **Enforcement (deferred)**: This story makes scheduler decisions visible and
+  queryable; *enforcing* them (actually holding MUs at GENERATED state when blocked) is
+  a follow-on choice between (a) MU workflow calling scheduler before GENERATED→PROVING,
+  or (b) background job running the scheduler and signaling workflows. Separation lets
+  enforcement strategy be validated independently.
+- **Concurrency tracking**: Active MU counts are queried live from the graph
+  (`mu_state IN (PROVING, MENDING, ESCALATED)`). No separate counter table needed.
+- **Budget constraint** is structurally ready (named in decision, returned in event) but
+  stubbed to always allow (awaiting model-gateway metrics integration).
+
 ## Query logging
 
 Every read writes one line to the `astra_graph.query` logger with the principal, roles,

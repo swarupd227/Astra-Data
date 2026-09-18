@@ -132,6 +132,33 @@ class EventType(str, Enum):
     workflow-tracing consumer watches to know the activity itself is done, without
     having to infer that from which node events happened to appear nearby."""
 
+    MU_ADMISSION_DECISION = "estate.mu.admission.decision"
+    """S12.1.2: the wave scheduler made an admission decision for an MU — whether it was
+    admitted to execution or blocked by which constraint. Not a graph mutation; the real
+    mutation (if admitted) is the `Workbook.mu_state` write to PROVING — a Wave Board
+    consumer watching for `mu.admission.decision` should not need to separately diff node
+    updates to know which constraint is holding an MU at GENERATED."""
+
+    TRAIN_PAUSED = "estate.train.paused"
+    """S12.1.2: a programme manager paused a release train, holding all its MUs at their
+    current state. Not a graph mutation; the real mutation is the ReleaseTrain.paused
+    property write — this notice exists so a Wave Board consumer does not need to poll
+    the train's properties to see its paused state."""
+
+    TRAIN_RESUMED = "estate.train.resumed"
+    """S12.1.2: a programme manager resumed a paused release train. Not a graph mutation;
+    the real mutation is the ReleaseTrain.paused property write."""
+
+    SITE_PAUSED = "estate.site.paused"
+    """S12.1.2: a programme manager paused a source site, holding all its MUs at their
+    current state. Not a graph mutation; the real mutation is the Site.paused property
+    write — this notice exists so a Wave Board consumer does not need to poll the site's
+    properties to see its paused state."""
+
+    SITE_RESUMED = "estate.site.resumed"
+    """S12.1.2: a programme manager resumed a paused source site. Not a graph mutation;
+    the real mutation is the Site.paused property write."""
+
     @property
     def element_kind(self) -> str:
         return "edge" if self in (EventType.EDGE_UPSERTED, EventType.EDGE_RETIRED) else "node"
@@ -148,6 +175,8 @@ class EventType(str, Enum):
             EventType.SOURCE_DRIFT, EventType.PATTERN_RETIRED, EventType.MU_ACCEPTED,
             EventType.MU_PROMOTED, EventType.ADOPTION_CAPTURED, EventType.SITE_DECOMMISSIONED,
             EventType.ACTIVITY_STARTED, EventType.ACTIVITY_FINISHED,
+            EventType.MU_ADMISSION_DECISION, EventType.TRAIN_PAUSED, EventType.TRAIN_RESUMED,
+            EventType.SITE_PAUSED, EventType.SITE_RESUMED,
         )
 
 
@@ -525,6 +554,117 @@ def activity_finished(
         principal=principal.value,
         run_id=principal.run_id,
         data={"workflow_id": workflow_id, "activity": activity, "mu_state": mu_state, "outcome": outcome},
+    )
+
+
+def mu_admission_decision(
+    *,
+    source: str,
+    workbook_id: str,
+    train_id: str,
+    admitted: bool,
+    blocking_constraint: str | None,
+    reason: str,
+    principal: Principal,
+) -> PlatformEvent:
+    """The wave scheduler made an admission decision for an MU (S12.1.2). Not a graph
+    mutation: the real mutation (if admitted) is the Workbook.mu_state write to PROVING.
+    A Wave Board consumer watching for `mu.admission.decision` should not need to
+    separately diff node updates to know which constraint is holding an MU at GENERATED."""
+    return PlatformEvent(
+        type=EventType.MU_ADMISSION_DECISION,
+        source=source,
+        subject=workbook_id,
+        label="Workbook",
+        principal=principal.value,
+        run_id=principal.run_id,
+        data={
+            "workbook_id": workbook_id,
+            "train_id": train_id,
+            "admitted": admitted,
+            "blocking_constraint": blocking_constraint,
+            "reason": reason,
+        },
+    )
+
+
+def train_paused(
+    *,
+    source: str,
+    train_id: str,
+    reason: str,
+    principal: Principal,
+) -> PlatformEvent:
+    """A programme manager paused a release train (S12.1.2). Not a graph mutation; the
+    real mutation is the ReleaseTrain.paused property write."""
+    return PlatformEvent(
+        type=EventType.TRAIN_PAUSED,
+        source=source,
+        subject=train_id,
+        label="ReleaseTrain",
+        principal=principal.value,
+        run_id=principal.run_id,
+        data={"train_id": train_id, "reason": reason},
+    )
+
+
+def train_resumed(
+    *,
+    source: str,
+    train_id: str,
+    reason: str,
+    principal: Principal,
+) -> PlatformEvent:
+    """A programme manager resumed a paused release train (S12.1.2). Not a graph
+    mutation; the real mutation is the ReleaseTrain.paused property write."""
+    return PlatformEvent(
+        type=EventType.TRAIN_RESUMED,
+        source=source,
+        subject=train_id,
+        label="ReleaseTrain",
+        principal=principal.value,
+        run_id=principal.run_id,
+        data={"train_id": train_id, "reason": reason},
+    )
+
+
+def site_paused(
+    *,
+    source: str,
+    site_id: str,
+    reason: str,
+    principal: Principal,
+) -> PlatformEvent:
+    """A programme manager paused a source site (S12.1.2). Not a graph mutation; the
+    real mutation is the Site.paused property write."""
+    return PlatformEvent(
+        type=EventType.SITE_PAUSED,
+        source=source,
+        subject=site_id,
+        label="Site",
+        principal=principal.value,
+        run_id=principal.run_id,
+        data={"site_id": site_id, "reason": reason},
+    )
+
+
+def site_resumed(
+    *,
+    source: str,
+    site_id: str,
+    reason: str,
+    principal: Principal,
+) -> PlatformEvent:
+    """A programme manager resumed a paused source site (S12.1.2). Not a graph mutation;
+    the real mutation is the Site.paused property write."""
+    return PlatformEvent(
+        type=EventType.SITE_RESUMED,
+        source=source,
+        subject=site_id,
+        label="Site",
+        principal=principal.value,
+        run_id=principal.run_id,
+        data={"site_id": site_id, "reason": reason},
     )
 
 
