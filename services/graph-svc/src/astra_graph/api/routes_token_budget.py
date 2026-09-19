@@ -35,12 +35,13 @@ class BudgetStatusResponse(BaseModel):
     percent_used: float
     is_exhausted: bool
     is_warning: bool
+    unpriced_tokens: int
 
 
 @router.post(
     "/v1/token-budget/{workbook_id}:set",
     tags=["token-budget"],
-    summary="Set or update daily token budget for an MU",
+    summary="Set or update the token budget for an MU",
 )
 async def post_set_budget(
     workbook_id: str,
@@ -79,4 +80,5 @@ async def get_budget_status(
         "percent_used": status.percent_used,
         "is_exhausted": status.is_exhausted,
         "is_warning": status.is_warning,
+        "unpriced_tokens": status.unpriced_tokens,
     }

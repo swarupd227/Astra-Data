@@ -35,7 +35,7 @@ broke it, caught by `mypy`).
 |---|---|
 | Anthropic + Azure OpenAI behind one interface | Anthropic only (by scope); interface pre-existing |
 | Routing table with fallbacks; provider must pass eval | Pre-existing (S5.3.2); unchanged |
-| Records task class, provider, **model**, prompt hash, context hash, **tokens in/out**, latency, **cost** | **Partial.** Now recorded: task class, provider, both hashes, latency. **Still not persisted: model, tokens in/out, cost.** Tokens are on `RawModelResponse` in memory only; cost is not computed anywhere. |
+| Records task class, provider, model, prompt hash, context hash, tokens in/out, latency, cost | **Mostly met.** Recorded per call: task class, provider, model, both hashes, tokens in/out, latency, and (v0048, S12.2.2) the MU it was for. **Cost is not stored per call**; it is derived exactly at read time from the stored model and token counts (`token_budget.cost_usd_for`), and only for models with a price entry. A call that raised records NULL tokens. |
 | Returns a gateway request id used in provenance | Pre-existing |
 | Prompt templates versioned in Git; version is part of the prompt hash | **Not met.** `PROMPT_TEMPLATE_VERSION` is the literal `"dev"`, not derived from Git, and it is recorded *beside* the hash rather than folded into it. |
 
@@ -47,5 +47,5 @@ v0046 keep the old meaning in `prompt_hash` and have a null `context_hash`.
 
 ## Follow-ons
 
-Persist `model`, `tokens_in`, `tokens_out`; compute `cost` from a pricing table; derive
-the template version from the Git SHA at build time and include it in the hash.
+Store cost per call if a persisted figure is wanted; derive the template version from the
+Git SHA at build time and include it in the hash.

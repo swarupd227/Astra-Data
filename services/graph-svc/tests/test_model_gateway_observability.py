@@ -5,13 +5,18 @@ from __future__ import annotations
 import pytest
 
 from astra_graph.gateway import (
+    MENDER_REPAIR,
     PROMPT_TEMPLATE_VERSION,
     TRANSPILE_C3,
+    GatewayRoutingError,
     InMemoryGatewayRequestLogStore,
     RawModelResponse,
+    StaticGateway,
     _compute_context_hash,
     _dispatch,
 )
+from astra_graph.generation import _run_ladder
+from astra_graph.mender import call_model_repair
 
 
 class TestContextHash:
@@ -134,3 +139,70 @@ async def test_a_successful_call_logs_the_providers_own_observability_fields() -
     assert row["context_hash"] == "sha256:ctx"
     assert row["latency_ms"] == 12.5
     assert row["prompt_template_version"] == "v-test"
+
+
+# ------------------------------------------------ S12.2.2: MU attribution and token counts
+
+
+async def _generate(caller, log, **kwargs):
+    return await StaticGateway(caller, log_store=log).generate(
+        task_class=TRANSPILE_C3, request=_Request(), previous_error=None, **kwargs
+    )
+
+
+async def test_a_call_is_logged_against_the_mu_it_was_made_for() -> None:
+    log = InMemoryGatewayRequestLogStore()
+
+    await _generate(_OkCaller(), log, workbook_id="wb-1")
+
+    [row] = log.requests
+    assert row["workbook_id"] == "wb-1"
+    assert row["model"] == "stub-model"
+    assert (row["tokens_in"], row["tokens_out"]) == (1, 1)
+
+
+async def test_a_call_with_no_mu_in_scope_is_logged_unattributed() -> None:
+    log = InMemoryGatewayRequestLogStore()
+
+    await _generate(_OkCaller(), log)
+
+    assert log.requests[0]["workbook_id"] is None
+
+
+async def test_a_call_that_raised_records_null_tokens_not_zero() -> None:
+    """'Unknown' must never be summed as 'free': a failed call reports no usage."""
+    log = InMemoryGatewayRequestLogStore()
+
+    with pytest.raises(RuntimeError):
+        await _generate(_RaisingCaller(), log, workbook_id="wb-1")
+
+    [row] = log.requests
+    assert row["workbook_id"] == "wb-1"
+    assert row["tokens_in"] is None and row["tokens_out"] is None
+    assert row["model"] == "stub-model"
+
+
+class _RecordingGateway:
+    def __init__(self) -> None:
+        self.seen: list[dict] = []
+
+    async def generate(self, *, task_class, request, previous_error, principal=None,
+                       workbook_id=None):
+        self.seen.append({"task_class": task_class, "workbook_id": workbook_id})
+        raise GatewayRoutingError(task_class, considered=())
+
+
+async def test_the_transpiler_ladder_passes_the_mu_to_the_gateway() -> None:
+    from .test_generation import _REQUEST
+
+    gateway = _RecordingGateway()
+    await _run_ladder(_REQUEST, gateway=gateway, workbook_id="wb-7")
+    assert gateway.seen and all(c["workbook_id"] == "wb-7" for c in gateway.seen)
+
+
+async def test_the_mender_passes_the_mu_to_the_gateway() -> None:
+    from .test_mender import _CONTEXT
+
+    gateway = _RecordingGateway()
+    await call_model_repair(gateway, _CONTEXT, workbook_id="wb-9")
+    assert gateway.seen == [{"task_class": MENDER_REPAIR, "workbook_id": "wb-9"}]

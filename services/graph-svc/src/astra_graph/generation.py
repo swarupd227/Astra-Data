@@ -629,6 +629,7 @@ async def _run_ladder(
     gateway: Gateway,
     task_class: str = TRANSPILE_C3,
     principal: Principal | None = None,
+    workbook_id: str | None = None,
 ) -> tuple[tuple[LadderAttempt, ...], LadderAttempt | None]:
     """Runs the request through the ladder, up to `MAX_ATTEMPTS` times, calling
     `gateway.generate(task_class=..., ...)` -- never a provider by name (S5.3.2's own AC).
@@ -643,6 +644,7 @@ async def _run_ladder(
             response = await gateway.generate(
                 task_class=task_class, request=request, previous_error=previous_error,
                 principal=principal.value if principal is not None else None,
+                workbook_id=workbook_id,
             )
         except GatewayRoutingError as exc:
             attempts.append(
@@ -838,6 +840,7 @@ async def generate_c3_field(
     gateway: Gateway,
     calibration: CalibrationStore | None = None,
     principal: Principal,
+    workbook_id: str | None = None,
 ) -> GenerationOutcome:
     """Runs one C3 `CalculatedField` through §9.4/§16.1: build the request, run the ladder
     (up to `MAX_ATTEMPTS`), and on success write a real `Measure`/`MAPS_TO`/
@@ -905,7 +908,8 @@ async def generate_c3_field(
         else TRANSPILE_C3
     )
     attempts, success = await _run_ladder(
-        request, gateway=gateway, task_class=task_class, principal=principal
+        request, gateway=gateway, task_class=task_class, principal=principal,
+        workbook_id=workbook_id,
     )
 
     # A real observation for every attempt that got far enough to declare a confidence --

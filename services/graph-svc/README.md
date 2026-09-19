@@ -4393,19 +4393,31 @@ for the full research trail and every decision below.
 story (routing, eval-gated providers, one provider interface) pre-existed from S5.3.2.
 Added: `context_hash`, `latency_ms`, `prompt_template_version` on `gateway_request_log`
 (migration v0046) and on `RawModelResponse`; `prompt_hash` now hashes the static system
-prompt while the payload's hash is `context_hash`. **Still not recorded:** `model`,
-`tokens_in`/`tokens_out`, `cost`. **Not met:** the template version is the literal
-`"dev"`, not a Git SHA, and is not folded into the hash. Azure OpenAI is not built.
+prompt while the payload's hash is `context_hash`. Since v0048 (S12.2.2) each call also
+records its `model`, `tokens_in`/`tokens_out` and the MU it was for; cost is derived at
+read time, not stored. **Not met:** the template version is the literal `"dev"`, not a Git
+SHA, and is not folded into the hash. Azure OpenAI is not built.
 
 ## Token budgets (story S12.2.2)
 
-**Configuration only — most acceptance criteria are not met.** See
-[ADR 0090](../../docs/adr/0090-token-budgets-configuration-only-s12-2-2.md). A per-MU
-limit can be stored and read (`public.token_budget`, `POST`/`GET /v1/token-budget/
-{workbook_id}:set|:status`), but consumption is always reported as 0: the request log has
-no MU attribution and never stored token counts. There is no 80% alert, no 100% hard stop /
-`ESCALATED` with reason `BUDGET`, no programme or train level, no TokenOps screen, no
-cost-per-accepted-report and no Status Pack summary.
+**Partially delivered: a per-MU limit and real per-MU consumption; nothing acts on it yet.**
+See [ADR 0090](../../docs/adr/0090-token-budgets-per-mu-limit-and-real-consumption-s12-2-2.md).
+
+- **Attribution.** `gateway_request_log` (v0048) records `workbook_id`, `model`,
+  `tokens_in`, `tokens_out`. `workbook_id` is an optional keyword on
+  `Gateway.generate`, passed by the Transpiler (`MuActivities.run_generate` →
+  `generate_c3_field` → `_run_ladder`) and the Mender (`call_model_repair`). NULL means
+  unknown: a call that raised, a pre-v0048 row, or a call with no MU in scope is never
+  summed.
+- **Budget and status.** `public.token_budget` holds one limit per MU (default
+  1,000,000). `GET /v1/token-budget/{workbook_id}:status` returns it against the MU's
+  cumulative consumption, with exact cost from `MODEL_PRICING` and `unpriced_tokens` for
+  any model without a price; `POST …:set` (platform engineer) sets the limit.
+- **Not done:** the 80% alert and 100% hard stop (`ESCALATED`/`BUDGET`) — nothing
+  consults the budget and the two budget events are never emitted; programme and train
+  levels; the TokenOps screen; cost per accepted report; the Status Pack summary.
+- **Known gap:** Mender spend for a pre-proof generation failure is attributed to the
+  synthetic `calc:{id}` `mu_ref` (S12.1.1's disclosed gap), not the workbook.
 
 ## Query logging
 

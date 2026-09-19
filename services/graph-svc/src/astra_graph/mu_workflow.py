@@ -254,7 +254,7 @@ class MuActivities:
         outcome = await generate_c3_field(
             self._pool, self._graph_name, self._writer, self._provenance_store, input.calc_id,
             gateway=self._gateway, calibration=self._calibration_store,
-            principal=Principal(input.principal),
+            principal=Principal(input.principal), workbook_id=input.workbook_id,
         )
         await self._emit_finished(
             workbook_id=input.workbook_id, workflow_id=input.workflow_id,

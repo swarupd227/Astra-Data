@@ -219,6 +219,7 @@ class _PoisonGateway:
     async def generate(
         self, *, task_class: str, request: Any, previous_error: str | None,
         principal: str | None = None,
+        workbook_id: str | None = None,
     ) -> RawModelResponse:
         raise AssertionError("the model must never be called when an ACTIVE pattern already covers this shape")
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from astra_graph.token_budget import MODEL_PRICING, TokenBudgetStatus
+from astra_graph.token_budget import MODEL_PRICING, TokenBudgetStatus, cost_usd_for
 
 
 class TestModelPricing:
@@ -62,3 +62,13 @@ class TestTokenBudgetStatus:
         )
         assert status.is_exhausted
         assert not status.is_warning  # Once exhausted, not warning anymore
+
+
+class TestCostUsdFor:
+    def test_a_priced_model_is_costed_from_its_own_input_and_output_rates(self):
+        # Sonnet 5: $3 / 1M in, $15 / 1M out.
+        assert cost_usd_for("claude-sonnet-5", 1_000_000, 1_000_000) == 18.0
+        assert cost_usd_for("claude-sonnet-5", 500_000, 0) == 1.5
+
+    def test_an_unpriced_model_has_no_cost_rather_than_a_guess(self):
+        assert cost_usd_for("some-future-model", 1_000, 1_000) is None

@@ -228,6 +228,7 @@ class _RoutingErrorGateway:
     async def generate(
         self, *, task_class: Any, request: SupportsAsDict, previous_error: str | None,
         principal: str | None = None,
+        workbook_id: str | None = None,
     ) -> RawModelResponse:
         raise GatewayRoutingError(task_class, considered=())
 

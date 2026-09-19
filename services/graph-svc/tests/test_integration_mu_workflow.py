@@ -37,10 +37,9 @@ pytestmark = pytest.mark.integration
 asyncpg = pytest.importorskip("asyncpg")
 pytest.importorskip("temporalio")
 
+from astra_adapter.target_fake import FixtureTargetAdapter  # noqa: E402
 from temporalio.testing import WorkflowEnvironment  # noqa: E402
 from temporalio.worker import Worker  # noqa: E402
-
-from astra_adapter.target_fake import FixtureTargetAdapter  # noqa: E402
 
 from astra_graph.artefacts import PostgresArtefactStore  # noqa: E402
 from astra_graph.case_execution import (  # noqa: E402
@@ -48,10 +47,19 @@ from astra_graph.case_execution import (  # noqa: E402
     _table_map_for_sheet,
     result_set_to_parquet,
 )
-from astra_graph.case_execution_query import build_dax_query, to_sdk_filters, to_sdk_parameters  # noqa: E402
+from astra_graph.case_execution_query import (  # noqa: E402
+    build_dax_query,
+    to_sdk_filters,
+    to_sdk_parameters,
+)
 from astra_graph.config import Settings  # noqa: E402
 from astra_graph.events import EventType, source_for  # noqa: E402
-from astra_graph.gateway import RawModelResponse, StaticGateway, null_gateway  # noqa: E402
+from astra_graph.gateway import (  # noqa: E402
+    PostgresGatewayRequestLogStore,
+    RawModelResponse,
+    StaticGateway,
+    null_gateway,
+)
 from astra_graph.generation import FixtureModelCaller  # noqa: E402
 from astra_graph.graph import AgeGraphRepository, create_pool  # noqa: E402
 from astra_graph.graph.queries import accessor  # noqa: E402
@@ -68,6 +76,7 @@ from astra_graph.mu_workflow import (  # noqa: E402
 from astra_graph.ontology import EDGE_LABELS, NODE_LABELS  # noqa: E402
 from astra_graph.principal import Principal  # noqa: E402
 from astra_graph.provenance import PostgresProvenanceStore  # noqa: E402
+from astra_graph.token_budget import TokenBudgetStore  # noqa: E402
 from astra_graph.tolerance_charter import PostgresToleranceCharterStore  # noqa: E402
 from astra_graph.writes import EdgeWrite, GraphWriter, NodeWrite  # noqa: E402
 
@@ -304,6 +313,36 @@ async def test_a_successful_generation_drives_the_real_workflow_to_passed(estate
     finished = await _events(estate["pool"], estate["graph_name"], type_=EventType.ACTIVITY_FINISHED, subject=estate["workbook"])
     assert any(e["activity"] == "run_generate" for e in started)
     assert any(e["activity"] == "run_generate" and e["outcome"] == "OK" for e in finished)
+
+
+async def test_the_workflows_model_spend_is_attributed_to_its_own_mu(estate: dict[str, Any]) -> None:
+    """S12.2.2: the workbook id the workflow started with must survive the whole real path
+    -- activity, Transpiler ladder, gateway -- into the request-log row, so the MU's
+    consumption can be read back. `_ScriptedCaller` reports 42 tokens in / 17 out."""
+    pool, graph = estate["pool"], estate["graph_name"]
+    gateway = StaticGateway(
+        _ScriptedCaller(dax="Running Total = CALCULATE(SUM([Notional]))"),
+        log_store=PostgresGatewayRequestLogStore(pool, graph_name=graph),
+    )
+    activities = _activities(estate, gateway=gateway)
+    workflow_input = MigrationUnitWorkflowInput(
+        workbook_id=estate["workbook"], calc_ids=(estate["c3_calc"],), principal=PLATFORM_ENGINEER,
+    )
+
+    async with (
+        await WorkflowEnvironment.start_time_skipping() as env,
+        Worker(
+            env.client, task_queue=TASK_QUEUE, workflows=[MigrationUnitWorkflow],
+            activities=[activities.write_mu_state, activities.run_generate, activities.run_mend],
+        ),
+    ):
+        await env.client.execute_workflow(
+            MigrationUnitWorkflow.run, workflow_input,
+            id=f"mu-{estate['workbook']}", task_queue=TASK_QUEUE,
+        )
+
+    status = await TokenBudgetStore(pool, graph_name=graph).get_status(estate["workbook"])
+    assert status.tokens_consumed == 42 + 17
 
 
 async def test_a_missing_calc_escalates_the_real_workflow_directly(estate: dict[str, Any]) -> None:

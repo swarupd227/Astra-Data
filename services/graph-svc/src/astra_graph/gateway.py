@@ -256,6 +256,7 @@ class Gateway(Protocol):
         request: SupportsAsDict,
         previous_error: str | None,
         principal: str | None = None,
+        workbook_id: str | None = None,
     ) -> RawModelResponse: ...
 
 
@@ -478,6 +479,8 @@ class GatewayRequestLogStore(Protocol):
         prompt_hash: str, context_hash: str, request_text: str | None,
         response_hash: str | None, response_text: str | None, redaction_count: int,
         latency_ms: float, prompt_template_version: str,
+        model: str | None = None, tokens_in: int | None = None, tokens_out: int | None = None,
+        workbook_id: str | None = None,
         injection_flagged_fields: list[str] | None = None,
     ) -> None: ...
 
@@ -518,6 +521,8 @@ class PostgresGatewayRequestLogStore:
         prompt_hash: str, context_hash: str, request_text: str | None,
         response_hash: str | None, response_text: str | None, redaction_count: int,
         latency_ms: float, prompt_template_version: str,
+        model: str | None = None, tokens_in: int | None = None, tokens_out: int | None = None,
+        workbook_id: str | None = None,
         injection_flagged_fields: list[str] | None = None,
     ) -> None:
         async with self._pool.acquire() as conn:
@@ -526,12 +531,15 @@ class PostgresGatewayRequestLogStore:
                 f"""INSERT INTO {GATEWAY_REQUEST_LOG_TABLE}
                     (id, graph, provider, task_class, agent_id, prompt_hash, context_hash,
                      request_text, response_hash, response_text, redaction_count,
-                     latency_ms, prompt_template_version, injection_flagged_fields)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)""",
+                     latency_ms, prompt_template_version, model, tokens_in, tokens_out,
+                     workbook_id, injection_flagged_fields)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                            $14, $15, $16, $17, $18::jsonb)""",
                 f"gwreq_{new_ulid()}", self._graph, provider, task_class, agent_id,
                 prompt_hash, context_hash, request_text if content_logging else None,
                 response_hash, response_text if content_logging else None,
                 redaction_count, latency_ms, prompt_template_version,
+                model, tokens_in, tokens_out, workbook_id,
                 json.dumps(injection_flagged_fields or []),
             )
 
@@ -567,6 +575,8 @@ class InMemoryGatewayRequestLogStore:
         prompt_hash: str, context_hash: str, request_text: str | None,
         response_hash: str | None, response_text: str | None, redaction_count: int,
         latency_ms: float, prompt_template_version: str,
+        model: str | None = None, tokens_in: int | None = None, tokens_out: int | None = None,
+        workbook_id: str | None = None,
         injection_flagged_fields: list[str] | None = None,
     ) -> None:
         self.requests.append({
@@ -575,6 +585,8 @@ class InMemoryGatewayRequestLogStore:
             "request_text": request_text, "response_hash": response_hash,
             "response_text": response_text, "redaction_count": redaction_count,
             "latency_ms": latency_ms, "prompt_template_version": prompt_template_version,
+            "model": model, "tokens_in": tokens_in, "tokens_out": tokens_out,
+            "workbook_id": workbook_id,
             "injection_flagged_fields": injection_flagged_fields or [],
         })
 
@@ -588,7 +600,7 @@ class InMemoryGatewayRequestLogStore:
 async def _dispatch(
     caller: ModelCaller, log_store: GatewayRequestLogStore | None, *,
     provider: str, task_class: TaskClass, principal: str | None,
-    request: SupportsAsDict, previous_error: str | None,
+    request: SupportsAsDict, previous_error: str | None, workbook_id: str | None = None,
 ) -> RawModelResponse:
     """Shared by `ModelGateway.generate`/`StaticGateway.generate`: validate the
     request's own shape, scan its typed-content fields for a prompt-injection attempt
@@ -663,6 +675,12 @@ async def _dispatch(
                     response.prompt_template_version if response is not None
                     else PROMPT_TEMPLATE_VERSION
                 ),
+                # Story S12.2.2: which MU spent this, and how much. A call that raised has
+                # no usage to report -- NULL, not 0, so "unknown" is never summed as "free".
+                model=(response.model if response is not None and response.model else caller.model),
+                tokens_in=response.tokens_in if response is not None else None,
+                tokens_out=response.tokens_out if response is not None else None,
+                workbook_id=workbook_id,
                 injection_flagged_fields=sorted(injection_hits) or None,
             )
 
@@ -856,6 +874,7 @@ class ModelGateway:
         request: SupportsAsDict,
         previous_error: str | None,
         principal: str | None = None,
+        workbook_id: str | None = None,
     ) -> RawModelResponse:
         # Story S11.1.2: additive -- `principal` is optional and every existing caller
         # (there were none before this story; both real call sites now pass one, see
@@ -870,6 +889,7 @@ class ModelGateway:
         return await _dispatch(
             caller, self._log_store, provider=caller.provider, task_class=task_class,
             principal=principal, request=request, previous_error=previous_error,
+            workbook_id=workbook_id,
         )
 
 
@@ -890,12 +910,14 @@ class StaticGateway:
         request: SupportsAsDict,
         previous_error: str | None,
         principal: str | None = None,
+        workbook_id: str | None = None,
     ) -> RawModelResponse:
         if principal is not None:
             authorize_gateway_call(principal, task_class)
         return await _dispatch(
             self._caller, self._log_store, provider=self._caller.provider, task_class=task_class,
             principal=principal, request=request, previous_error=previous_error,
+            workbook_id=workbook_id,
         )
 
 
@@ -1135,6 +1157,7 @@ class _NoGateway:
         request: SupportsAsDict,
         previous_error: str | None,
         principal: str | None = None,
+        workbook_id: str | None = None,
     ) -> RawModelResponse:
         raise GatewayRoutingError(task_class, considered=())
 
