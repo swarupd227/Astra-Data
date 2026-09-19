@@ -140,7 +140,7 @@ class _FixedResponseCaller:
     async def generate(self, request: object, *, previous_error: str | None) -> RawModelResponse:
         return RawModelResponse(
             raw={"dax": "SUM(1)"}, gateway_request_id="req-1", provider="test", model="test-model",
-            prompt_hash="hash", temperature=0.0, tokens_in=1, tokens_out=1,
+            prompt_hash="hash", context_hash="hash", temperature=0.0, tokens_in=1, tokens_out=1, latency_ms=0.0, prompt_template_version="test",
         )
 
 

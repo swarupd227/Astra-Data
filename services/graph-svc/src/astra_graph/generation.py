@@ -74,6 +74,7 @@ from .context.contract import ContractName
 from .context.signature import ast_shape
 from .context.signature import matches as signature_matches
 from .gateway import (
+    PROMPT_TEMPLATE_VERSION,
     TRANSPILE_C3,
     TRANSPILE_C3_SMALL_MODEL,
     EvalCase,
@@ -401,15 +402,19 @@ class FixtureModelCaller:
             "confidence": 0.0,
             "notes": "fixture caller -- no real model was called",
         }
+        payload = request.as_dict()
         return RawModelResponse(
             raw=raw,
             gateway_request_id=f"fixture_{new_ulid()}",
             provider=self.provider,
             model=self.model,
-            prompt_hash=context_hash(json.dumps(request.as_dict(), sort_keys=True).encode("utf-8")),
+            prompt_hash=context_hash(json.dumps(payload, sort_keys=True).encode("utf-8")),
+            context_hash=context_hash(json.dumps(payload, sort_keys=True).encode("utf-8")),
             temperature=0.0,
             tokens_in=0,
             tokens_out=0,
+            latency_ms=0.0,
+            prompt_template_version=PROMPT_TEMPLATE_VERSION,
         )
 
 

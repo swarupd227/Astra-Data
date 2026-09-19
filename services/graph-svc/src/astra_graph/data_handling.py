@@ -86,6 +86,7 @@ from .artefacts import ArtefactStore
 from .config import Settings
 from .gateway import (
     MENDER_REPAIR,
+    PROMPT_TEMPLATE_VERSION,
     EvalReport,
     ModelGateway,
     PostgresContentLoggingGrantStore,
@@ -386,7 +387,8 @@ class _BoundaryTestCaller:
     async def generate(self, request: SupportsAsDict, *, previous_error: str | None) -> RawModelResponse:
         return RawModelResponse(
             raw={}, gateway_request_id="boundary_test", provider=self.provider, model=self.model,
-            prompt_hash="", temperature=0.0, tokens_in=0, tokens_out=0,
+            prompt_hash="", context_hash="", temperature=0.0, tokens_in=0, tokens_out=0,
+            latency_ms=0.0, prompt_template_version=PROMPT_TEMPLATE_VERSION,
         )
 
 

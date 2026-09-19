@@ -192,9 +192,12 @@ class _ScriptedCaller:
             provider=self.provider,
             model=self.model,
             prompt_hash="prompt_hash_test",
+            context_hash="prompt_hash_test",
             temperature=0.0,
             tokens_in=42,
             tokens_out=17,
+            latency_ms=0.0,
+            prompt_template_version="test",
         )
 
 

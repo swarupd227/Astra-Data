@@ -1,18 +1,26 @@
 """Token and cost budgets per MU with consumption tracking and alerts (S12.2.2).
 
-Budgets are configured per MU, consumption tracked daily from gateway_request_log.
-Soft alert at 80%, hard stop at 100% (MU escalates with BUDGET reason).
+Budgets are configured per MU; the daily-limit mechanism and cost math are real.
+Consumption tracking (the part that reads what an MU actually spent) is a disclosed
+R1 gap, not a silent one: ``gateway_request_log`` (S5.3.2/S11.4.x/S12.2.1) has no
+column attributing a call to the *MU* it was made for -- ``agent_id`` names the
+calling agent role (``"transpiler"``, ``"mender"``), not a workbook id -- and never
+persisted ``tokens_in``/``tokens_out`` at all, only ``RawModelResponse`` carried
+them in memory. Attributing real spend to a real MU needs, as a real follow-on:
+(1) a migration adding ``workbook_id``, ``tokens_in``, ``tokens_out`` to
+``gateway_request_log``; (2) threading ``workbook_id`` through
+``ModelGateway.generate`` and every caller (``generation.py``, ``mender.py``) so it
+is actually recorded. Until then, ``get_status`` honestly reports zero consumption
+rather than querying columns that do not exist.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
 
 import asyncpg
 
 from .ids import new_ulid
-
 
 # Model pricing: $ per 1M tokens (Anthropic public pricing, R1 reference)
 MODEL_PRICING = {
@@ -56,43 +64,35 @@ class TokenBudgetStore:
     async def get_status(
         self, mu_ref: str, model: str = "claude-sonnet-5"
     ) -> TokenBudgetStatus:
-        """Get current budget status for an MU (daily consumption from gateway_request_log)."""
-        async with self._pool.acquire() as conn:
-            # Get configured budget
-            row = await conn.fetchrow(
-                "SELECT tokens_limit FROM public.token_budget "
-                "WHERE graph = $1 AND mu_ref = $2",
-                self._graph, mu_ref,
-            )
-            tokens_limit = row["tokens_limit"] if row else 1_000_000  # Default 1M
+        """Get current budget status for an MU.
 
-            # Query today's token consumption from gateway_request_log
-            # Assumption: gateway_request_log.prompt_hash has been populated with model calls
-            # We need to sum tokens from calls where the MU's workbook_id matches
-            # For now, this is a stub—real implementation would join workbook → MU
-            tokens_consumed = await conn.fetchval(
-                """SELECT COALESCE(SUM(gr.tokens_in + gr.tokens_out), 0)
-                   FROM public.gateway_request_log gr
-                   WHERE gr.graph = $1 AND DATE(gr.created_at) = CURRENT_DATE
-                   AND gr.agent_id = $2""",
-                self._graph, mu_ref,
-            ) or 0
+        The configured limit is real. Consumption is honestly zero until
+        ``gateway_request_log`` carries a real per-MU attribution (module
+        docstring) -- returning zero here is a disclosed gap, not a silently
+        wrong number from a query against columns that do not exist.
+        """
+        tokens_limit = await self._pool.fetchval(
+            "SELECT tokens_limit FROM public.token_budget WHERE graph = $1 AND mu_ref = $2",
+            self._graph, mu_ref,
+        ) or 1_000_000  # Default 1M when no budget has been configured for this MU
 
-            # Calculate cost
-            pricing = MODEL_PRICING.get(model, MODEL_PRICING["claude-sonnet-5"])
-            # Rough estimate: assume 60/40 split input/output for now
-            cost_usd = (
-                tokens_consumed * 0.6 * pricing["input"] +
-                tokens_consumed * 0.4 * pricing["output"]
-            ) / 1_000_000
+        tokens_consumed = 0  # See module docstring: real attribution is a follow-on.
 
-            percent_used = (tokens_consumed / tokens_limit * 100) if tokens_limit > 0 else 0
+        pricing = MODEL_PRICING.get(model, MODEL_PRICING["claude-sonnet-5"])
+        # Assumes a 60/40 input/output split until real per-call token counts are
+        # attributed to an MU (module docstring) -- an estimate, not a measurement.
+        cost_usd = (
+            tokens_consumed * 0.6 * pricing["input"] +
+            tokens_consumed * 0.4 * pricing["output"]
+        ) / 1_000_000
 
-            return TokenBudgetStatus(
-                tokens_limit=tokens_limit,
-                tokens_consumed=tokens_consumed,
-                cost_usd=cost_usd,
-                percent_used=percent_used,
-                is_exhausted=tokens_consumed >= tokens_limit,
-                is_warning=80 <= percent_used < 100,
-            )
+        percent_used = (tokens_consumed / tokens_limit * 100) if tokens_limit > 0 else 0.0
+
+        return TokenBudgetStatus(
+            tokens_limit=tokens_limit,
+            tokens_consumed=tokens_consumed,
+            cost_usd=cost_usd,
+            percent_used=percent_used,
+            is_exhausted=tokens_consumed >= tokens_limit,
+            is_warning=80 <= percent_used < 100,
+        )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import asyncpg
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -12,6 +13,13 @@ from ..token_budget import TokenBudgetStore
 from .deps import ArtizentDep, PlatformEngineerDep, PrincipalDep, RepositoryDep
 
 router = APIRouter()
+
+
+def _pool(request: Request) -> asyncpg.Pool:
+    pool: asyncpg.Pool | None = getattr(request.app.state, "pool", None)
+    if pool is None:  # pragma: no cover - set in every wiring path
+        raise InvalidRequestError("graph store is not ready")
+    return pool
 
 
 class SetBudgetRequest(BaseModel):
@@ -43,7 +51,7 @@ async def post_set_budget(
     repository: RepositoryDep,
 ) -> dict[str, Any]:
     """Set token budget limit for a workbook (MU)."""
-    store = TokenBudgetStore(repository.db, graph_name=repository.graph_name)
+    store = TokenBudgetStore(_pool(request), graph_name=repository.graph_name)
     await store.set_budget(workbook_id, body.tokens_limit, body.reason)
     return {"workbook_id": workbook_id, "tokens_limit": body.tokens_limit}
 
@@ -62,7 +70,7 @@ async def get_budget_status(
     repository: RepositoryDep,
 ) -> dict[str, Any]:
     """Query current token consumption and budget status for an MU."""
-    store = TokenBudgetStore(repository.db, graph_name=repository.graph_name)
+    store = TokenBudgetStore(_pool(request), graph_name=repository.graph_name)
     status = await store.get_status(workbook_id)
     return {
         "tokens_limit": status.tokens_limit,

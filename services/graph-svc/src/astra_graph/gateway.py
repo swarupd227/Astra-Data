@@ -615,6 +615,7 @@ async def _dispatch(
     prompt = _build_prompt(redacted_payload, previous_error)
 
     response: RawModelResponse | None = None
+    started = time.perf_counter()
     try:
         if injection_hits:
             response = RawModelResponse(
@@ -634,18 +635,34 @@ async def _dispatch(
                 json.dumps(dict(response.raw), sort_keys=True, default=str)
                 if response is not None else None
             )
+            # A call that raised has no response, but the request-side facts (which
+            # system prompt, which payload, how long the attempt took) are still known
+            # and still logged -- S11.4.1's "a request is always logged" guarantee.
             await log_store.record(
                 provider=provider, task_class=task_class,
                 agent_id=agent_id_of(principal) if principal else None,
-                prompt_hash=response.prompt_hash, context_hash=response.context_hash,
+                prompt_hash=(
+                    response.prompt_hash if response is not None
+                    else context_hash(_SYSTEM_PROMPT.encode("utf-8"))
+                ),
+                context_hash=(
+                    response.context_hash if response is not None
+                    else _compute_context_hash(redacted_payload)
+                ),
                 request_text=prompt,
                 response_hash=(
                     context_hash(response_text.encode("utf-8")) if response_text is not None else None
                 ),
                 response_text=response_text,
                 redaction_count=redaction_count,
-                latency_ms=response.latency_ms,
-                prompt_template_version=response.prompt_template_version,
+                latency_ms=(
+                    response.latency_ms if response is not None
+                    else (time.perf_counter() - started) * 1000
+                ),
+                prompt_template_version=(
+                    response.prompt_template_version if response is not None
+                    else PROMPT_TEMPLATE_VERSION
+                ),
                 injection_flagged_fields=sorted(injection_hits) or None,
             )
 
@@ -1150,8 +1167,8 @@ __all__ = [
     "GATEWAY_REQUEST_LOG_TABLE",
     "INJECTION_SCAN_FIELDS",
     "MAX_CONTENT_LOGGING_MINUTES",
-    "PROMPT_TEMPLATE_VERSION",
     "MAX_FIELD_BYTES",
+    "PROMPT_TEMPLATE_VERSION",
     "ROUTABLE_THRESHOLD",
     "TASK_CLASS_FIELD_SCHEMAS",
     "TRANSPILE_C3",

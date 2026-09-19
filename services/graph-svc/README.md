@@ -4361,38 +4361,51 @@ for the full research trail and every decision below.
 
 ## Wave scheduler (story S12.1.2, continues E12)
 
-S12.1.1 delivered independent MU workflows; S12.1.2 adds throughput control: a wave
-scheduler that gates MU admissions to execution subject to constraints, provides
-program manager controls (pause/resume trains and sites), and shows scheduler decisions
-on the Wave Board.
+**Partially delivered — read the "not done" list.** See
+[ADR 0088](../../docs/adr/0088-wave-scheduler-admission-control-for-mus-per-train.md).
 
-See [ADR 0088](../../docs/adr/0088-wave-scheduler-admission-control-for-mus-per-train.md)
-for the full design rationale and tradeoffs.
+- **`wave_scheduler.py`** is an application-tier decision function
+  (`WaveScheduler.evaluate_admission`), not a workflow. It checks, in order: train paused,
+  site paused, family state below `BUILT`, site concurrency (default 5), Fabric-workspace
+  concurrency (default 10), model-gateway budget (stub: always allows), train WIP limit
+  (`ReleaseTrain.wip_limits.train`). The first failing check is returned as
+  `blocking_constraint` with a human-readable `reason`.
+- **Real graph reads.** State lives in Apache AGE, so every check is a read-only Cypher
+  query through `GraphRepository.run_read_only_cypher`. The ontology has no `Workspace`
+  node: a workspace is the string `SemanticModel.workspace`, joined to a family by
+  `SemanticModel.family_ref`; a site reaches its workbooks via
+  `Site -[:CONTAINS]-> Project -[:CONTAINS]-> Workbook`.
+- **Pause/resume is persisted** as new optional properties `Site.paused`/`pause_reason`
+  and `ReleaseTrain.paused`/`pause_reason` (`SCHEMA_VERSION` 38 → 39, additive), written
+  through `GraphWriter` so each change is a normal replayable event.
+- **Routes** (`routes_scheduler.py`): `POST /v1/scheduler/trains/{id}:pause|:resume` and
+  `.../sites/{id}:pause|:resume` (platform engineer); `GET /v1/scheduler/decision/
+  {workbook_id}/{train_id}` (any Artizent role).
+- **Not done:** nothing calls `evaluate_admission` from the MU workflow or a job, so an MU
+  is **not actually held** when blocked; no Wave Board screen; no "by train sequence"
+  selection of the next MU; concurrency limits are fixed constants; the budget constraint
+  is a stub; the five scheduler notice events in `events.py` are defined but never emitted.
 
-- **`wave_scheduler.py` is a new application-tier decision-maker** (not Temporal). It
-  evaluates MU admission against seven constraints: family state (≥ BUILT), executor
-  concurrency per source site (default 5) and per Fabric workspace (default 10),
-  model-gateway budget, WIP per train, and train/site pause state. `evaluate_admission`
-  returns a `SchedulerDecision` naming any blocking constraint and a human-readable
-  reason (e.g., "Site concurrency at limit (5/5)").
-- **Program manager control routes** (`routes_scheduler.py`):
-  - `POST /v1/scheduler/trains/{train_id}:pause` + `:resume` — gate all MUs in a train
-  - `POST /v1/scheduler/sites/{site_id}:pause` + `:resume` — gate all MUs from a site
-  - `GET /v1/scheduler/decision/{workbook_id}/{train_id}` — query current admission
-    decision without mutating
-- **Decisions are visible as non-mutating events** — S12.1.1 established this pattern
-  with `ACTIVITY_STARTED`/`ACTIVITY_FINISHED`. S12.1.2 adds `MU_ADMISSION_DECISION`
-  (shows why an MU is waiting), `TRAIN_PAUSED`/`TRAIN_RESUMED`, `SITE_PAUSED`/
-  `SITE_RESUMED`. Wave Board watches these to show scheduler state.
-- **Enforcement (deferred)**: This story makes scheduler decisions visible and
-  queryable; *enforcing* them (actually holding MUs at GENERATED state when blocked) is
-  a follow-on choice between (a) MU workflow calling scheduler before GENERATED→PROVING,
-  or (b) background job running the scheduler and signaling workflows. Separation lets
-  enforcement strategy be validated independently.
-- **Concurrency tracking**: Active MU counts are queried live from the graph
-  (`mu_state IN (PROVING, MENDING, ESCALATED)`). No separate counter table needed.
-- **Budget constraint** is structurally ready (named in decision, returned in event) but
-  stubbed to always allow (awaiting model-gateway metrics integration).
+## Model gateway observability (story S12.2.1)
+
+**Partially delivered.** See
+[ADR 0089](../../docs/adr/0089-model-gateway-observability-partial-s12-2-1.md). Most of the
+story (routing, eval-gated providers, one provider interface) pre-existed from S5.3.2.
+Added: `context_hash`, `latency_ms`, `prompt_template_version` on `gateway_request_log`
+(migration v0046) and on `RawModelResponse`; `prompt_hash` now hashes the static system
+prompt while the payload's hash is `context_hash`. **Still not recorded:** `model`,
+`tokens_in`/`tokens_out`, `cost`. **Not met:** the template version is the literal
+`"dev"`, not a Git SHA, and is not folded into the hash. Azure OpenAI is not built.
+
+## Token budgets (story S12.2.2)
+
+**Configuration only — most acceptance criteria are not met.** See
+[ADR 0090](../../docs/adr/0090-token-budgets-configuration-only-s12-2-2.md). A per-MU
+limit can be stored and read (`public.token_budget`, `POST`/`GET /v1/token-budget/
+{workbook_id}:set|:status`), but consumption is always reported as 0: the request log has
+no MU attribution and never stored token counts. There is no 80% alert, no 100% hard stop /
+`ESCALATED` with reason `BUDGET`, no programme or train level, no TokenOps screen, no
+cost-per-accepted-report and no Status Pack summary.
 
 ## Query logging
 

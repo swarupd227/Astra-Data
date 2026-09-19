@@ -46,12 +46,14 @@ def test_the_mutation_event_types_are_the_ones_the_story_names() -> None:
 
 
 def test_a_notice_is_not_replayed_and_cannot_be_written_on_its_own_by_mistake() -> None:
-    """The eight halves of the notice/mutation split, stated together. Eight notices
-    share the outbox today (S1.2.4's own SOURCE_DRIFT, S5.5.2's own PATTERN_RETIRED,
-    S9.1.2's own MU_ACCEPTED, S9.2.1's own MU_PROMOTED, S9.2.2's own ADOPTION_CAPTURED,
-    S9.3.1's own SITE_DECOMMISSIONED, S12.1.1's own ACTIVITY_STARTED/ACTIVITY_FINISHED)
-    -- all named explicitly, so a future notice added without updating this set fails
-    loudly rather than silently starting to replay."""
+    """The halves of the notice/mutation split, stated together. Fifteen notices share
+    the outbox today (S1.2.4's own SOURCE_DRIFT, S5.5.2's own PATTERN_RETIRED, S9.1.2's
+    own MU_ACCEPTED, S9.2.1's own MU_PROMOTED, S9.2.2's own ADOPTION_CAPTURED, S9.3.1's
+    own SITE_DECOMMISSIONED, S12.1.1's own ACTIVITY_STARTED/ACTIVITY_FINISHED, S12.1.2's
+    own MU_ADMISSION_DECISION/TRAIN_PAUSED/TRAIN_RESUMED/SITE_PAUSED/SITE_RESUMED,
+    S12.2.2's own BUDGET_WARNING/BUDGET_EXHAUSTED) -- all named explicitly, so a future
+    notice added without updating this set fails loudly rather than silently starting
+    to replay."""
     assert not EventType.SOURCE_DRIFT.mutates_graph
     assert not EventType.PATTERN_RETIRED.mutates_graph
     assert not EventType.MU_ACCEPTED.mutates_graph
@@ -60,6 +62,13 @@ def test_a_notice_is_not_replayed_and_cannot_be_written_on_its_own_by_mistake() 
     assert not EventType.SITE_DECOMMISSIONED.mutates_graph
     assert not EventType.ACTIVITY_STARTED.mutates_graph
     assert not EventType.ACTIVITY_FINISHED.mutates_graph
+    assert not EventType.MU_ADMISSION_DECISION.mutates_graph
+    assert not EventType.TRAIN_PAUSED.mutates_graph
+    assert not EventType.TRAIN_RESUMED.mutates_graph
+    assert not EventType.SITE_PAUSED.mutates_graph
+    assert not EventType.SITE_RESUMED.mutates_graph
+    assert not EventType.BUDGET_WARNING.mutates_graph
+    assert not EventType.BUDGET_EXHAUSTED.mutates_graph
     assert {e.value for e in EventType if not e.mutates_graph} == {
         "estate.source.drift",
         "estate.pattern.retired",
@@ -69,6 +78,13 @@ def test_a_notice_is_not_replayed_and_cannot_be_written_on_its_own_by_mistake() 
         "estate.site.decommissioned",
         "estate.mu.activity.started",
         "estate.mu.activity.finished",
+        "estate.mu.admission.decision",
+        "estate.train.paused",
+        "estate.train.resumed",
+        "estate.site.paused",
+        "estate.site.resumed",
+        "estate.mu.budget.warning",
+        "estate.mu.budget.exhausted",
     }
 
 

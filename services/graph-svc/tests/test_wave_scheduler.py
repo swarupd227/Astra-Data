@@ -13,9 +13,16 @@ Enforcement (actual state transitions) is integrated with the MU workflow in a f
 
 from __future__ import annotations
 
-import pytest
-
-from astra_graph.wave_scheduler import SchedulerConstraint, SchedulerDecision, WaveScheduler
+from astra_graph.migration_units import MU_STATES
+from astra_graph.ontology.nodes import _FAMILY_STATES as _ONTOLOGY_FAMILY_STATES
+from astra_graph.wave_scheduler import (
+    _ACTIVE_MU_STATES,
+    _FAMILY_STATES_ORDERED,
+    _IN_PROGRESS_MU_STATES,
+    SchedulerConstraint,
+    SchedulerDecision,
+    WaveScheduler,
+)
 
 
 class TestSchedulerConstraint:
@@ -89,35 +96,36 @@ class TestSchedulerDecision:
             assert decision.blocking_constraint == constraint
 
 
-@pytest.mark.asyncio
 class TestWaveSchedulerAdmission:
-    """Wave scheduler admission evaluation -- constraint checking."""
+    """Wave scheduler admission evaluation -- constraint checking.
 
-    async def test_scheduler_initializes(self, db):
-        """WaveScheduler can be instantiated with a database."""
-        scheduler = WaveScheduler(db)
-        assert scheduler.db is db
+    Constraint evaluation reads real graph state (node properties, edge
+    traversal) through ``GraphRepository.run_read_only_cypher``, which only
+    Apache AGE really implements (``InMemoryGraphRepository.
+    run_read_only_cypher`` raises ``NotImplementedError`` by design -- see its
+    own docstring: "executing Cypher is the store's job"). So the constraint
+    logic itself is exercised end to end in
+    ``test_integration_wave_scheduler.py`` against real PostgreSQL + Apache
+    AGE; these tests cover construction and the pure logic around it.
+    """
 
-    def test_family_state_ordering(self):
-        """Family lifecycle ordering for BUILT threshold is correct."""
-        states = (
-            "PROPOSED", "SINGLETON", "DRAFT", "IN_REVIEW", "APPROVED", "BUILT",
-            "PUBLISHED", "DEPRECATED"
-        )
-        # BUILT is the threshold
-        assert states.index("BUILT") == 5
-        # States before BUILT are not ready
-        for state in ["PROPOSED", "SINGLETON", "DRAFT", "IN_REVIEW", "APPROVED"]:
-            assert states.index(state) < states.index("BUILT")
-        # States after BUILT are ready
-        for state in ["PUBLISHED", "DEPRECATED"]:
-            assert states.index(state) > states.index("BUILT")
+    async def test_scheduler_initializes(self, repository):
+        """WaveScheduler can be instantiated with a GraphRepository."""
+        scheduler = WaveScheduler(repository)
+        assert scheduler.repository is repository
 
-    async def test_active_mu_state_set(self):
-        """Active MU states are correctly identified for concurrency counting."""
-        # Active states are those where work is in-progress
-        active_states = ("PROVING", "MENDING", "ESCALATED")
-        # Terminal states should not be counted
-        terminal_states = ("WITHDRAWN", "DECOMMISSIONED")
-        # Waiting states should not be counted (not yet admitted)
-        waiting_states = ("GENERATED", "MODEL_READY", "CLUSTERED")
+    def test_family_state_order_matches_the_ontology(self):
+        """The scheduler's own ordering must be exactly the ontology's ModelFamily
+        lifecycle -- if a state is added, renamed or reordered there, this fails
+        rather than the scheduler silently admitting against a stale ladder."""
+        assert _FAMILY_STATES_ORDERED == _ONTOLOGY_FAMILY_STATES
+        assert _FAMILY_STATES_ORDERED.index("BUILT") > _FAMILY_STATES_ORDERED.index("APPROVED")
+
+    def test_mu_state_sets_only_name_real_states(self):
+        """Every state the scheduler counts against a limit must be a real §3.2 MU
+        state, and 'active' work must never include a terminal state."""
+        real = set(MU_STATES)
+        assert set(_ACTIVE_MU_STATES) <= real
+        assert set(_IN_PROGRESS_MU_STATES) <= real
+        assert not set(_ACTIVE_MU_STATES) & {"WITHDRAWN", "DECOMMISSIONED"}
+        assert not set(_IN_PROGRESS_MU_STATES) & {"WITHDRAWN", "DECOMMISSIONED", "GENERATED"}

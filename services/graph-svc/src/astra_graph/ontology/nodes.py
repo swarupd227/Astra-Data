@@ -88,6 +88,14 @@ NODE_TYPES: tuple[NodeType, ...] = (
                     "G4 approval time (spec §21's own site_record.licence_released_value, "
                     "story S9.3.1) -- copied from this same node's own licence_cost_annual "
                     "at the moment of approval, honestly absent if that was never known."),
+            _p("paused", T.BOOL,
+               note="A programme manager paused every MU sourced from this site on the "
+                    "wave scheduler (story S12.1.2) -- absent or false means not paused, "
+                    "the same 'never a false HARVESTED' honesty Workbook.mu_state already "
+                    "gives an unset property."),
+            _p("pause_reason", T.STRING,
+               note="The stated reason for the most recent pause (story S12.1.2). Absent "
+                    "when never paused, or once resumed."),
         ),
     ),
     NodeType(
@@ -946,6 +954,13 @@ NODE_TYPES: tuple[NodeType, ...] = (
                note="The stated reason for the most recent override — who and when are "
                     "the base properties updated_by/updated_at every node already "
                     "carries."),
+            _p("paused", T.BOOL,
+               note="A programme manager paused this train on the wave scheduler (story "
+                    "S12.1.2), holding every member MU at its current state -- absent or "
+                    "false means not paused."),
+            _p("pause_reason", T.STRING,
+               note="The stated reason for the most recent pause (story S12.1.2). Absent "
+                    "when never paused, or once resumed."),
         ),
     ),
     NodeType(
@@ -1032,6 +1047,19 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "control plane' per that module's own docstring); this property "
                "reuses that exact enum rather than declaring a second one, so the "
                "two can never drift apart.",
+    ),
+    SpecDeviation(
+        element="Site.paused, Site.pause_reason, ReleaseTrain.paused, "
+                "ReleaseTrain.pause_reason",
+        reason="§4.1.1's own Site and ReleaseTrain rows do not list them -- the wave "
+               "scheduler's own pause/resume control (story S12.1.2, spec §14.2) is a "
+               "runtime governance fact, not one either row's own spec table "
+               "anticipated.",
+        detail="A programme manager pausing a train or a site holds every member MU at "
+               "its current state (S12.1.2's own AC) until resumed; the property lives "
+               "on the node the scheduler already reads per admission check, rather "
+               "than a separate pause-state table, so 'is this train paused' is always "
+               "the same read every other node property already is.",
     ),
     SpecDeviation(
         element="ReleaseTrain.actual_start, ReleaseTrain.actual_end, Wave.actual_start, "

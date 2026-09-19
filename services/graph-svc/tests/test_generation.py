@@ -72,7 +72,7 @@ class ScriptedModelCaller:
         self._calls += 1
         return RawModelResponse(
             raw=raw, gateway_request_id=f"req_{self._calls}", provider="test", model="test-model",
-            prompt_hash="hash", temperature=0.0, tokens_in=10, tokens_out=5,
+            prompt_hash="hash", context_hash="hash", temperature=0.0, tokens_in=10, tokens_out=5, latency_ms=0.0, prompt_template_version="test",
         )
 
 

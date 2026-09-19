@@ -1896,6 +1896,20 @@
           "required": false,
           "server_managed": false,
           "type": "string"
+        },
+        {
+          "enum": null,
+          "name": "paused",
+          "required": false,
+          "server_managed": false,
+          "type": "bool"
+        },
+        {
+          "enum": null,
+          "name": "pause_reason",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
         }
       ],
       "side": "platform"
@@ -2128,6 +2142,20 @@
           "required": false,
           "server_managed": false,
           "type": "float"
+        },
+        {
+          "enum": null,
+          "name": "paused",
+          "required": false,
+          "server_managed": false,
+          "type": "bool"
+        },
+        {
+          "enum": null,
+          "name": "pause_reason",
+          "required": false,
+          "server_managed": false,
+          "type": "string"
         }
       ],
       "side": "source"
@@ -2608,5 +2636,5 @@
       "side": "source"
     }
   },
-  "schema_version": 38
+  "schema_version": 39
 }

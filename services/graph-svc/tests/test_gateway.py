@@ -66,7 +66,7 @@ class _StubCaller:
             raise RuntimeError("stub provider failure")
         return RawModelResponse(
             raw=self.raw, gateway_request_id="gwreq_1", provider=self.provider, model=self.model,
-            prompt_hash="hash", temperature=0.0, tokens_in=1, tokens_out=1,
+            prompt_hash="hash", context_hash="hash", temperature=0.0, tokens_in=1, tokens_out=1, latency_ms=0.0, prompt_template_version="test",
         )
 
 
@@ -314,7 +314,7 @@ async def test_a_data_like_literal_is_redacted_before_the_provider_receives_it()
             received.update(request.as_dict())
             return RawModelResponse(
                 raw={}, gateway_request_id="g", provider=self.provider, model=self.model,
-                prompt_hash="h", temperature=0.0, tokens_in=1, tokens_out=1,
+                prompt_hash="h", context_hash="h", temperature=0.0, tokens_in=1, tokens_out=1, latency_ms=0.0, prompt_template_version="test",
             )
 
     class _LeakyRequest:

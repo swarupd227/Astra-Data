@@ -71,6 +71,7 @@ from .api import (
     schedules_router,
     status_pack_router,
     tenant_access_router,
+    token_budget_router,
     tolerance_charter_router,
     trains_router,
     verdicts_router,
@@ -656,6 +657,7 @@ def create_app() -> FastAPI:
     app.include_router(mu_page_router)
     app.include_router(mu_workflow_router)
     app.include_router(scheduler_router)
+    app.include_router(token_budget_router)
     app.include_router(gate_inbox_router)
     app.include_router(decision_register_router)
     app.include_router(notifications_router)

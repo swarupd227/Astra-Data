@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from astra_graph.token_budget import MODEL_PRICING, TokenBudgetStatus
 
 

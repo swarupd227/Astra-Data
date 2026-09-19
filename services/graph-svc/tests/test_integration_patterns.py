@@ -206,7 +206,7 @@ class _ScriptedCaller:
         return RawModelResponse(
             raw={"dax": self._dax, "m": None, "assumptions": [], "confidence": self._confidence, "notes": "test"},
             gateway_request_id="gw_req_test", provider=self.provider, model=self.model,
-            prompt_hash="prompt_hash_test", temperature=0.0, tokens_in=10, tokens_out=5,
+            prompt_hash="prompt_hash_test", context_hash="prompt_hash_test", temperature=0.0, tokens_in=10, tokens_out=5, latency_ms=0.0, prompt_template_version="test",
         )
 
 

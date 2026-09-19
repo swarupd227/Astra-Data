@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..errors import InvalidRequestError
 from ..wave_scheduler import SchedulerConstraint, WaveScheduler
-from .deps import ArtizentDep, PlatformEngineerDep, PrincipalDep, RepositoryDep
+from .deps import ArtizentDep, PlatformEngineerDep, PrincipalDep, RepositoryDep, WriterDep
 
 router = APIRouter()
 
@@ -63,25 +63,17 @@ async def get_admission_decision(
     repository: RepositoryDep,
 ) -> dict[str, Any]:
     """Query the scheduler to see why an MU is waiting or whether it can be admitted."""
-    db = repository.db
-    scheduler = WaveScheduler(db)
+    scheduler = WaveScheduler(repository)
 
-    # Query the graph to find the site for this MU
-    row = await db.fetchrow(
-        """
-        SELECT site.nid as site_id
-        FROM nodes wb
-        JOIN edges e ON e.head = wb.nid AND e.label = 'IN_ESTATE'
-        JOIN nodes site ON site.nid = e.tail AND site.label = 'Site'
-        WHERE wb.nid = $1 AND wb.label = 'Workbook'
-        LIMIT 1
-        """,
-        workbook_id,
+    rows, _ = await repository.run_read_only_cypher(
+        "MATCH (s:Site)-[:CONTAINS]->(:Project)-[:CONTAINS]->(wb:Workbook) "
+        "WHERE wb.id = $workbook_id RETURN s.id AS site_id",
+        ["site_id"], {"workbook_id": workbook_id}, timeout_seconds=5, row_limit=1,
     )
-    if not row:
+    if not rows:
         raise InvalidRequestError(f"Workbook {workbook_id} not found or has no site")
 
-    site_id = row["site_id"]
+    site_id = rows[0]["site_id"]
     decision = await scheduler.evaluate_admission(workbook_id, train_id, site_id)
 
     return {
@@ -105,31 +97,20 @@ async def post_pause_train(
     principal: PrincipalDep,
     roles: PlatformEngineerDep,
     repository: RepositoryDep,
+    writer: WriterDep,
 ) -> dict[str, Any]:
     """Pause a train to prevent new MUs from being admitted to execution."""
-    db = repository.db
-    writer = repository.graph_writer
-
-    # Check train exists
-    row = await db.fetchrow(
-        "SELECT nid FROM nodes WHERE nid = $1 AND label = 'ReleaseTrain'",
-        train_id,
-    )
-    if not row:
+    record = await repository.get_node_record(train_id)
+    if record is None or record.label != "ReleaseTrain":
         raise InvalidRequestError(f"Train {train_id} not found")
 
-    # Update the train's paused property
     await writer.set_node_properties(
         train_id,
         {"paused": True, "pause_reason": body.reason},
         principal=principal,
     )
 
-    return {
-        "train_id": train_id,
-        "paused": True,
-        "reason": body.reason,
-    }
+    return {"train_id": train_id, "paused": True, "reason": body.reason}
 
 
 @router.post(
@@ -144,31 +125,20 @@ async def post_resume_train(
     principal: PrincipalDep,
     roles: PlatformEngineerDep,
     repository: RepositoryDep,
+    writer: WriterDep,
 ) -> dict[str, Any]:
     """Resume a paused train to allow MU admissions again."""
-    db = repository.db
-    writer = repository.graph_writer
-
-    # Check train exists
-    row = await db.fetchrow(
-        "SELECT nid FROM nodes WHERE nid = $1 AND label = 'ReleaseTrain'",
-        train_id,
-    )
-    if not row:
+    record = await repository.get_node_record(train_id)
+    if record is None or record.label != "ReleaseTrain":
         raise InvalidRequestError(f"Train {train_id} not found")
 
-    # Update the train's paused property
     await writer.set_node_properties(
         train_id,
         {"paused": False, "pause_reason": None},
         principal=principal,
     )
 
-    return {
-        "train_id": train_id,
-        "paused": False,
-        "reason": body.reason,
-    }
+    return {"train_id": train_id, "paused": False, "reason": body.reason}
 
 
 @router.post(
@@ -183,31 +153,20 @@ async def post_pause_site(
     principal: PrincipalDep,
     roles: PlatformEngineerDep,
     repository: RepositoryDep,
+    writer: WriterDep,
 ) -> dict[str, Any]:
     """Pause a site to prevent any of its MUs from being admitted to execution."""
-    db = repository.db
-    writer = repository.graph_writer
-
-    # Check site exists
-    row = await db.fetchrow(
-        "SELECT nid FROM nodes WHERE nid = $1 AND label = 'Site'",
-        site_id,
-    )
-    if not row:
+    record = await repository.get_node_record(site_id)
+    if record is None or record.label != "Site":
         raise InvalidRequestError(f"Site {site_id} not found")
 
-    # Update the site's paused property
     await writer.set_node_properties(
         site_id,
         {"paused": True, "pause_reason": body.reason},
         principal=principal,
     )
 
-    return {
-        "site_id": site_id,
-        "paused": True,
-        "reason": body.reason,
-    }
+    return {"site_id": site_id, "paused": True, "reason": body.reason}
 
 
 @router.post(
@@ -222,28 +181,17 @@ async def post_resume_site(
     principal: PrincipalDep,
     roles: PlatformEngineerDep,
     repository: RepositoryDep,
+    writer: WriterDep,
 ) -> dict[str, Any]:
     """Resume a paused site to allow MU admissions again."""
-    db = repository.db
-    writer = repository.graph_writer
-
-    # Check site exists
-    row = await db.fetchrow(
-        "SELECT nid FROM nodes WHERE nid = $1 AND label = 'Site'",
-        site_id,
-    )
-    if not row:
+    record = await repository.get_node_record(site_id)
+    if record is None or record.label != "Site":
         raise InvalidRequestError(f"Site {site_id} not found")
 
-    # Update the site's paused property
     await writer.set_node_properties(
         site_id,
         {"paused": False, "pause_reason": None},
         principal=principal,
     )
 
-    return {
-        "site_id": site_id,
-        "paused": False,
-        "reason": body.reason,
-    }
+    return {"site_id": site_id, "paused": False, "reason": body.reason}

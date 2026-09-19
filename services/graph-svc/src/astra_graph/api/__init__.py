@@ -37,7 +37,6 @@ from .routes_modeller import router as modeller_router
 from .routes_mu_page import router as mu_page_router
 from .routes_mu_workflow import router as mu_workflow_router
 from .routes_notifications import router as notifications_router
-from .routes_scheduler import router as scheduler_router
 from .routes_ownership import router as ownership_router
 from .routes_patterns import router as patterns_router
 from .routes_platform import router as platform_router
@@ -49,10 +48,11 @@ from .routes_redesign import router as redesign_router
 from .routes_regression import router as regression_router
 from .routes_release import router as release_router
 from .routes_rules import router as rules_router
+from .routes_scheduler import router as scheduler_router
 from .routes_schedules import router as schedules_router
 from .routes_status_pack import router as status_pack_router
-from .routes_token_budget import router as token_budget_router
 from .routes_tenant_access import router as tenant_access_router
+from .routes_token_budget import router as token_budget_router
 from .routes_tolerance_charter import router as tolerance_charter_router
 from .routes_trains import router as trains_router
 from .routes_verdicts import router as verdicts_router

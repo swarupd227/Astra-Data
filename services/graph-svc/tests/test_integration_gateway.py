@@ -163,7 +163,7 @@ def _ok_response(dax: str = "[Measure] = SUM([Sales])") -> RawModelResponse:
     return RawModelResponse(
         raw={"dax": dax, "m": None, "assumptions": [], "confidence": 0.9, "notes": "ok"},
         gateway_request_id="gwreq_test", provider="test_provider", model="test-model-1",
-        prompt_hash="hash", temperature=0.0, tokens_in=10, tokens_out=5,
+        prompt_hash="hash", context_hash="hash", temperature=0.0, tokens_in=10, tokens_out=5, latency_ms=0.0, prompt_template_version="test",
     )
 
 
