@@ -57,11 +57,11 @@ through `GraphWriter.set_node_properties`, so each change is a normal, replayabl
   — platform-engineer role.
 * `GET /v1/scheduler/decision/{workbook_id}/{train_id}` — any Artizent role; answers
   "why is this MU waiting" from live graph state.
-* Seven non-mutating notice event types exist in `events.py`
-  (`MU_ADMISSION_DECISION`, `TRAIN_PAUSED`/`RESUMED`, `SITE_PAUSED`/`RESUMED`, and the two
-  budget events of S12.2.2). **They are defined and replay-safe, but nothing emits them
-  yet** — the pause/resume routes write the property (and its own `node.upserted` event)
-  but do not raise `TRAIN_PAUSED` etc.
+* Five non-mutating scheduler notice event types exist in `events.py`
+  (`MU_ADMISSION_DECISION`, `TRAIN_PAUSED`/`RESUMED`, `SITE_PAUSED`/`SITE_RESUMED`). **They
+  are defined and replay-safe, but nothing emits them** — the pause/resume routes write the
+  property (and its own `node.upserted` event) but do not raise `TRAIN_PAUSED` etc. (The
+  two budget notices added by S12.2.2 *are* emitted, by `BudgetMonitor`; see ADR 0090.)
 
 ## What this story does not do (disclosed)
 
@@ -73,8 +73,8 @@ through `GraphWriter.set_node_properties`, so each change is a normal, replayabl
   or a periodic job signals admitted workflows.
 * **No Wave Board surface.** "Visible on the Wave Board" is served only as an API; no
   console screen was built.
-* **Budget constraint is a stub** returning `True`; real spend attribution is missing
-  (see ADR for S12.2.2 / `token_budget.py`).
+* **Budget constraint is a stub** returning `True`. Real per-MU spend now exists
+  (S12.2.2, ADR 0090) but the scheduler does not consult it yet.
 * **Concurrency limits are fixed constants** (5 / 10). A per-site or per-workspace
   override is not built.
 * **"By train sequence" ordering** (`IN_TRAIN.sequence`) is not implemented — the

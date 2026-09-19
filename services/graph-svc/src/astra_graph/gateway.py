@@ -129,11 +129,12 @@ already does, no new failure category.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import anthropic
 import asyncpg
@@ -145,6 +146,12 @@ from .credentials import CredentialProvider
 from .ids import new_ulid
 from .injection_defense import scan_payload_for_injection
 from .redaction import redact_data_like_literals
+from .token_budget import BudgetMonitor, TokenBudgetStatus, TokenBudgetStore
+
+if TYPE_CHECKING:
+    from .writes import GraphWriter
+
+logger = logging.getLogger(__name__)
 
 #: §5.5: "routes by task class" — a plain string alias, not an enum, since a closed set
 #: would need extending for every new caller and buys nothing a string doesn't already
@@ -275,6 +282,35 @@ class GatewayRoutingError(Exception):
             + (f" (considered: {', '.join(considered)}, none met the eval bar)" if considered else " (no provider has ever been eval-scored for this task class)")
         )
         super().__init__(detail)
+
+
+class GatewayBudgetError(GatewayRoutingError):
+    """An MU has used its whole token budget, so the gateway refuses to make another model
+    call for it (story S12.2.2's hard stop at 100%).
+
+    A `GatewayRoutingError` on purpose: both real callers (`generation.py`'s ladder,
+    `mender.py`'s repair call) already treat that as "this call cannot happen and will not
+    become possible within this run" -- an immediate stop, never retried -- which is
+    exactly right for an exhausted budget. The attempt fails, the MU takes the legal
+    `FAILED -> ESCALATED` path, and `write_mu_state` stamps the reason `BUDGET`."""
+
+    def __init__(
+        self, task_class: TaskClass, *, workbook_id: str, tokens_consumed: int, tokens_limit: int,
+    ) -> None:
+        super().__init__(task_class, considered=())
+        self.workbook_id = workbook_id
+        self.tokens_consumed = tokens_consumed
+        self.tokens_limit = tokens_limit
+        self.args = (
+            f"token budget exhausted for {workbook_id}: {tokens_consumed} of {tokens_limit} "
+            f"tokens used; no further model calls are made for it",
+        )
+
+
+class BudgetGuard(Protocol):
+    """What the gateway needs to enforce an MU's budget -- `token_budget.BudgetMonitor`."""
+
+    async def check(self, workbook_id: str, *, principal: str | None = None) -> TokenBudgetStatus: ...
 
 
 class GatewayValidationError(Exception):
@@ -854,10 +890,12 @@ class ModelGateway:
     def __init__(
         self, *, providers: Mapping[str, ModelCaller], policy_store: GatewayPolicyStore,
         log_store: GatewayRequestLogStore | None = None,
+        budget_guard: BudgetGuard | None = None,
     ) -> None:
         self._providers = dict(providers)
         self._policy = policy_store
         self._log_store = log_store
+        self._budget_guard = budget_guard
 
     @property
     def providers(self) -> Mapping[str, ModelCaller]:
@@ -886,11 +924,32 @@ class ModelGateway:
         if not candidates:
             raise GatewayRoutingError(task_class, considered=routable)
         caller = self._providers[candidates[0]]
-        return await _dispatch(
+
+        # Story S12.2.2. Checked after routing, so "no routable provider" -- the more
+        # fundamental refusal -- still wins, and only for a call attributed to an MU.
+        guard = self._budget_guard if workbook_id is not None else None
+        if guard is not None and workbook_id is not None:
+            status = await guard.check(workbook_id, principal=principal)
+            if status.is_exhausted:
+                raise GatewayBudgetError(
+                    task_class, workbook_id=workbook_id,
+                    tokens_consumed=status.tokens_consumed, tokens_limit=status.tokens_limit,
+                )
+
+        response = await _dispatch(
             caller, self._log_store, provider=caller.provider, task_class=task_class,
             principal=principal, request=request, previous_error=previous_error,
             workbook_id=workbook_id,
         )
+
+        if guard is not None and workbook_id is not None:
+            # Raises the alert on the call that crossed the line. It must never cost the
+            # caller a response the provider has already been paid for.
+            try:
+                await guard.check(workbook_id, principal=principal)
+            except Exception:
+                logger.warning("post-call budget check failed for %s", workbook_id, exc_info=True)
+        return response
 
 
 class StaticGateway:
@@ -1167,7 +1226,8 @@ def null_gateway() -> Gateway:
 
 
 def build_gateway(
-    config: Settings, *, pool: asyncpg.Pool, graph_name: str, credentials: CredentialProvider
+    config: Settings, *, pool: asyncpg.Pool, graph_name: str, credentials: CredentialProvider,
+    writer: GraphWriter | None = None,
 ) -> ModelGateway:
     """The real wiring `main.py` uses: `anthropic` is the only registered provider (this
     story's own explicit scope decision — real Anthropic integration, Azure OpenAI not
@@ -1177,9 +1237,19 @@ def build_gateway(
     providers: dict[str, ModelCaller] = {
         "anthropic": AnthropicModelCaller(credentials=credentials, model=config.anthropic_model),
     }
+    # Story S12.2.2: with a writer, the gateway enforces per-MU token budgets (the 80% alert
+    # and the 100% hard stop); without one (tests, tools) it makes no budget decision.
+    budget_guard = (
+        BudgetMonitor(
+            TokenBudgetStore(pool, graph_name=graph_name), pool=pool, graph_name=graph_name,
+            writer=writer,
+        )
+        if writer is not None else None
+    )
     return ModelGateway(
         providers=providers, policy_store=PostgresGatewayPolicyStore(pool, graph_name=graph_name),
         log_store=PostgresGatewayRequestLogStore(pool, graph_name=graph_name),
+        budget_guard=budget_guard,
     )
 
 
@@ -1197,6 +1267,7 @@ __all__ = [
     "TRANSPILE_C3",
     "TRANSPILE_C3_SMALL_MODEL",
     "AnthropicModelCaller",
+    "BudgetGuard",
     "ContentLoggingGrant",
     "ContentLoggingGrantError",
     "ContentLoggingGrantStore",
@@ -1204,6 +1275,7 @@ __all__ = [
     "EvalCaseResult",
     "EvalReport",
     "Gateway",
+    "GatewayBudgetError",
     "GatewayPolicyStore",
     "GatewayRequestLogStore",
     "GatewayRoutingError",

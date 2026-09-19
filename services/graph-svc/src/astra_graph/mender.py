@@ -986,9 +986,18 @@ async def mend_exception(
     exception_case_id: str,
     workspace: str,
     principal: Principal,
+    charge_to_mu: str | None = None,
 ) -> dict[str, Any]:
     """The bounded repair loop itself -- §11.2, implemented pass by pass. See this
-    module's own docstring for the full account of every design decision below."""
+    module's own docstring for the full account of every design decision below.
+
+    `charge_to_mu` (story S12.2.2) names the MU whose token budget this repair's model
+    calls are charged to. It defaults to the exception's own `mu_ref`, which is right for
+    a post-proof parity failure but *not* for a pre-proof generation failure, whose
+    `mu_ref` is the synthetic `calc:{id}` (the gap S12.1.1 disclosed) -- charged to that,
+    the Mender's spend would escape the real MU's budget and the hard stop would not
+    hold. The MU workflow, which knows the real workbook, passes it. It changes nothing
+    else: evidence and sibling-case lookups still key on the exception's own `mu_ref`."""
     async with pool.acquire() as conn:
         hydrated = await hydrate(conn, graph_name, "ExceptionCase", [exception_case_id])
     exception_properties = hydrated.get(exception_case_id)
@@ -1120,7 +1129,7 @@ async def mend_exception(
                 calc=calc, current_dax=current_dax, widened=widened,
             )
             dax, model_result, detail = await call_model_repair(
-                gateway, request, principal=principal, workbook_id=workbook_id
+                gateway, request, principal=principal, workbook_id=charge_to_mu or workbook_id
             )
             evidence["request"] = request.as_dict()
             evidence["response"] = detail

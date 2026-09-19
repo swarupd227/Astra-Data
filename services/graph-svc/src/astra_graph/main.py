@@ -328,7 +328,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # POST /v1/model-gateway:run-eval to earn that.
     app.state.gateway = build_gateway(
         config, pool=pool, graph_name=config.graph_name,
-        credentials=build_credential_provider(config),
+        credentials=build_credential_provider(config), writer=writer,
     )
     # Story S5.3.3: real confidence calibration (§16.3) — every declared confidence is
     # recorded, win or lose, and a task class whose own history falls below the floor is

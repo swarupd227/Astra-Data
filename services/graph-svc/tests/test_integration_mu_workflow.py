@@ -55,6 +55,8 @@ from astra_graph.case_execution_query import (  # noqa: E402
 from astra_graph.config import Settings  # noqa: E402
 from astra_graph.events import EventType, source_for  # noqa: E402
 from astra_graph.gateway import (  # noqa: E402
+    TRANSPILE_C3,
+    ModelGateway,
     PostgresGatewayRequestLogStore,
     RawModelResponse,
     StaticGateway,
@@ -72,11 +74,12 @@ from astra_graph.mu_workflow import (  # noqa: E402
     MigrationUnitWorkflow,
     MigrationUnitWorkflowInput,
     MuActivities,
+    WriteMuStateInput,
 )
 from astra_graph.ontology import EDGE_LABELS, NODE_LABELS  # noqa: E402
 from astra_graph.principal import Principal  # noqa: E402
 from astra_graph.provenance import PostgresProvenanceStore  # noqa: E402
-from astra_graph.token_budget import TokenBudgetStore  # noqa: E402
+from astra_graph.token_budget import BudgetMonitor, TokenBudgetStore  # noqa: E402
 from astra_graph.tolerance_charter import PostgresToleranceCharterStore  # noqa: E402
 from astra_graph.writes import EdgeWrite, GraphWriter, NodeWrite  # noqa: E402
 
@@ -262,13 +265,16 @@ async def estate(settings: Settings, tmp_path: Path):
         await pool.close()
 
 
-def _activities(estate: dict[str, Any], *, gateway: Any) -> MuActivities:
+def _activities(
+    estate: dict[str, Any], *, gateway: Any, budget_store: TokenBudgetStore | None = None,
+) -> MuActivities:
     return MuActivities(
         pool=estate["pool"], graph_name=estate["graph_name"], writer=estate["writer"],
         provenance_store=estate["provenance_store"], artefact_store=estate["artefact_store"],
         gateway=gateway, target_adapter=estate["target_adapter"],
         config_store=InMemoryMenderConfigStore(MenderConfig(pass_budget=3)),
         charter_store=estate["charter_store"],
+        budget_store=budget_store,
     )
 
 
@@ -343,6 +349,112 @@ async def test_the_workflows_model_spend_is_attributed_to_its_own_mu(estate: dic
 
     status = await TokenBudgetStore(pool, graph_name=graph).get_status(estate["workbook"])
     assert status.tokens_consumed == 42 + 17
+
+
+class _SpendRequest:
+    def as_dict(self) -> dict[str, Any]:
+        return {"output_schema": {}}
+
+
+class _CountingCaller(_ScriptedCaller):
+    """`_ScriptedCaller` that counts how many times the provider is really called."""
+
+    def __init__(self, dax: str) -> None:
+        super().__init__(dax)
+        self.calls = 0
+
+    async def generate(self, request: Any, *, previous_error: str | None) -> RawModelResponse:
+        self.calls += 1
+        return await super().generate(request, previous_error=previous_error)
+
+
+class _AlwaysRoutable:
+    async def routable_providers(self, task_class: str) -> tuple[str, ...]:
+        return (_ScriptedCaller.provider,)
+
+
+async def _spend(estate: dict[str, Any]) -> None:
+    """One real, attributed gateway call, so the workbook has really used tokens
+    (`_ScriptedCaller` reports 42 in + 17 out = 59)."""
+    gateway = StaticGateway(
+        _ScriptedCaller(dax="Running Total = CALCULATE(SUM([Notional]))"),
+        log_store=PostgresGatewayRequestLogStore(estate["pool"], graph_name=estate["graph_name"]),
+    )
+    await gateway.generate(
+        task_class=TRANSPILE_C3, request=_SpendRequest(), previous_error=None,
+        workbook_id=estate["workbook"],
+    )
+
+
+async def _mu_state_and_reason(estate: dict[str, Any]) -> tuple[str | None, str | None]:
+    async with estate["pool"].acquire() as conn:
+        hydrated = await hydrate(conn, estate["graph_name"], "Workbook", [estate["workbook"]])
+    node = hydrated[estate["workbook"]]
+    return node.get("mu_state"), node.get("mu_state_reason")
+
+
+async def test_an_mu_escalating_with_its_budget_used_is_stamped_budget(estate: dict[str, Any]) -> None:
+    """S12.2.2: 'the MU goes ESCALATED with reason BUDGET'. The reason is only stamped when
+    the budget really is used up, and is cleared by the very next state write."""
+    store = TokenBudgetStore(estate["pool"], graph_name=estate["graph_name"])
+    activities = _activities(estate, gateway=null_gateway(), budget_store=store)
+
+    async def write(state: str) -> None:
+        await activities.write_mu_state(
+            WriteMuStateInput(workbook_id=estate["workbook"], state=state, principal=PLATFORM_ENGINEER)
+        )
+
+    await _spend(estate)
+
+    await store.set_budget(estate["workbook"], 1_000)  # plenty left
+    await write("ESCALATED")
+    assert await _mu_state_and_reason(estate) == ("ESCALATED", None), "escalated for another reason"
+
+    await store.set_budget(estate["workbook"], 59)  # exactly used up
+    await write("ESCALATED")
+    assert await _mu_state_and_reason(estate) == ("ESCALATED", "BUDGET")
+
+    await write("ADJUDICATED")
+    assert await _mu_state_and_reason(estate) == ("ADJUDICATED", None), "a stale reason must not linger"
+
+
+async def test_a_budget_stopped_workflow_run_ends_escalated_with_reason_budget(
+    estate: dict[str, Any],
+) -> None:
+    """The whole path, real: the MU has used its budget, so the workflow's generation is
+    refused by the gateway (the provider is never called), the attempt fails, and the MU
+    takes the legal FAILED -> ESCALATED route stamped BUDGET."""
+    pool, graph = estate["pool"], estate["graph_name"]
+    store = TokenBudgetStore(pool, graph_name=graph)
+    caller = _CountingCaller(dax="Running Total = CALCULATE(SUM([Notional]))")
+    gateway = ModelGateway(
+        providers={caller.provider: caller},
+        policy_store=_AlwaysRoutable(),
+        log_store=PostgresGatewayRequestLogStore(pool, graph_name=graph),
+        budget_guard=BudgetMonitor(store, pool=pool, graph_name=graph, writer=estate["writer"]),
+    )
+    await _spend(estate)
+    await store.set_budget(estate["workbook"], 10)  # 59 used: over budget before the run
+
+    activities = _activities(estate, gateway=gateway, budget_store=store)
+    workflow_input = MigrationUnitWorkflowInput(
+        workbook_id=estate["workbook"], calc_ids=(estate["c3_calc"],), principal=PLATFORM_ENGINEER,
+    )
+    async with (
+        await WorkflowEnvironment.start_time_skipping() as env,
+        Worker(
+            env.client, task_queue=TASK_QUEUE, workflows=[MigrationUnitWorkflow],
+            activities=[activities.write_mu_state, activities.run_generate, activities.run_mend],
+        ),
+    ):
+        final_state = await env.client.execute_workflow(
+            MigrationUnitWorkflow.run, workflow_input,
+            id=f"mu-{estate['workbook']}", task_queue=TASK_QUEUE,
+        )
+
+    assert final_state == "ESCALATED"
+    assert await _mu_state_and_reason(estate) == ("ESCALATED", "BUDGET")
+    assert caller.calls == 0, "no model call may be made once the MU is exhausted"
 
 
 async def test_a_missing_calc_escalates_the_real_workflow_directly(estate: dict[str, Any]) -> None:

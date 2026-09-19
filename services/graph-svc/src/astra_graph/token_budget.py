@@ -14,17 +14,33 @@ Cost is exact where it can be: each model's own input and output tokens are pric
 tokens are reported separately as `unpriced_tokens` so a partial cost is never mistaken
 for a complete one.
 
-Not built here (see ADR 0090): the 80% alert and 100% hard stop that act on this number,
-the programme and train levels, and the cost-per-accepted-report and Status Pack views.
+`BudgetMonitor` acts on that number, at the model gateway (see its own docstring): it
+raises the 80% and 100% alerts and lets the gateway refuse further calls once an MU is
+at its limit.
+
+Not built here (see ADR 0090): the programme and train levels, and the
+cost-per-accepted-report and Status Pack views.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import asyncpg
 
+from .events import EventType, PlatformEvent, budget_exhausted, budget_warning, source_for
 from .ids import new_ulid
+from .principal import Principal
+
+if TYPE_CHECKING:
+    from .writes import GraphWriter
+
+#: The share of an MU's token budget at which the soft alert is raised (S12.2.2's AC).
+WARNING_PERCENT = 80.0
+
+#: Who a budget alert is attributed to when the call that crossed the line names no principal.
+DEFAULT_ALERT_PRINCIPAL = "service:model-gateway"
 
 DEFAULT_TOKENS_LIMIT = 1_000_000
 
@@ -112,6 +128,77 @@ class TokenBudgetStore:
             cost_usd=cost_usd,
             percent_used=percent_used,
             is_exhausted=tokens_consumed >= tokens_limit,
-            is_warning=80 <= percent_used < 100,
+            is_warning=WARNING_PERCENT <= percent_used < 100,
             unpriced_tokens=unpriced_tokens,
         )
+
+
+class BudgetMonitor:
+    """The gateway-side budget guard (story S12.2.2): 80% soft alert, 100% hard stop.
+
+    `check` reads an MU's status, raises whichever alerts it has reached, and returns the
+    status; `ModelGateway` calls it before each model call (refusing the call if the MU is
+    exhausted) and after (so the alert is raised by the very call that crossed the line,
+    not one call later).
+
+    **Why the gateway, not the workflow.** The hard stop has to bound spend per *call*: a
+    Transpiler ladder or a Mender run makes several model calls inside one workflow
+    activity, so a check between activities could overshoot by a whole activity. It also
+    cannot be a workflow-level "escalate now": §3.2 allows `ESCALATED` only from `FAILED`
+    or `MENDING`, so a refused call instead flows through the legal chain (a refused call
+    fails the attempt, the MU goes `FAILED` and then `ESCALATED`, stamped with reason
+    `BUDGET` by `MuActivities.write_mu_state`).
+
+    **Each alert is raised once per `(MU, limit)`.** A budget the operator raises is a new
+    budget and can alert again when it is reached. The once-only test reads the event
+    outbox rather than in-process state, so it survives restarts and holds across
+    workers. Two calls racing across the line could in principle each raise it; the
+    consequence is one duplicate notice, never a missed one.
+    """
+
+    def __init__(
+        self, store: TokenBudgetStore, *, pool: asyncpg.Pool, graph_name: str,
+        writer: GraphWriter,
+    ) -> None:
+        self._store = store
+        self._pool = pool
+        self._graph = graph_name
+        self._writer = writer
+
+    async def check(self, workbook_id: str, *, principal: str | None = None) -> TokenBudgetStatus:
+        status = await self._store.get_status(workbook_id)
+        actor = Principal(principal or DEFAULT_ALERT_PRINCIPAL)
+        source = source_for(self._graph)
+
+        if status.percent_used >= WARNING_PERCENT:
+            await self._raise_once(
+                EventType.BUDGET_WARNING, workbook_id, status.tokens_limit,
+                budget_warning(
+                    source=source, workbook_id=workbook_id,
+                    tokens_consumed=status.tokens_consumed, tokens_limit=status.tokens_limit,
+                    percent_used=status.percent_used, principal=actor,
+                ),
+            )
+        if status.is_exhausted:
+            await self._raise_once(
+                EventType.BUDGET_EXHAUSTED, workbook_id, status.tokens_limit,
+                budget_exhausted(
+                    source=source, workbook_id=workbook_id,
+                    tokens_consumed=status.tokens_consumed, tokens_limit=status.tokens_limit,
+                    cost_usd=status.cost_usd, principal=actor,
+                ),
+            )
+        return status
+
+    async def _raise_once(
+        self, type_: EventType, workbook_id: str, tokens_limit: int, event: PlatformEvent
+    ) -> None:
+        already = await self._pool.fetchval(
+            """SELECT 1 FROM public.estate_event
+                WHERE graph = $1 AND type = $2 AND subject = $3
+                  AND (data->>'tokens_limit')::bigint = $4
+                LIMIT 1""",
+            self._graph, type_.value, workbook_id, tokens_limit,
+        )
+        if not already:
+            await self._writer.append_event(event)

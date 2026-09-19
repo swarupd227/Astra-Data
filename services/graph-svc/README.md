@@ -4400,24 +4400,35 @@ SHA, and is not folded into the hash. Azure OpenAI is not built.
 
 ## Token budgets (story S12.2.2)
 
-**Partially delivered: a per-MU limit and real per-MU consumption; nothing acts on it yet.**
+**Partially delivered: per-MU only, but the 80% alert and 100% hard stop work end to end.**
 See [ADR 0090](../../docs/adr/0090-token-budgets-per-mu-limit-and-real-consumption-s12-2-2.md).
 
 - **Attribution.** `gateway_request_log` (v0048) records `workbook_id`, `model`,
-  `tokens_in`, `tokens_out`. `workbook_id` is an optional keyword on
-  `Gateway.generate`, passed by the Transpiler (`MuActivities.run_generate` →
-  `generate_c3_field` → `_run_ladder`) and the Mender (`call_model_repair`). NULL means
-  unknown: a call that raised, a pre-v0048 row, or a call with no MU in scope is never
-  summed.
-- **Budget and status.** `public.token_budget` holds one limit per MU (default
-  1,000,000). `GET /v1/token-budget/{workbook_id}:status` returns it against the MU's
-  cumulative consumption, with exact cost from `MODEL_PRICING` and `unpriced_tokens` for
-  any model without a price; `POST …:set` (platform engineer) sets the limit.
-- **Not done:** the 80% alert and 100% hard stop (`ESCALATED`/`BUDGET`) — nothing
-  consults the budget and the two budget events are never emitted; programme and train
-  levels; the TokenOps screen; cost per accepted report; the Status Pack summary.
-- **Known gap:** Mender spend for a pre-proof generation failure is attributed to the
-  synthetic `calc:{id}` `mu_ref` (S12.1.1's disclosed gap), not the workbook.
+  `tokens_in`, `tokens_out`. `workbook_id` is an optional keyword on `Gateway.generate`,
+  passed by the Transpiler (`MuActivities.run_generate` → `generate_c3_field` →
+  `_run_ladder`) and the Mender (`call_model_repair`). NULL means unknown: a call that
+  raised, a pre-v0048 row, or a call with no MU in scope is never summed.
+- **Budget and status.** `public.token_budget` holds one limit per MU (default 1,000,000).
+  `GET /v1/token-budget/{workbook_id}:status` returns it against the MU's cumulative
+  consumption, with exact cost from `MODEL_PRICING` and `unpriced_tokens` for any model
+  without a price; `POST …:set` (platform engineer) sets the limit.
+- **The 80% alert.** `BudgetMonitor.check` raises `BUDGET_WARNING` at ≥ 80% and
+  `BUDGET_EXHAUSTED` at ≥ 100% into the event outbox, once per `(MU, limit)`; raising the
+  limit re-arms it.
+- **The 100% hard stop.** `ModelGateway` (built with a writer by `build_gateway`) checks
+  the MU before each call and refuses it with `GatewayBudgetError` — a
+  `GatewayRoutingError`, so the Transpiler ladder and the Mender stop at once. The MU then
+  takes the legal `FAILED → (MENDING →) ESCALATED` route (§3.2 allows `ESCALATED` only
+  from those states) and `write_mu_state` stamps `Workbook.mu_state_reason = "BUDGET"`
+  (new optional enum, `SCHEMA_VERSION` 40; cleared by the next state write).
+  `mend_exception(charge_to_mu=…)` makes a workflow-driven repair count against the real
+  workbook rather than the synthetic `calc:{id}` an exception can carry.
+- **Limits:** overshoot is bounded by one call, not zero; it stops model spend, not the MU
+  (successful or deterministic-Pattern work carries on); only calls naming an MU are
+  budgeted, and only `ModelGateway` enforces; the alert is an event with no console or
+  notification consumer yet; a route-driven Mender run still charges by `mu_ref`.
+- **Not done:** programme and train levels; the TokenOps screen; cost per accepted
+  report; the Status Pack summary; feeding the wave scheduler's stubbed budget constraint.
 
 ## Query logging
 

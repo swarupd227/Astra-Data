@@ -35,6 +35,7 @@ from .mender import PostgresMenderConfigStore
 from .mu_workflow import MigrationUnitWorkflow, MuActivities
 from .provenance import PostgresProvenanceStore
 from .target_setup import build_target_adapter
+from .token_budget import TokenBudgetStore
 from .tolerance_charter import PostgresToleranceCharterStore
 from .writes import GraphWriter
 
@@ -62,12 +63,13 @@ async def run_worker() -> None:
         artefact_store=PostgresArtefactStore(pool, graph_name=config.graph_name),
         gateway=build_gateway(
             config, pool=pool, graph_name=config.graph_name,
-            credentials=build_credential_provider(config),
+            credentials=build_credential_provider(config), writer=writer,
         ),
         target_adapter=build_target_adapter(config),
         config_store=PostgresMenderConfigStore(pool, graph_name=config.graph_name),
         charter_store=PostgresToleranceCharterStore(pool, graph_name=config.graph_name),
         calibration_store=PostgresCalibrationStore(pool, graph_name=config.graph_name),
+        budget_store=TokenBudgetStore(pool, graph_name=config.graph_name),
     )
 
     client = await Client.connect(config.temporal_address, namespace=config.temporal_namespace)

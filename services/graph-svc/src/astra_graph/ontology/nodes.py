@@ -146,6 +146,12 @@ NODE_TYPES: tuple[NodeType, ...] = (
                     "console never derives state from anything but the graph\" lands. "
                     "Absent until a workflow has run at least one real transition on "
                     "this workbook -- honestly not yet known, not a false HARVESTED."),
+            _p("mu_state_reason", T.ENUM, enum=("BUDGET",),
+               note="Why the MU is in the state it is in, when the state alone does not say "
+                    "(story S12.2.2): BUDGET means it went ESCALATED with its whole token "
+                    "budget used, so no further model spend was possible. Written with "
+                    "every mu_state write, so it is absent whenever the current state has "
+                    "no such reason -- never left over from an earlier escalation."),
         ),
     ),
     NodeType(
@@ -1047,6 +1053,15 @@ NODE_SPEC_DEVIATIONS: tuple[SpecDeviation, ...] = (
                "control plane' per that module's own docstring); this property "
                "reuses that exact enum rather than declaring a second one, so the "
                "two can never drift apart.",
+    ),
+    SpecDeviation(
+        element="Workbook.mu_state_reason",
+        reason="§4.1.1's own Workbook row does not list it, for the same reason it does not "
+               "list `mu_state`: the Migration Unit is §3.1's control-plane concept. Story "
+               "S12.2.2's AC requires the MU to go ESCALATED \"with reason BUDGET\", and "
+               "§3.2 gives the console nowhere but the graph to read that from.",
+        detail="A closed enum with the one value the AC names; a future escalation reason "
+               "is an added value, which is never a breaking ontology change.",
     ),
     SpecDeviation(
         element="Site.paused, Site.pause_reason, ReleaseTrain.paused, "

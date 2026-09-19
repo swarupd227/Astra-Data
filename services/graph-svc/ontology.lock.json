@@ -2549,6 +2549,15 @@
           "required": false,
           "server_managed": false,
           "type": "enum"
+        },
+        {
+          "enum": [
+            "BUDGET"
+          ],
+          "name": "mu_state_reason",
+          "required": false,
+          "server_managed": false,
+          "type": "enum"
         }
       ],
       "side": "source"
@@ -2636,5 +2645,5 @@
       "side": "source"
     }
   },
-  "schema_version": 39
+  "schema_version": 40
 }

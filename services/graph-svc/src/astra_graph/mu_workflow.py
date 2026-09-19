@@ -100,6 +100,7 @@ with workflow.unsafe.imports_passed_through():
     from .mu_state_machine import validate_transition
     from .principal import Principal
     from .provenance import ProvenanceStore
+    from .token_budget import TokenBudgetStore
     from .tolerance_charter import ToleranceCharterStore
     from .writes import GraphWriter
 
@@ -198,7 +199,9 @@ class MuActivities:
         gateway: Gateway, target_adapter: Any, config_store: MenderConfigStore,
         charter_store: ToleranceCharterStore,
         calibration_store: CalibrationStore | None = None,
+        budget_store: TokenBudgetStore | None = None,
     ) -> None:
+        self._budget_store = budget_store
         self._pool = pool
         self._graph_name = graph_name
         self._writer = writer
@@ -236,9 +239,24 @@ class MuActivities:
         derives state from anything but the graph." Goes through `set_node_properties`
         like every other real property write in this codebase, so the state change
         itself raises its own real `NODE_UPSERTED` event automatically -- no second
-        event-emission mechanism needed for this one."""
+        event-emission mechanism needed for this one.
+
+        Story S12.2.2: an MU that escalates with its whole token budget used is stamped
+        `mu_state_reason = "BUDGET"`. The reason is written with *every* state write (absent
+        for any state without one), so it can never linger from an earlier escalation.
+        It is decided here, in an activity, because the workflow itself must stay
+        deterministic and cannot read the budget -- and because the gateway's hard stop
+        reaches the workflow only as an ordinary failed attempt (`BudgetMonitor`'s own
+        docstring), never as a state the workflow chooses."""
+        reason: str | None = None
+        if (
+            input.state == "ESCALATED" and self._budget_store is not None
+            and (await self._budget_store.get_status(input.workbook_id)).is_exhausted
+        ):
+            reason = "BUDGET"
         await self._writer.set_node_properties(
-            input.workbook_id, {"mu_state": input.state}, principal=Principal(input.principal),
+            input.workbook_id, {"mu_state": input.state, "mu_state_reason": reason},
+            principal=Principal(input.principal),
         )
 
     @activity.defn
@@ -281,7 +299,7 @@ class MuActivities:
             self._provenance_store, self._gateway, self._target_adapter,
             self._config_store, self._charter_store,
             exception_case_id=input.exception_case_id, workspace=input.workspace,
-            principal=Principal(input.principal),
+            principal=Principal(input.principal), charge_to_mu=input.workbook_id,
         )
         outcome = str(result["outcome"])
         await self._emit_finished(
