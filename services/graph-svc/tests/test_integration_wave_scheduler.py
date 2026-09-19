@@ -19,10 +19,12 @@ pytestmark = pytest.mark.integration
 asyncpg = pytest.importorskip("asyncpg")
 
 from astra_graph.config import Settings  # noqa: E402
+from astra_graph.gateway import PostgresGatewayRequestLogStore  # noqa: E402
 from astra_graph.graph import AgeGraphRepository, create_pool  # noqa: E402
 from astra_graph.ids import new_ulid  # noqa: E402
 from astra_graph.migrations import run as run_migrations  # noqa: E402
 from astra_graph.principal import Principal  # noqa: E402
+from astra_graph.token_budget import TokenBudgetStore  # noqa: E402
 from astra_graph.wave_scheduler import SchedulerConstraint, WaveScheduler  # noqa: E402
 from astra_graph.writes import EdgeWrite, GraphWriter, NodeWrite  # noqa: E402
 
@@ -112,7 +114,10 @@ async def estate(repository) -> _Estate:
 
 
 def _scheduler(repository) -> WaveScheduler:
-    return WaveScheduler(repository)
+    # The repository's own pool, so the scheduler reads real per-MU spend (story S12.2.2)
+    # from the same database the estate lives in.
+    store = TokenBudgetStore(repository._pool, graph_name=repository.graph_name)
+    return WaveScheduler(repository, budget_store=store)
 
 
 async def _decide(repository, estate: _Estate):
@@ -212,3 +217,104 @@ async def test_a_workspace_at_its_concurrency_limit_holds_the_mu(repository, est
     decision = await _decide(repository, estate)
     assert not decision.admitted
     assert decision.blocking_constraint == SchedulerConstraint.EXECUTOR_CONCURRENCY_WORKSPACE
+
+
+async def _spend(repository, estate: _Estate, *, tokens: int, workbook: str | None = None) -> None:
+    """Really log `tokens` of model use against a workbook, as the gateway would."""
+    await PostgresGatewayRequestLogStore(
+        repository._pool, graph_name=repository.graph_name
+    ).record(
+        provider="anthropic", task_class="transpile_c3", agent_id=None, prompt_hash="sha256:s",
+        context_hash="sha256:c", request_text=None, response_hash=None, response_text=None,
+        redaction_count=0, latency_ms=1.0, prompt_template_version="test",
+        model="claude-sonnet-5", tokens_in=tokens, tokens_out=0,
+        workbook_id=workbook or estate.workbook,
+    )
+
+
+async def test_an_mu_that_has_used_its_token_budget_is_held(repository, estate) -> None:
+    store = TokenBudgetStore(repository._pool, graph_name=repository.graph_name)
+    await store.set_budget(estate.workbook, 100)
+    await _spend(repository, estate, tokens=100)
+
+    decision = await _decide(repository, estate)
+
+    assert not decision.admitted
+    assert decision.blocking_constraint == SchedulerConstraint.MODEL_GATEWAY_BUDGET
+    assert "100/100" in decision.reason
+
+
+async def test_raising_the_budget_releases_the_held_mu(repository, estate) -> None:
+    store = TokenBudgetStore(repository._pool, graph_name=repository.graph_name)
+    await store.set_budget(estate.workbook, 100)
+    await _spend(repository, estate, tokens=100)
+    assert not (await _decide(repository, estate)).admitted
+
+    await store.set_budget(estate.workbook, 500)
+
+    assert (await _decide(repository, estate)).admitted
+
+
+async def test_an_mu_in_the_80_percent_zone_is_still_admitted(repository, estate) -> None:
+    store = TokenBudgetStore(repository._pool, graph_name=repository.graph_name)
+    await store.set_budget(estate.workbook, 100)
+    await _spend(repository, estate, tokens=90)
+
+    assert (await _decide(repository, estate)).admitted
+
+
+async def test_another_mus_spend_does_not_hold_this_one(repository, estate) -> None:
+    store = TokenBudgetStore(repository._pool, graph_name=repository.graph_name)
+    await store.set_budget(estate.workbook, 100)
+    await _spend(repository, estate, tokens=1_000_000, workbook=f"other-{new_ulid()}")
+
+    assert (await _decide(repository, estate)).admitted
+
+
+async def test_an_earlier_constraint_is_reported_ahead_of_the_budget(repository) -> None:
+    estate = _Estate(GraphWriter(repository))
+    await estate.build(family_state="DRAFT")
+    await TokenBudgetStore(repository._pool, graph_name=repository.graph_name).set_budget(
+        estate.workbook, 100
+    )
+    await _spend(repository, estate, tokens=100)
+
+    decision = await _decide(repository, estate)
+
+    assert decision.blocking_constraint == SchedulerConstraint.FAMILY_STATE
+
+
+async def _get_decision(repository, estate: _Estate) -> dict:
+    """The real route, over the real repository and pool, as a programme manager sees it."""
+    from httpx import ASGITransport, AsyncClient
+
+    from astra_graph.main import create_app
+    from astra_graph.principal import PRINCIPAL_HEADER
+    from astra_graph.roles import ROLES_HEADER
+
+    app = create_app()
+    app.state.repository = repository
+    app.state.pool = repository._pool
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(
+            f"/v1/scheduler/decision/{estate.workbook}/{estate.train}",
+            headers={PRINCIPAL_HEADER: "user:pm@artizent.example", ROLES_HEADER: "programme_manager"},
+        )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def test_the_decision_route_explains_a_budget_hold_and_its_release(repository, estate) -> None:
+    """The Wave Board's 'why is this MU waiting', end to end over HTTP."""
+    store = TokenBudgetStore(repository._pool, graph_name=repository.graph_name)
+    await store.set_budget(estate.workbook, 100)
+    await _spend(repository, estate, tokens=100)
+
+    held = await _get_decision(repository, estate)
+    assert held["admitted"] is False
+    assert held["blocking_constraint"] == "MODEL_GATEWAY_BUDGET"
+    assert "100/100" in held["reason"]
+
+    await store.set_budget(estate.workbook, 500)
+    released = await _get_decision(repository, estate)
+    assert released["admitted"] is True and released["blocking_constraint"] is None

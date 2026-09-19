@@ -3,7 +3,7 @@
 Story S12.1.2: Scheduler admits MUs by train sequence subject to:
 - Family state (BUILT or later)
 - Executor concurrency per source site and per Fabric workspace
-- Model-gateway budget (cumulative tokens per window)
+- The MU's own token budget (S12.2.2): an MU that has used it all is not admitted
 - WIP per train (work-in-progress limit)
 - Train/site pause state
 
@@ -25,6 +25,7 @@ from enum import Enum
 from typing import Any
 
 from .graph.repository import GraphRepository
+from .token_budget import TokenBudgetStore
 
 _CYPHER_TIMEOUT_SECONDS = 5
 
@@ -64,8 +65,13 @@ _FAMILY_STATES_ORDERED = (
 class WaveScheduler:
     """Evaluates MU admission constraints against the real estate graph."""
 
-    def __init__(self, repository: GraphRepository):
+    def __init__(
+        self, repository: GraphRepository, *, budget_store: TokenBudgetStore | None = None,
+    ):
         self.repository = repository
+        # Without a store (a caller with no Postgres pool) the budget constraint makes no
+        # decision and admits, the same as before S12.2.2 gave it real spend to read.
+        self.budget_store = budget_store
 
     async def _cypher_one(
         self, query: str, column: str, params: dict[str, Any]
@@ -144,12 +150,9 @@ class WaveScheduler:
                     ),
                 )
 
-        if not await self._has_model_gateway_budget():
-            return SchedulerDecision(
-                admitted=False,
-                blocking_constraint=SchedulerConstraint.MODEL_GATEWAY_BUDGET,
-                reason="Model-gateway budget exhausted",
-            )
+        budget_block = await self._budget_block(mu_ref)
+        if budget_block is not None:
+            return budget_block
 
         train_wip = await self._get_train_wip_usage(train_id)
         train_wip_limit = await self._get_train_wip_limit(train_id)
@@ -242,11 +245,28 @@ class WaveScheduler:
         (10); a per-workspace override is a disclosed follow-on, not built here."""
         return 10
 
-    async def _has_model_gateway_budget(self) -> bool:
-        """Model-gateway budget constraint. R1: structurally present, stubbed to
-        always allow -- wiring to real gateway spend (S12.2.2) is a disclosed
-        follow-on, not built here."""
-        return True
+    async def _budget_block(self, mu_ref: str) -> SchedulerDecision | None:
+        """A blocking decision if this MU has used its whole token budget, else None.
+
+        Admitting an MU that is already at its limit would only have its first model call
+        refused by the gateway (`BudgetMonitor`, S12.2.2's hard stop), so it is held
+        instead, with the numbers as the reason. Only the *hard* limit blocks: an MU past
+        the 80% alert is still admitted. Read-only -- the alerts themselves are the
+        gateway's to raise, not the scheduler's.
+        """
+        if self.budget_store is None:
+            return None
+        status = await self.budget_store.get_status(mu_ref)
+        if not status.is_exhausted:
+            return None
+        return SchedulerDecision(
+            admitted=False,
+            blocking_constraint=SchedulerConstraint.MODEL_GATEWAY_BUDGET,
+            reason=(
+                f"MU {mu_ref} has used its token budget "
+                f"({status.tokens_consumed}/{status.tokens_limit} tokens)"
+            ),
+        )
 
     async def _get_train_wip_usage(self, train_id: str) -> int:
         count = await self._cypher_one(

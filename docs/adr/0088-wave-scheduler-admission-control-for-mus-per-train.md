@@ -25,7 +25,7 @@ are checked in this order and the first failure is the reported reason:
 4. site concurrency — MUs in `PROVING`/`MENDING`/`ESCALATED` under the site
    (fixed default 5)
 5. Fabric-workspace concurrency (fixed default 10)
-6. model-gateway budget — **stubbed to always allow** (see below)
+6. the MU's own token budget — held once the MU has used all of it (S12.2.2, ADR 0090)
 7. train WIP limit (`ReleaseTrain.wip_limits.train`, optional)
 
 ### Findings that shaped the implementation
@@ -73,8 +73,11 @@ through `GraphWriter.set_node_properties`, so each change is a normal, replayabl
   or a periodic job signals admitted workflows.
 * **No Wave Board surface.** "Visible on the Wave Board" is served only as an API; no
   console screen was built.
-* **Budget constraint is a stub** returning `True`. Real per-MU spend now exists
-  (S12.2.2, ADR 0090) but the scheduler does not consult it yet.
+* **The budget constraint reads real per-MU spend** (added by S12.2.2): `WaveScheduler`
+  takes a `TokenBudgetStore`, and an MU whose consumption has reached its limit is held
+  with `MODEL_GATEWAY_BUDGET` and the numbers as the reason. Only the hard limit holds; an
+  MU in the 80% alert zone is still admitted. Without a store the constraint admits (a
+  caller with no Postgres pool). It is read-only: the alerts stay the gateway's to raise.
 * **Concurrency limits are fixed constants** (5 / 10). A per-site or per-workspace
   override is not built.
 * **"By train sequence" ordering** (`IN_TRAIN.sequence`) is not implemented — the

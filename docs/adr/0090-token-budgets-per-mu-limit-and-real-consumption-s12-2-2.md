@@ -86,6 +86,16 @@ was checked against a different, unspent budget: the hard stop had a hole. `mend
 now takes `charge_to_mu`, which the workflow's `run_mend` sets to the real workbook; it
 changes nothing else (evidence and sibling-case lookups still key on `mu_ref`).
 
+## The wave scheduler reads the same number
+
+`WaveScheduler`'s budget constraint (S12.1.2, formerly a stub that always allowed) now
+holds an MU whose consumption has reached its limit, reporting `MODEL_GATEWAY_BUDGET` with
+the numbers. Admitting such an MU would only have its first model call refused, so it is
+held instead. Only the hard limit holds; the 80% zone still admits. It is still not
+*enforced* by anything (nothing calls the scheduler from the workflow — ADR 0088), so this
+makes the Wave Board's "why is this MU waiting" answer honest about budget; it does not make the MU
+actually wait.
+
 ## Acceptance criteria — honest status
 
 | Criterion | Status |
@@ -125,6 +135,5 @@ changes nothing else (evidence and sibling-case lookups still key on `mu_ref`).
 ## Follow-ons
 
 Surface the alerts (console, the notifications route); the programme and train levels (sum
-over member MUs via `IN_TRAIN`); feed the wave scheduler's still-stubbed budget
-constraint from the same status; the TokenOps screen; cost per accepted report; the
+over member MUs via `IN_TRAIN`); the TokenOps screen; cost per accepted report; the
 Status Pack section; charge route-driven Mender runs to the real MU.

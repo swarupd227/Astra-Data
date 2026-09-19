@@ -9,14 +9,23 @@ from __future__ import annotations
 
 from typing import Any
 
+import asyncpg
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..errors import InvalidRequestError
+from ..token_budget import TokenBudgetStore
 from ..wave_scheduler import SchedulerConstraint, WaveScheduler
 from .deps import ArtizentDep, PlatformEngineerDep, PrincipalDep, RepositoryDep, WriterDep
 
 router = APIRouter()
+
+
+def _pool(request: Request) -> asyncpg.Pool:
+    pool: asyncpg.Pool | None = getattr(request.app.state, "pool", None)
+    if pool is None:  # pragma: no cover - set in every wiring path
+        raise InvalidRequestError("graph store is not ready")
+    return pool
 
 
 class PauseTrainRequest(BaseModel):
@@ -63,7 +72,10 @@ async def get_admission_decision(
     repository: RepositoryDep,
 ) -> dict[str, Any]:
     """Query the scheduler to see why an MU is waiting or whether it can be admitted."""
-    scheduler = WaveScheduler(repository)
+    scheduler = WaveScheduler(
+        repository,
+        budget_store=TokenBudgetStore(_pool(request), graph_name=repository.graph_name),
+    )
 
     rows, _ = await repository.run_read_only_cypher(
         "MATCH (s:Site)-[:CONTAINS]->(:Project)-[:CONTAINS]->(wb:Workbook) "

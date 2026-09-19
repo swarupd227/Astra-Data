@@ -4367,7 +4367,7 @@ for the full research trail and every decision below.
 - **`wave_scheduler.py`** is an application-tier decision function
   (`WaveScheduler.evaluate_admission`), not a workflow. It checks, in order: train paused,
   site paused, family state below `BUILT`, site concurrency (default 5), Fabric-workspace
-  concurrency (default 10), model-gateway budget (stub: always allows), train WIP limit
+  concurrency (default 10), the MU's own token budget (held once used up), train WIP limit
   (`ReleaseTrain.wip_limits.train`). The first failing check is returned as
   `blocking_constraint` with a human-readable `reason`.
 - **Real graph reads.** State lives in Apache AGE, so every check is a read-only Cypher
@@ -4383,8 +4383,7 @@ for the full research trail and every decision below.
   {workbook_id}/{train_id}` (any Artizent role).
 - **Not done:** nothing calls `evaluate_admission` from the MU workflow or a job, so an MU
   is **not actually held** when blocked; no Wave Board screen; no "by train sequence"
-  selection of the next MU; concurrency limits are fixed constants; the budget constraint
-  is a stub; the five scheduler notice events in `events.py` are defined but never emitted.
+  selection of the next MU; concurrency limits are fixed constants; the five scheduler notice events in `events.py` are defined but never emitted.
 
 ## Model gateway observability (story S12.2.1)
 
@@ -4428,7 +4427,8 @@ See [ADR 0090](../../docs/adr/0090-token-budgets-per-mu-limit-and-real-consumpti
   budgeted, and only `ModelGateway` enforces; the alert is an event with no console or
   notification consumer yet; a route-driven Mender run still charges by `mu_ref`.
 - **Not done:** programme and train levels; the TokenOps screen; cost per accepted
-  report; the Status Pack summary; feeding the wave scheduler's stubbed budget constraint.
+  report; the Status Pack summary. (The wave scheduler's budget constraint now holds an MU
+  that has used its whole token budget.)
 
 ## Query logging
 

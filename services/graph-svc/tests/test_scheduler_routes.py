@@ -30,19 +30,17 @@ _PLATFORM_ENGINEER_HEADERS = {**_HEADERS, ROLES_HEADER: "platform_engineer"}
 class TestSchedulerRoutes:
     """Scheduler admission and control routes."""
 
-    async def test_get_admission_decision_against_in_memory_fixture(
-        self, client: AsyncClient
-    ):
-        """The in-memory fixture really cannot run Cypher (`fakes.py`'s own
-        `NotImplementedError`, by design) -- confirms that limit directly rather
-        than asserting a made-up status code for an exception the test transport
-        does not convert into one. The real admission-decision path is exercised
-        in `test_integration_wave_scheduler.py` against Apache AGE."""
-        with pytest.raises(NotImplementedError):
-            await client.get(
-                "/v1/scheduler/decision/nonexistent-wb/train-123",
-                headers=_MIGRATION_ENGINEER_HEADERS,
-            )
+    async def test_the_decision_route_needs_a_real_store_behind_it(self, client: AsyncClient):
+        """The decision reads the MU's real token budget from Postgres and its graph state
+        through Cypher, neither of which the in-memory test app has: it has no connection
+        pool, so the route refuses cleanly (400) rather than deciding on partial facts.
+        The real decision path is `test_integration_wave_scheduler.py`'s."""
+        response = await client.get(
+            "/v1/scheduler/decision/nonexistent-wb/train-123",
+            headers=_MIGRATION_ENGINEER_HEADERS,
+        )
+        assert response.status_code == 400
+        assert "not ready" in response.text
 
     async def test_pause_train_refused_for_non_platform_engineer(
         self, client: AsyncClient

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from astra_graph.migration_units import MU_STATES
 from astra_graph.ontology.nodes import _FAMILY_STATES as _ONTOLOGY_FAMILY_STATES
+from astra_graph.token_budget import TokenBudgetStatus
 from astra_graph.wave_scheduler import (
     _ACTIVE_MU_STATES,
     _FAMILY_STATES_ORDERED,
@@ -129,3 +130,48 @@ class TestWaveSchedulerAdmission:
         assert set(_IN_PROGRESS_MU_STATES) <= real
         assert not set(_ACTIVE_MU_STATES) & {"WITHDRAWN", "DECOMMISSIONED"}
         assert not set(_IN_PROGRESS_MU_STATES) & {"WITHDRAWN", "DECOMMISSIONED", "GENERATED"}
+
+
+class _FakeBudgetStore:
+    """Answers `get_status` from a fixed consumption, like the real store."""
+
+    def __init__(self, consumed: int, limit: int = 100) -> None:
+        self._consumed, self._limit = consumed, limit
+
+    async def get_status(self, mu_ref: str) -> TokenBudgetStatus:
+        percent = self._consumed / self._limit * 100
+        return TokenBudgetStatus(
+            tokens_limit=self._limit, tokens_consumed=self._consumed, cost_usd=0.0,
+            percent_used=percent, is_exhausted=self._consumed >= self._limit,
+            is_warning=80 <= percent < 100,
+        )
+
+
+class TestBudgetBlock:
+    """The MU's own token budget as an admission constraint (story S12.2.2)."""
+
+    async def test_an_mu_that_has_used_its_budget_is_held_with_the_numbers(self, repository):
+        scheduler = WaveScheduler(repository, budget_store=_FakeBudgetStore(100))
+
+        decision = await scheduler._budget_block("wb-1")
+
+        assert decision is not None and not decision.admitted
+        assert decision.blocking_constraint == SchedulerConstraint.MODEL_GATEWAY_BUDGET
+        assert "wb-1" in decision.reason and "100/100" in decision.reason
+
+    async def test_an_mu_over_its_budget_is_held(self, repository):
+        scheduler = WaveScheduler(repository, budget_store=_FakeBudgetStore(250))
+        assert await scheduler._budget_block("wb-1") is not None
+
+    async def test_an_mu_under_its_budget_is_not_held(self, repository):
+        scheduler = WaveScheduler(repository, budget_store=_FakeBudgetStore(40))
+        assert await scheduler._budget_block("wb-1") is None
+
+    async def test_the_80_percent_alert_zone_still_admits_only_the_hard_limit_blocks(
+        self, repository
+    ):
+        scheduler = WaveScheduler(repository, budget_store=_FakeBudgetStore(90))
+        assert await scheduler._budget_block("wb-1") is None
+
+    async def test_without_a_budget_store_the_constraint_makes_no_decision(self, repository):
+        assert await WaveScheduler(repository)._budget_block("wb-1") is None
